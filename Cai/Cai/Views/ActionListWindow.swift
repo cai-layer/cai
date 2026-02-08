@@ -15,14 +15,17 @@ struct ActionListWindow: View {
     @State private var showSettings: Bool = false
     @State private var showHistory: Bool = false
     @State private var showCustomPrompt: Bool = false
+    @State private var showShortcutsManagement: Bool = false
     @StateObject private var historySelectionState = SelectionState()
     @StateObject private var customPromptState = CustomPromptState()
+    @ObservedObject private var settings = CaiSettings.shared
 
     /// Corner radius matching Spotlight's rounded appearance
     private let cornerRadius: CGFloat = 20
 
     /// Which screen is currently active — used for keyboard routing
     private var activeScreen: Screen {
+        if showShortcutsManagement { return .shortcutsManagement }
         if showSettings { return .settings }
         if showHistory { return .history }
         if showResult { return .result }
@@ -31,14 +34,77 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt
+        case actions, result, settings, history, customPrompt, shortcutsManagement
+    }
+
+    /// Actions to display — when filtering, merges built-in actions + user shortcuts,
+    /// renumbered sequentially. Uses case-insensitive prefix matching:
+    /// typing "ex" matches "Explain" (title starts with "ex").
+    private var displayedActions: [ActionItem] {
+        guard !selectionState.filterText.isEmpty else { return actions }
+
+        let query = selectionState.filterText.lowercased()
+        var items: [ActionItem] = []
+        var shortcut = 1
+
+        // Filter built-in actions — prefix match on title
+        for action in actions {
+            if action.title.lowercased().hasPrefix(query) {
+                items.append(ActionItem(
+                    id: action.id,
+                    title: action.title,
+                    subtitle: action.subtitle,
+                    icon: action.icon,
+                    shortcut: shortcut,
+                    type: action.type
+                ))
+                shortcut += 1
+            }
+        }
+
+        // Add matching user shortcuts — prefix match on name
+        let clipboardText = text
+        for sc in settings.shortcuts {
+            if sc.name.lowercased().hasPrefix(query) {
+                let actionType: ActionType
+                let subtitle: String
+                switch sc.type {
+                case .prompt:
+                    actionType = .llmAction(.custom(sc.value))
+                    subtitle = sc.value
+                case .url:
+                    actionType = .shortcutURL(sc.value)
+                    subtitle = sc.value.replacingOccurrences(of: "%s", with: clipboardText.prefix(20) + (clipboardText.count > 20 ? "…" : ""))
+                }
+
+                items.append(ActionItem(
+                    id: "shortcut_\(sc.id.uuidString)",
+                    title: sc.name,
+                    subtitle: subtitle,
+                    icon: sc.type.icon,
+                    shortcut: shortcut,
+                    type: actionType
+                ))
+                shortcut += 1
+            }
+        }
+
+        return items
     }
 
     var body: some View {
         ZStack(alignment: .top) {
             VisualEffectBackground()
 
-            if showCustomPrompt {
+            if showShortcutsManagement {
+                ShortcutsManagementView(
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showShortcutsManagement = false
+                        }
+                    }
+                )
+            } else if showCustomPrompt {
                 CustomPromptView(
                     clipboardText: text,
                     state: customPromptState
@@ -102,12 +168,27 @@ struct ActionListWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .caiEnterPressed)) { _ in
             handleEnter()
         }
+        .onChange(of: showSettings) { _ in updateFilterInputFlag() }
+        .onChange(of: showHistory) { _ in updateFilterInputFlag() }
+        .onChange(of: showResult) { _ in updateFilterInputFlag() }
+        .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
+        .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
+        .onAppear { updateFilterInputFlag() }
+    }
+
+    /// Only accept type-to-filter input when the action list is showing.
+    private func updateFilterInputFlag() {
+        WindowController.acceptsFilterInput = (activeScreen == .actions)
     }
 
     // MARK: - Keyboard Routing
 
     private func handleEsc() {
-        if showCustomPrompt {
+        if showShortcutsManagement {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showShortcutsManagement = false
+            }
+        } else if showCustomPrompt {
             if customPromptState.phase == .result {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     customPromptState.phase = .input
@@ -128,6 +209,10 @@ struct ActionListWindow: View {
             }
         } else if showResult {
             goBackToActions()
+        } else if !selectionState.filterText.isEmpty {
+            // Clear filter first; second Esc dismisses
+            selectionState.filterText = ""
+            selectionState.selectedIndex = 0
         } else {
             onDismiss()
         }
@@ -135,6 +220,7 @@ struct ActionListWindow: View {
 
     private func handleShowHistory() {
         guard activeScreen == .actions else { return }
+        selectionState.filterText = ""
         historySelectionState.selectedIndex = 0
         withAnimation(.easeInOut(duration: 0.15)) {
             showHistory = true
@@ -144,8 +230,9 @@ struct ActionListWindow: View {
     private func handleCmdNumber(_ number: Int) {
         switch activeScreen {
         case .actions:
-            if let action = actions.first(where: { $0.shortcut == number }) {
-                if let index = actions.firstIndex(where: { $0.id == action.id }) {
+            let visible = displayedActions
+            if let action = visible.first(where: { $0.shortcut == number }) {
+                if let index = visible.firstIndex(where: { $0.id == action.id }) {
                     selectionState.selectedIndex = index
                 }
                 executeAction(action)
@@ -165,8 +252,10 @@ struct ActionListWindow: View {
     private func handleArrowUp() {
         switch activeScreen {
         case .actions:
+            let count = displayedActions.count
+            guard count > 0 else { return }
             let current = selectionState.selectedIndex
-            selectionState.selectedIndex = current > 0 ? current - 1 : actions.count - 1
+            selectionState.selectedIndex = current > 0 ? current - 1 : count - 1
         case .history:
             let entries = ClipboardHistory.shared.entries
             guard !entries.isEmpty else { return }
@@ -180,8 +269,10 @@ struct ActionListWindow: View {
     private func handleArrowDown() {
         switch activeScreen {
         case .actions:
+            let count = displayedActions.count
+            guard count > 0 else { return }
             let current = selectionState.selectedIndex
-            selectionState.selectedIndex = current < actions.count - 1 ? current + 1 : 0
+            selectionState.selectedIndex = current < count - 1 ? current + 1 : 0
         case .history:
             let entries = ClipboardHistory.shared.entries
             guard !entries.isEmpty else { return }
@@ -195,9 +286,10 @@ struct ActionListWindow: View {
     private func handleEnter() {
         switch activeScreen {
         case .actions:
+            let visible = displayedActions
             let index = selectionState.selectedIndex
-            guard index < actions.count else { return }
-            executeAction(actions[index])
+            guard index < visible.count else { return }
+            executeAction(visible[index])
         case .history:
             let entries = ClipboardHistory.shared.entries
             let index = historySelectionState.selectedIndex
@@ -242,30 +334,51 @@ struct ActionListWindow: View {
     // MARK: - Action List Content
 
     private var actionListContent: some View {
-        VStack(spacing: 0) {
+        let visible = displayedActions
+        return VStack(spacing: 0) {
             headerView
+
+            // Filter bar — appears when user starts typing
+            if !selectionState.filterText.isEmpty {
+                filterBarView
+            }
 
             Divider()
                 .background(Color.caiDivider)
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                            ActionRow(action: action, isSelected: index == selectionState.selectedIndex)
-                                .id(index)
-                                .onTapGesture {
-                                    selectionState.selectedIndex = index
-                                    executeAction(actions[index])
-                                }
+                    if visible.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("No matches")
+                                .font(.system(size: 13))
+                                .foregroundColor(.caiTextSecondary)
+                            Text("Try a different search or create a shortcut in Settings")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiTextSecondary.opacity(0.6))
                         }
+                        .frame(maxWidth: .infinity, minHeight: 80)
+                        .padding()
+                    } else {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(visible.enumerated()), id: \.element.id) { index, action in
+                                ActionRow(action: action, isSelected: index == selectionState.selectedIndex)
+                                    .id(action.id)
+                                    .onTapGesture {
+                                        selectionState.selectedIndex = index
+                                        executeAction(visible[index])
+                                    }
+                            }
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 4)
                     }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 4)
                 }
                 .onChange(of: selectionState.selectedIndex) { newValue in
-                    withAnimation(.easeOut(duration: 0.1)) {
-                        proxy.scrollTo(newValue, anchor: .center)
+                    if newValue < visible.count {
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(visible[newValue].id, anchor: .center)
+                        }
                     }
                 }
             }
@@ -281,7 +394,12 @@ struct ActionListWindow: View {
 
     private var settingsContent: some View {
         VStack(spacing: 0) {
-            SettingsView()
+            SettingsView(onShowShortcuts: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showSettings = false
+                    showShortcutsManagement = true
+                }
+            })
             Divider()
                 .background(Color.caiDivider)
             HStack(spacing: 16) {
@@ -291,6 +409,29 @@ struct ActionListWindow: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
+    }
+
+    // MARK: - Filter Bar
+
+    private var filterBarView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+            Text(selectionState.filterText)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundColor(.caiTextPrimary)
+
+            Spacer()
+
+            Text("type to filter")
+                .font(.system(size: 10))
+                .foregroundColor(.caiTextSecondary.opacity(0.4))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(Color.caiSurface.opacity(0.4))
     }
 
     // MARK: - Header
@@ -325,12 +466,15 @@ struct ActionListWindow: View {
         HStack(spacing: 12) {
             KeyboardHint(key: "↑↓", label: "Navigate")
             KeyboardHint(key: "↵", label: "Select")
-            KeyboardHint(key: "Esc", label: "Close")
-            KeyboardHint(key: "⌘0", label: "History")
+            KeyboardHint(key: "Esc", label: selectionState.filterText.isEmpty ? "Close" : "Clear")
+            if selectionState.filterText.isEmpty {
+                KeyboardHint(key: "⌘0", label: "History")
+            }
 
             Spacer()
 
             Button(action: {
+                selectionState.filterText = ""
                 withAnimation(.easeInOut(duration: 0.15)) {
                     showSettings = true
                 }
@@ -393,7 +537,6 @@ struct ActionListWindow: View {
         case .llmAction(let llmAction):
             let title = llmActionTitle(llmAction)
             let clipboardText = self.text
-            print("🔍 executeAction: self.text = \(clipboardText.prefix(80))...")
             showResultView(title: title) {
                 let llm = LLMService.shared
                 switch llmAction {
@@ -411,10 +554,19 @@ struct ActionListWindow: View {
             }
 
         case .customPrompt:
+            selectionState.filterText = ""
             customPromptState.reset()
             withAnimation(.easeInOut(duration: 0.15)) {
                 showCustomPrompt = true
             }
+
+        case .shortcutURL(let template):
+            let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+            let urlString = template.replacingOccurrences(of: "%s", with: encoded)
+            if let url = URL(string: urlString) {
+                SystemActions.openURL(url)
+            }
+            onDismiss()
 
         default:
             // System actions (openURL, openMaps, search, createCalendar)
@@ -423,6 +575,7 @@ struct ActionListWindow: View {
     }
 
     private func showResultView(title: String, generator: @escaping () async throws -> String) {
+        selectionState.filterText = ""
         resultTitle = title
         resultGenerator = generator
         withAnimation(.easeInOut(duration: 0.15)) {

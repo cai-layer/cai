@@ -17,6 +17,7 @@ class CaiPanel: NSPanel {
 /// without recreating the entire hosting view.
 class SelectionState: ObservableObject {
     @Published var selectedIndex: Int = 0
+    @Published var filterText: String = ""
 }
 
 /// Manages the floating action window. Creates a borderless, translucent NSWindow
@@ -26,6 +27,10 @@ class WindowController: NSObject, ObservableObject {
     /// When true, text-input keys (Return, arrows) pass through to the focused text field
     /// instead of being consumed by the keyboard handler. Set by views with text input.
     static var passThrough = false
+
+    /// When true, printable keys update the filter text on selectionState.
+    /// Set to true only when the action list screen is active.
+    static var acceptsFilterInput = true
     private var window: NSWindow?
     private var toastWindow: NSWindow?
     private var actions: [ActionItem] = []
@@ -141,13 +146,12 @@ class WindowController: NSObject, ObservableObject {
             onExecute: executeAction
         )
 
-        // Wrap in a hosting view that captures key events
+        // Wrap in a hosting view (keyboard events are handled exclusively
+        // by the keyMonitor local event monitor — no onKeyDown needed here
+        // to avoid double-handling).
         let hostingView = KeyEventHostingView(
             rootView: actionList
-                .frame(width: Self.windowWidth, height: windowHeight),
-            onKeyDown: { [weak self] event in
-                self?.handleKeyEvent(event) ?? false
-            }
+                .frame(width: Self.windowWidth, height: windowHeight)
         )
         hostingView.frame = NSRect(x: 0, y: 0, width: Self.windowWidth, height: windowHeight)
         hostingView.wantsLayer = true
@@ -228,6 +232,7 @@ class WindowController: NSObject, ObservableObject {
             }
         }
         Self.passThrough = false
+        Self.acceptsFilterInput = true
         window = nil
         currentText = nil
         actions = []
@@ -419,6 +424,31 @@ class WindowController: NSObject, ObservableObject {
             }
         }
 
+        // Type-to-filter: capture printable characters and backspace
+        // when not in a text input (passThrough) and no modifier keys held.
+        if !Self.passThrough && Self.acceptsFilterInput && !event.modifierFlags.contains(.command) {
+            // Backspace
+            if event.keyCode == 51 {
+                if !selectionState.filterText.isEmpty {
+                    selectionState.filterText.removeLast()
+                    selectionState.selectedIndex = 0
+                }
+                return true
+            }
+
+            // Printable characters
+            let significantFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let hasOnlyShift = significantFlags.subtracting(.shift).isEmpty
+            if hasOnlyShift,
+               let chars = event.charactersIgnoringModifiers, !chars.isEmpty,
+               chars.rangeOfCharacter(from: .controlCharacters) == nil {
+                let typed = event.characters ?? chars
+                selectionState.filterText.append(typed)
+                selectionState.selectedIndex = 0
+                return true
+            }
+        }
+
         return false
     }
 
@@ -530,29 +560,16 @@ class WindowController: NSObject, ObservableObject {
 
 // MARK: - KeyEventHostingView
 
-/// Custom NSHostingView subclass that intercepts key events before they
-/// reach the SwiftUI responder chain. This allows us to handle arrow keys,
-/// ESC, and Cmd+number shortcuts at the NSView level.
+/// Custom NSHostingView that accepts first responder so the window can
+/// become key. Keyboard events are handled exclusively by the keyMonitor
+/// (local event monitor) installed in WindowController.installEventMonitors(),
+/// so no keyDown override is needed here.
 class KeyEventHostingView<Content: View>: NSHostingView<Content> {
-    var onKeyDown: ((NSEvent) -> Bool)?
-
-    convenience init(rootView: Content, onKeyDown: @escaping (NSEvent) -> Bool) {
-        self.init(rootView: rootView)
-        self.onKeyDown = onKeyDown
-    }
-
     override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        if let handler = onKeyDown, handler(event) {
-            return  // Event was handled
-        }
-        super.keyDown(with: event)
-    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Ensure we become first responder to capture key events
+        // Ensure we become first responder so the panel stays key
         DispatchQueue.main.async { [weak self] in
             self?.window?.makeFirstResponder(self)
         }

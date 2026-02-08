@@ -4,6 +4,7 @@ import SwiftUI
 /// and in the menu bar popover. Adapts to parent's size constraints.
 struct SettingsView: View {
     @ObservedObject var settings = CaiSettings.shared
+    @ObservedObject private var permissions = PermissionsManager.shared
     /// Optional callback to navigate to shortcuts management (only available
     /// when rendered inside ActionListWindow, not the menu bar popover).
     var onShowShortcuts: (() -> Void)? = nil
@@ -26,6 +27,7 @@ struct SettingsView: View {
                 Text("v\(appVersion)")
                     .font(.system(size: 11))
                     .foregroundColor(.caiTextSecondary.opacity(0.4))
+                permissionIndicator
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -157,6 +159,29 @@ struct SettingsView: View {
                 .padding(.vertical, 16)
             }
         }
+        .onAppear {
+            permissions.checkAccessibilityPermission()
+        }
+    }
+
+    // MARK: - Permission Indicator
+
+    private var permissionIndicator: some View {
+        Button(action: {
+            if !permissions.hasAccessibilityPermission {
+                permissions.openAccessibilityPreferences()
+            }
+        }) {
+            Image(systemName: permissions.hasAccessibilityPermission
+                  ? "checkmark.shield.fill"
+                  : "exclamationmark.shield.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(permissions.hasAccessibilityPermission ? .green : .orange)
+        }
+        .buttonStyle(.plain)
+        .help(permissions.hasAccessibilityPermission
+              ? "Accessibility permission granted"
+              : "Accessibility permission required — click to open Settings")
     }
 
     // MARK: - Settings Section

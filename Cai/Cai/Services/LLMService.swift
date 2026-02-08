@@ -110,57 +110,56 @@ actor LLMService {
 
     // MARK: - Action Methods
 
-    func summarize(_ text: String) async throws -> String {
-        try await generate(userPrompt: """
-            Summarize the following text in 2-3 concise sentences. Only output the summary, nothing else.
+    func summarize(_ text: String, appContext: String? = nil) async throws -> String {
+        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        return try await generate(
+            systemPrompt: "Output only the summary.\(context) No preamble, no introductions.",
+            userPrompt: """
+                Summarize this in 2-3 bullet points. Each bullet should be one sentence. Capture the key points only.
 
-            Text:
-            \(text)
-
-            Summary:
-            """)
+                \(text)
+                """)
     }
 
-    func translate(_ text: String, to language: String) async throws -> String {
-        try await generate(userPrompt: """
-            Translate the following text to \(language). Only output the translation, nothing else.
+    func translate(_ text: String, to language: String, appContext: String? = nil) async throws -> String {
+        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        return try await generate(
+            systemPrompt: "You are a translator.\(context) Output only the translation. Preserve the original tone, formatting, and line breaks.",
+            userPrompt: """
+                Translate to \(language):
 
-            Text:
-            \(text)
-
-            Translation:
-            """)
+                \(text)
+                """)
     }
 
     func define(_ word: String) async throws -> String {
-        try await generate(userPrompt: """
-            Define "\(word)" concisely. Include:
-            1. Part of speech
-            2. Definition
-            3. Example sentence
-
-            Keep it brief and clear.
-            """)
-    }
-
-    func explain(_ text: String) async throws -> String {
-        try await generate(userPrompt: """
-            Explain "\(text)" concisely in under 150 words. Include:
-            1. What it means or refers to
-            2. Why it's important or how it's used
-            3. A brief example if helpful
-
-            Keep it clear and easy to understand.
-            """)
-    }
-
-    func customAction(_ text: String, instruction: String) async throws -> String {
-        try await generate(
-            systemPrompt: "You are a helpful assistant. The user has selected some text and wants you to process it according to their instruction. Only output the result, nothing else.",
+        return try await generate(
+            systemPrompt: "You are a dictionary. Be concise. Output only the definition in the exact format requested.",
             userPrompt: """
-                Instruction: \(instruction)
+                Define "\(word)". Use this format:
+                **\(word)** (part of speech) — definition.
+                Example: "sentence using the word."
+                """)
+    }
 
-                Text:
+    func explain(_ text: String, appContext: String? = nil) async throws -> String {
+        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        return try await generate(
+            systemPrompt: "Explain clearly in plain language.\(context) Under 100 words. Start directly — no preamble.",
+            userPrompt: """
+                Explain this:
+
+                \(text)
+                """)
+    }
+
+    func customAction(_ text: String, instruction: String, appContext: String? = nil) async throws -> String {
+        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        return try await generate(
+            systemPrompt: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" — the result is copied directly to clipboard.",
+            userPrompt: """
+                \(instruction)
+
                 \(text)
                 """
         )

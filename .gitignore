@@ -91,6 +91,9 @@ iOSInjectionProject/
 # macOS
 .DS_Store
 
+# Build artifacts
+*.dmg
+
 # Claude Code
 .claude/
 

@@ -49,6 +49,8 @@ No cloud. No telemetry. No accounts.
 - **Smart detection** of 7 content types with context-aware actions
 - **Local AI** integration — works with LM Studio, Ollama, or any OpenAI-compatible server
 - **Custom AI action** (⌘1) — set your own prompt to do anything: improve writing, create email replies, translate, count words
+- **Custom shortcuts** — save reusable prompts and URL templates, access them by typing to filter
+- **Type-to-filter** — start typing to filter actions and shortcuts by name
 - **Clipboard history** — access last 9 items with ⌘0
 - **Keyboard-first** — navigate and execute everything without touching the mouse
 - **Privacy-first** — no internet required, no data leaves your machine
@@ -77,7 +79,8 @@ All text types also get **Custom Action** (⌘1) for free-form AI prompts.
 | **⌘1–9** | Jump to action by number |
 | **⌘0** | Open clipboard history |
 | **⌘↵** | Submit custom prompt / Copy result |
-| **Esc** | Back / Dismiss |
+| **A–Z** | Type to filter actions and shortcuts |
+| **Esc** | Clear filter / Back / Dismiss |
 
 ## Installation
 
@@ -160,7 +163,20 @@ Left-click the Cai menu bar icon (or click the logo in the action window footer)
 | **Maps Provider** | Apple Maps or Google Maps | Apple Maps |
 | **Model Provider** | LM Studio, Ollama, or Custom | LM Studio |
 | **Custom Action Prompt** | Your own AI instruction for ⌘1 | — |
+| **Custom Shortcuts** | Save prompt and URL shortcuts for instant access | — |
 | **Launch at Login** | Start Cai automatically | On |
+
+## Custom Shortcuts
+
+Save frequently used prompts and URL templates as shortcuts. They appear when you type to filter the action list.
+
+**Two types:**
+- **Prompt** — sends your clipboard text + saved prompt to the local LLM (e.g., "Rewrite as email reply", "Convert to CSV")
+- **URL** — opens a URL with your clipboard text substituted via `%s` (e.g., `https://reddit.com/search/?q=%s`)
+
+**To create:** Preferences → Custom Shortcuts → click **+** → add a name, pick the type, and enter the prompt or URL template.
+
+**To use:** Press **⌥C**, then start typing the shortcut name. Matching shortcuts appear alongside filtered built-in actions.
 
 ## Requirements
 

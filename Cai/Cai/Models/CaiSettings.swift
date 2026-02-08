@@ -16,6 +16,7 @@ class CaiSettings: ObservableObject {
         static let customModelURL = "cai_customModelURL"
         static let mapsProvider = "cai_mapsProvider"
         static let launchAtLogin = "cai_launchAtLogin"
+        static let shortcuts = "cai_shortcuts"
     }
 
     // MARK: - Model Provider
@@ -70,6 +71,14 @@ class CaiSettings: ObservableObject {
         didSet { defaults.set(mapsProvider.rawValue, forKey: Keys.mapsProvider) }
     }
 
+    @Published var shortcuts: [CaiShortcut] {
+        didSet {
+            if let data = try? JSONEncoder().encode(shortcuts) {
+                defaults.set(data, forKey: Keys.shortcuts)
+            }
+        }
+    }
+
     @Published var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
@@ -112,6 +121,13 @@ class CaiSettings: ObservableObject {
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple
+
+        if let data = defaults.data(forKey: Keys.shortcuts),
+           let decoded = try? JSONDecoder().decode([CaiShortcut].self, from: data) {
+            self.shortcuts = decoded
+        } else {
+            self.shortcuts = []
+        }
 
         // Default to true for launch at login — bool(forKey:) returns false when key is absent,
         // so we check if the key has ever been set explicitly.

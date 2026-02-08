@@ -36,6 +36,8 @@
 		CAI00106 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00107 /* AboutView.swift */; };
 		CAI00108 /* KeyboardHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00109 /* KeyboardHint.swift */; };
 		CAI00110 /* CaiNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00111 /* CaiNotifications.swift */; };
+		CAI00112 /* CaiShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00113 /* CaiShortcut.swift */; };
+		CAI00114 /* ShortcutsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00115 /* ShortcutsManagementView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,6 +83,8 @@
 		CAI00107 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		CAI00109 /* KeyboardHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHint.swift; sourceTree = "<group>"; };
 		CAI00111 /* CaiNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiNotifications.swift; sourceTree = "<group>"; };
+		CAI00113 /* CaiShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiShortcut.swift; sourceTree = "<group>"; };
+		CAI00115 /* ShortcutsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsManagementView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -132,6 +136,7 @@
 			children = (
 				CAI00063 /* ActionItem.swift */,
 				CAI00081 /* CaiSettings.swift */,
+				CAI00113 /* CaiShortcut.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -151,6 +156,7 @@
 				CAI00093 /* ToastWindow.swift */,
 				CAI00107 /* AboutView.swift */,
 				CAI00109 /* KeyboardHint.swift */,
+				CAI00115 /* ShortcutsManagementView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -319,6 +325,8 @@
 				CAI00106 /* AboutView.swift in Sources */,
 				CAI00108 /* KeyboardHint.swift in Sources */,
 				CAI00110 /* CaiNotifications.swift in Sources */,
+				CAI00112 /* CaiShortcut.swift in Sources */,
+				CAI00114 /* ShortcutsManagementView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

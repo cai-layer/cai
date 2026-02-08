@@ -19,6 +19,7 @@ enum ActionType {
     case llmAction(LLMAction)
     case jsonPrettyPrint(String)
     case customPrompt
+    case shortcutURL(String)  // URL template with %s placeholder
 }
 
 enum LLMAction {

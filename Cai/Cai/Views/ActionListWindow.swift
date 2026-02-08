@@ -5,6 +5,7 @@ struct ActionListWindow: View {
     let detection: ContentResult
     let actions: [ActionItem]
     @ObservedObject var selectionState: SelectionState
+    let sourceApp: String?
     let onDismiss: () -> Void
     let onExecute: (ActionItem) -> Void
 
@@ -107,6 +108,7 @@ struct ActionListWindow: View {
             } else if showCustomPrompt {
                 CustomPromptView(
                     clipboardText: text,
+                    sourceApp: sourceApp,
                     state: customPromptState
                 )
             } else if showSettings {
@@ -537,19 +539,20 @@ struct ActionListWindow: View {
         case .llmAction(let llmAction):
             let title = llmActionTitle(llmAction)
             let clipboardText = self.text
+            let app = self.sourceApp
             showResultView(title: title) {
                 let llm = LLMService.shared
                 switch llmAction {
                 case .summarize:
-                    return try await llm.summarize(clipboardText)
+                    return try await llm.summarize(clipboardText, appContext: app)
                 case .translate(let lang):
-                    return try await llm.translate(clipboardText, to: lang)
+                    return try await llm.translate(clipboardText, to: lang, appContext: app)
                 case .define:
                     return try await llm.define(clipboardText)
                 case .explain:
-                    return try await llm.explain(clipboardText)
+                    return try await llm.explain(clipboardText, appContext: app)
                 case .custom(let instruction):
-                    return try await llm.customAction(clipboardText, instruction: instruction)
+                    return try await llm.customAction(clipboardText, instruction: instruction, appContext: app)
                 }
             }
 

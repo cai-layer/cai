@@ -71,7 +71,7 @@ class WindowController: NSObject, ObservableObject {
     }
 
     /// Shows the action window centered on screen with actions for the given content.
-    func showActionWindow(text: String, detection: ContentResult) {
+    func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil) {
         // If window is already visible, dismiss first
         hideWindow()
 
@@ -141,6 +141,7 @@ class WindowController: NSObject, ObservableObject {
             detection: detection,
             actions: actions,
             selectionState: selectionState,
+            sourceApp: sourceApp,
             onDismiss: dismissAction,
             onExecute: executeAction
         )

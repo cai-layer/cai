@@ -22,6 +22,7 @@ enum CustomPromptPhase {
 /// Keyboard events are routed by the parent (ActionListWindow).
 struct CustomPromptView: View {
     let clipboardText: String
+    let sourceApp: String?
     @ObservedObject var state: CustomPromptState
 
     @State private var prompt: String = ""
@@ -196,7 +197,7 @@ struct CustomPromptView: View {
         let textToProcess = clipboardText
         Task {
             do {
-                let output = try await LLMService.shared.customAction(textToProcess, instruction: trimmed)
+                let output = try await LLMService.shared.customAction(textToProcess, instruction: trimmed, appContext: sourceApp)
 
                 await MainActor.run {
                     withAnimation(.easeOut(duration: 0.2)) {

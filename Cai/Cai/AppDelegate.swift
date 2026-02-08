@@ -153,7 +153,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Reads clipboard content and shows the action window, or shows a toast if empty.
-    private func openWithClipboard() {
+    private func openWithClipboard(sourceApp: String? = nil) {
         if let content = clipboardService.readClipboard() {
             // Record to clipboard history
             clipboardHistory.recordCurrentClipboard()
@@ -165,7 +165,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Show the action window immediately — LLM errors handled at execution time
             windowController.showActionWindow(
                 text: content,
-                detection: detection
+                detection: detection,
+                sourceApp: sourceApp
             )
         } else {
             print("Clipboard is empty")
@@ -193,13 +194,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Capture the frontmost app name before Cmd+C simulation steals focus
+        let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
+
         // Always simulate Cmd+C to capture the current selection.
         // Most apps (browsers, mail clients) don't expose AXSelectedText,
         // so we can't reliably check for a selection beforehand.
         // If nothing is selected, Cmd+C is a no-op and we fall back to
         // whatever is already on the clipboard.
         clipboardService.copySelectedText { [weak self] in
-            self?.openWithClipboard()
+            self?.openWithClipboard(sourceApp: sourceApp)
         }
     }
 }

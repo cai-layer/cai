@@ -1,0 +1,179 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code when working with this repository.
+
+## What is Cai?
+
+Native macOS menu bar clipboard manager (SwiftUI + AppKit). User presses **Option+C** anywhere, Cai detects the clipboard content type and shows context-aware actions powered by local LLMs. Privacy-first — no cloud, no telemetry, everything runs locally.
+
+## Build & Run
+
+```bash
+cd Cai
+open Cai.xcodeproj
+# Select "Cai" scheme → "My Mac" → Cmd+R
+```
+
+Or via command line:
+
+```bash
+# Debug build
+xcodebuild -scheme Cai -configuration Debug build
+
+# Release archive (for DMG)
+xcodebuild -scheme Cai -configuration Release archive -archivePath /tmp/Cai.xcarchive
+
+# Run tests
+xcodebuild -scheme Cai -configuration Debug test
+```
+
+## Project Structure
+
+```
+Cai/Cai/
+├── CaiApp.swift                # @main entry, delegates to AppDelegate
+├── AppDelegate.swift           # Menu bar icon, hotkey, popover, lifecycle
+├── CaiNotifications.swift      # Custom notification constants
+├── Models/
+│   ├── ActionItem.swift        # ActionItem, ActionType, LLMAction enums
+│   ├── CaiSettings.swift       # UserDefaults-backed settings (singleton)
+│   └── CaiShortcut.swift       # User-defined shortcut model
+├── Services/
+│   ├── WindowController.swift  # Floating panel, keyboard routing, event monitors
+│   ├── ClipboardService.swift  # CGEvent Cmd+C simulation + pasteboard read
+│   ├── ContentDetector.swift   # Priority-based content type detection
+│   ├── ActionGenerator.swift   # Generates actions per content type
+│   ├── LLMService.swift        # Actor-based OpenAI-compatible API client
+│   ├── SystemActions.swift     # URL, Maps, Calendar ICS, Search, Clipboard
+│   ├── HotKeyManager.swift     # Global Option+C registration
+│   ├── ClipboardHistory.swift  # Last 9 unique clipboard entries
+│   └── PermissionsManager.swift # Accessibility permission check/polling
+└── Views/
+    ├── ActionListWindow.swift  # Main UI — routes between all screens
+    ├── ActionRow.swift         # Single action row component
+    ├── ResultView.swift        # LLM response display (loading/error/success)
+    ├── CustomPromptView.swift  # Free-form LLM prompt (two-phase: input → result)
+    ├── SettingsView.swift      # Preferences panel
+    ├── ShortcutsManagementView.swift # Create/edit custom shortcuts
+    ├── ClipboardHistoryView.swift    # Last 9 entries view
+    ├── CaiColors.swift         # Color theme constants
+    ├── CaiLogo.swift           # SVG→SwiftUI Shape for menu bar icon
+    ├── KeyboardHint.swift      # Footer keyboard shortcut labels
+    ├── ToastWindow.swift       # Pill notification ("Copied to Clipboard")
+    ├── AboutView.swift         # About window
+    └── VisualEffectBackground.swift  # NSVisualEffectView wrapper
+```
+
+## Core Flow
+
+```
+Option+C → AppDelegate.handleHotKeyTrigger()
+  → Capture frontmost app name (sourceApp)
+  → ClipboardService.copySelectedText() [CGEvent Cmd+C simulation]
+  → ContentDetector.detect() → ContentResult (type + entities)
+  → ActionGenerator.generateActions() → [ActionItem]
+  → WindowController.showActionWindow(text, detection, sourceApp)
+    → ActionListWindow (SwiftUI) shown in CaiPanel
+```
+
+## Bundle IDs
+
+| Build | Bundle ID | Purpose |
+|-------|-----------|---------|
+| Debug (Xcode Run) | `com.soyasis.cai.dev` | Separate accessibility entry for dev |
+| Release (Archive/DMG) | `com.soyasis.cai` | Production |
+
+This prevents debug builds from resetting production accessibility permissions.
+
+## Key Architecture Patterns
+
+### No Sandbox
+Required for CGEvent posting and global hotkey. The app needs Accessibility permission.
+
+### CGEvent Private Event Source
+When Option+C fires, the Option key is physically held. To simulate clean Cmd+C, we use `CGEventSource(stateID: .privateState)` to isolate from physical modifier state.
+
+### Notification-Based Keyboard Routing
+WindowController's local event monitor intercepts all keyboard events and posts notifications (`caiEscPressed`, `caiEnterPressed`, `caiArrowUp`, etc.). SwiftUI views subscribe via `.onReceive()`. This bridges the AppKit event system to SwiftUI.
+
+### CaiPanel (NSPanel subclass)
+Standard NSPanel can't become key window. `CaiPanel` overrides `canBecomeKey` to enable keyboard input.
+
+### PassThrough Flag
+When `TextEditor` is active (custom prompt input), `WindowController.passThrough = true` lets Enter and arrow keys pass through to the text editor instead of being intercepted.
+
+### acceptsFilterInput Flag
+When `true`, typed characters are appended to `selectionState.filterText` for type-to-filter. Set to `false` when non-action screens are active (settings, history, etc.).
+
+### Actor-Based LLMService
+All LLM calls are isolated in a Swift actor for thread safety. Communicates with OpenAI-compatible `/v1/chat/completions` endpoint.
+
+### Window Resume Cache
+Dismissed windows are cached for 10 seconds. If reopened with the same clipboard text, the previous state (result view, custom prompt) is restored instead of creating a new window.
+
+### LazyVStack Row Identity
+Action list rows use `.id(action.id)` (not index-based). This prevents SwiftUI from showing stale cached content when the filtered list changes.
+
+## Tests
+
+```bash
+xcodebuild -scheme Cai -configuration Debug test
+```
+
+Tests are in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ test cases covering all content types, edge cases, priority ordering, and international address formats.
+
+## Common Tasks
+
+### Adding a New LLM Action
+
+1. Add case to `LLMAction` enum in `ActionItem.swift`
+2. Add method to `LLMService.swift` (with `appContext` parameter)
+3. Add to `ActionGenerator.swift` for relevant content types
+4. Handle in `ActionListWindow.executeAction()` switch
+5. Add title in `llmActionTitle()` in `ActionListWindow.swift`
+
+### Adding a New Content Type
+
+1. Add case to `ContentType` in `ContentDetector.swift`
+2. Add detection logic in `detect()` (respects priority order)
+3. Add action generation in `ActionGenerator.swift`
+4. Add tests in `ContentDetectorTests.swift`
+
+### Adding a New Setting
+
+1. Add key to `CaiSettings.Keys`
+2. Add `@Published` property with `didSet` persistence
+3. Initialize in `CaiSettings.init()`
+4. Add UI in `SettingsView.swift`
+
+### Building a DMG
+
+See `_docs/BUILD-DMG.md` for the full process. Key points:
+- Background image: `_docs/dmg-assets/extension-icon.png`
+- `.DS_Store` from previous DMG preserves window layout
+- Upload via `gh release upload v1.0.0 Cai-1.0.0-macos.dmg --clobber`
+
+## Important Gotchas
+
+- **Never use `.id(index)` on LazyVStack rows** — use `.id(action.id)` to prevent stale cached views when filtering
+- **KeyEventHostingView should NOT have an `onKeyDown` handler** — the local event monitor handles everything; adding `keyDown` causes double-handling
+- **Filter uses `.hasPrefix()` not `.contains()`** — prefix matching by design
+- **Always reset `selectionState.filterText`** when navigating away from the action list
+- **`passThrough` must be set/unset** when entering/leaving TextEditor screens
+- **Don't use App Sandbox** — CGEvent posting requires it to be disabled
+- **Accessibility permission polling** stops once granted — uses `startPollingForPermission()` on launch, timer invalidates on grant
+
+## Dependencies
+
+- **HotKey** (SPM): [soffes/HotKey](https://github.com/soffes/HotKey) v0.2.0+ — global keyboard shortcut
+- **macOS 13.0+** (Ventura) deployment target
+
+## Style Guide
+
+- SwiftUI for views, AppKit for window management and system integration
+- Singletons for services (`CaiSettings.shared`, `LLMService.shared`, `PermissionsManager.shared`, etc.)
+- `@Published` properties with `didSet` for UserDefaults persistence
+- Notification-based communication between AppKit and SwiftUI layers
+- SF Symbols for all icons
+- Color constants in `CaiColors.swift` (system colors, supports light/dark)
+- Concise commit messages describing the "why" not the "what"

@@ -64,7 +64,6 @@ No cloud. No telemetry. No accounts.
 
 | Content Type | Detection | Actions |
 |---|---|---|
-| **URL** | `https://...`, `www.` | Open in Browser |
 | **JSON** | Valid JSON object/array | Pretty Print |
 | **Meeting** | Date/time references | Create Calendar Event, Open in Maps |
 | **Address** | Street patterns, "at [Place Name]" | Open in Maps |
@@ -156,6 +155,20 @@ Cai works with any OpenAI-compatible local server. AI is optional — system act
 | **Custom** | User-defined | Any OpenAI-compatible server |
 
 **To configure:** Open Cai Preferences (left-click menu bar icon) → select your Model Provider.
+
+### Recommended Models
+
+Cai works best with small, fast models optimized for short text tasks. Speed matters more than size — you want sub-second responses for clipboard actions.
+
+| Model | Params | Why | Ollama |
+|---|---|---|---|
+| **Qwen3 4B** | 4B | Fast, great instruction following. Our top pick. | `ollama pull qwen3:4b` |
+| **Qwen3 30B-A3B** | 30B (3B active) | Smarter output, similar speed to 4B (MoE). Needs 16GB+ RAM. | `ollama pull qwen3:30b-a3b` |
+| **Gemma 3 4B** | 4B | Strong multilingual support (140+ languages). | `ollama pull gemma3:4b` |
+| **Phi-4 Mini** | 3.8B | Lightweight, good at structured tasks. | `ollama pull phi4-mini` |
+| **Qwen3 8B** | 8B | Best quality in the small range. Slower than 4B. | `ollama pull qwen3:8b` |
+
+> **Tip:** Start with **Qwen3 4B** — it's the best balance of speed and quality for clipboard tasks like summarize, translate, reply, and explain.
 
 ## Configuration
 

@@ -41,6 +41,8 @@ No cloud. No telemetry. No accounts.
 - Select `"serendipity"` → Define, Explain, Translate, Search
 - Select `"Let's meet Tuesday at 3pm at Starbucks"` → Create calendar event, Open in Maps
 - Select `"123 Main St, NYC 10001"` → Open in Maps
+- Select an email in Mail → Reply, Summarize, Translate
+- Select a Slack message → Reply (matches the conversation tone)
 - Select `https://github.com/...` → Open in Browser
 - Select `{"name": "John"}` → Pretty Print JSON
 

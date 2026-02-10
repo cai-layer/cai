@@ -94,8 +94,8 @@ iOSInjectionProject/
 # Build artifacts
 *.dmg
 
-# Claude Code
-.claude/
+# Claude Code (local settings are user-specific)
+.claude/settings.local.json
 
 # Documentation
 _docs/

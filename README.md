@@ -147,28 +147,32 @@ Cai works with any OpenAI-compatible local server. AI is optional — system act
 | Provider | Default URL | Setup |
 |---|---|---|
 | **LM Studio** | `http://127.0.0.1:1234/v1` | [Download](https://lmstudio.ai) → Load model → Start server |
-| **Ollama** | `http://127.0.0.1:11434/v1` | [Install](https://ollama.ai) → `ollama pull llama3.2` |
+| **Ollama** | `http://127.0.0.1:11434/v1` | [Install](https://ollama.ai) → `ollama pull qwen3:4b` |
 | **Jan AI** | `http://127.0.0.1:1337/v1` | [Download](https://jan.ai) → Load model → Start server |
 | **LocalAI** | `http://127.0.0.1:8080/v1` | [Setup guide](https://localai.io) |
 | **Open WebUI** | `http://127.0.0.1:8080/v1` | [Install](https://openwebui.com) → Enable OpenAI API |
 | **GPT4All** | `http://127.0.0.1:4891/v1` | [Download](https://gpt4all.io) → Enable API server |
 | **Custom** | User-defined | Any OpenAI-compatible server |
 
-**To configure:** Open Cai Preferences (left-click menu bar icon) → select your Model Provider.
+**Auto-detection:** On launch, Cai checks if the current provider is reachable. If not, it probes known local ports and switches to the first one that responds — no manual setup needed.
+
+**To configure manually:** Open Cai Preferences (left-click menu bar icon) → select your Model Provider.
 
 ### Recommended Models
 
 Cai works best with small, fast models optimized for short text tasks. Speed matters more than size — you want sub-second responses for clipboard actions.
 
-| Model | Params | Why | Ollama |
+| Model | Params | Why | Install |
 |---|---|---|---|
-| **Qwen3 4B** | 4B | Fast, great instruction following. Our top pick. | `ollama pull qwen3:4b` |
-| **Qwen3 30B-A3B** | 30B (3B active) | Smarter output, similar speed to 4B (MoE). Needs 16GB+ RAM. | `ollama pull qwen3:30b-a3b` |
-| **Gemma 3 4B** | 4B | Strong multilingual support (140+ languages). | `ollama pull gemma3:4b` |
-| **Phi-4 Mini** | 3.8B | Lightweight, good at structured tasks. | `ollama pull phi4-mini` |
-| **Qwen3 8B** | 8B | Best quality in the small range. Slower than 4B. | `ollama pull qwen3:8b` |
+| **Qwen3 4B** | 4B | Fast, great instruction following. Our top pick. | `lms get qwen3-4b` / `ollama pull qwen3:4b` |
+| **Qwen3 30B-A3B** | 30B (3B active) | Smarter output, similar speed to 4B (MoE). Needs 16GB+ RAM. | `lms get qwen3-30b-a3b` / `ollama pull qwen3:30b-a3b` |
+| **Gemma 3 4B** | 4B | Strong multilingual support (140+ languages). | `lms get gemma-3-4b` / `ollama pull gemma3:4b` |
+| **Phi-4 Mini** | 3.8B | Lightweight, good at structured tasks. | `lms get phi-4-mini` / `ollama pull phi4-mini` |
+| **Qwen3 8B** | 8B | Best quality in the small range. Slower than 4B. | `lms get qwen3-8b` / `ollama pull qwen3:8b` |
 
 > **Tip:** Start with **Qwen3 4B** — it's the best balance of speed and quality for clipboard tasks like summarize, translate, reply, and explain.
+>
+> **LM Studio vs Ollama:** Both work great with Cai. LM Studio tends to be noticeably faster for inference (aggressive Metal GPU acceleration, speculative decoding), which matters for a clipboard tool where you want sub-second responses. Ollama is simpler to set up and manage models via CLI. Try both and see what feels snappier on your hardware.
 
 ## Configuration
 
@@ -179,7 +183,7 @@ Left-click the Cai menu bar icon (or click the logo in the action window footer)
 | **Translation Language** | Target language for translations | English |
 | **Search URL** | Base URL for web searches | Brave Search |
 | **Maps Provider** | Apple Maps or Google Maps | Apple Maps |
-| **Model Provider** | LM Studio, Ollama, or Custom | LM Studio |
+| **Model Provider** | LM Studio, Ollama, or Custom | LM Studio (auto-detected) |
 | **Custom Action** | Free-form AI prompt via ⌘1 | — |
 | **Custom Shortcuts** | Save prompt and URL shortcuts for instant access | — |
 | **Launch at Login** | Start Cai automatically | On |

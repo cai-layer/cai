@@ -1,11 +1,16 @@
 import Cocoa
 import ApplicationServices
+import UserNotifications
 
 class PermissionsManager: ObservableObject {
     @Published var hasAccessibilityPermission: Bool = false
     private var pollTimer: Timer?
+    private var reminderScheduled = false
 
     static let shared = PermissionsManager()
+
+    /// UserDefaults key to track if we already sent the one-time reminder.
+    private static let reminderSentKey = "cai_accessibilityReminderSent"
 
     private init() {
         checkAccessibilityPermission()
@@ -23,16 +28,9 @@ class PermissionsManager: ObservableObject {
     }
 
     func requestAccessibilityPermission() {
-        // This will trigger the system prompt and add Cai to System Settings
+        // Trigger the system prompt once — this registers Cai in System Settings
         let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         hasAccessibilityPermission = AXIsProcessTrustedWithOptions(options)
-
-        // Make an actual accessibility API call to ensure the app appears in System Settings
-        // This attempts to get the system-wide element, which requires accessibility permission
-        let systemWideElement = AXUIElementCreateSystemWide()
-        var value: CFTypeRef?
-        _ = AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &value)
-        // We don't need the result - just making the call is enough to register with the system
 
         if hasAccessibilityPermission {
             print("✅ Accessibility permission granted after request")
@@ -84,6 +82,7 @@ class PermissionsManager: ObservableObject {
             if self.hasAccessibilityPermission {
                 timer.invalidate()
                 self.pollTimer = nil
+                self.cancelPermissionReminder()
                 if !hadPermission {
                     NotificationCenter.default.post(
                         name: .accessibilityPermissionChanged,
@@ -92,5 +91,53 @@ class PermissionsManager: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - Permission Reminder Notification
+
+    /// Schedules a one-time local notification after 5 minutes if the user
+    /// hasn't granted Accessibility permission yet. Only fires once — ever.
+    func schedulePermissionReminderIfNeeded() {
+        guard !hasAccessibilityPermission,
+              !reminderScheduled,
+              !UserDefaults.standard.bool(forKey: Self.reminderSentKey) else { return }
+
+        reminderScheduled = true
+
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert]) { granted, _ in
+            guard granted else {
+                print("Notification permission not granted — skipping reminder")
+                return
+            }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Cai needs Accessibility permission"
+            content.body = "Enable it in System Settings to start using ⌥C."
+
+            // Fire after 5 minutes
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 300, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "cai-accessibility-reminder",
+                content: content,
+                trigger: trigger
+            )
+
+            center.add(request) { error in
+                if let error = error {
+                    print("Failed to schedule reminder: \(error)")
+                } else {
+                    UserDefaults.standard.set(true, forKey: Self.reminderSentKey)
+                    print("Accessibility reminder scheduled (5 min)")
+                }
+            }
+        }
+    }
+
+    /// Cancels any pending reminder — called when permission is granted.
+    private func cancelPermissionReminder() {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: ["cai-accessibility-reminder"])
+        print("Accessibility reminder cancelled — permission granted")
     }
 }

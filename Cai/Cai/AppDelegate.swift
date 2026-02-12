@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissionsManager = PermissionsManager.shared
     private let clipboardHistory = ClipboardHistory.shared
     private var aboutWindow: NSWindow?
+    private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status item in the menu bar
@@ -46,12 +47,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover?.behavior = .transient
         popover?.contentViewController = NSHostingController(rootView: SettingsView())
 
-        // Check accessibility permission and trigger system prompt if needed
+        // Check accessibility permission
         permissionsManager.checkAccessibilityPermission()
 
         if !permissionsManager.hasAccessibilityPermission {
+            // Show the system accessibility prompt (registers Cai in the list)
             permissionsManager.requestAccessibilityPermission()
             permissionsManager.startPollingForPermission()
+
+            // If still not granted after 5 minutes, show our onboarding
+            // window + a local notification as a gentle reminder.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+                guard self?.permissionsManager.hasAccessibilityPermission == false else { return }
+                self?.showOnboardingWindow()
+                self?.permissionsManager.schedulePermissionReminderIfNeeded()
+            }
         }
 
         // Auto-detect LLM provider on launch:
@@ -67,7 +77,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Setup global hotkey (Option+C)
         setupHotKey()
 
-        // Listen for permission changes to re-register hotkey
+        // Listen for permission changes to re-register hotkey and dismiss onboarding
         NotificationCenter.default.addObserver(
             forName: .accessibilityPermissionChanged,
             object: nil,
@@ -76,6 +86,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if self?.permissionsManager.hasAccessibilityPermission == true {
                 print("Accessibility permission granted - re-registering hotkey")
                 self?.setupHotKey()
+                self?.dismissOnboardingWindow()
             }
         }
     }
@@ -182,6 +193,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             print("Clipboard is empty")
             windowController.showToast(message: "Clipboard is empty")
         }
+    }
+
+    // MARK: - Onboarding Window
+
+    private func showOnboardingWindow() {
+        let onboardingView = OnboardingPermissionView()
+        let hostingView = NSHostingView(rootView: onboardingView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Cai Setup"
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.center()
+
+        self.onboardingWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func dismissOnboardingWindow() {
+        onboardingWindow?.close()
+        onboardingWindow = nil
     }
 
     @objc func quitApp() {

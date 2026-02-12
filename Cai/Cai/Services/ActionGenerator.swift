@@ -156,6 +156,16 @@ struct ActionGenerator {
 
         // MARK: Meeting
         case .meeting:
+            items.append(ActionItem(
+                id: "reply",
+                title: "Reply",
+                subtitle: "Draft a reply",
+                icon: "arrowshape.turn.up.left",
+                shortcut: shortcut,
+                type: .llmAction(.reply)
+            ))
+            shortcut += 1
+
             let dateText = detection.entities.dateText ?? "event"
             items.append(ActionItem(
                 id: "create_event",
@@ -181,7 +191,17 @@ struct ActionGenerator {
                     shortcut: shortcut,
                     type: .openMaps(location)
                 ))
+                shortcut += 1
             }
+
+            items.append(ActionItem(
+                id: "summarize",
+                title: "Summarize",
+                subtitle: "Create a concise summary",
+                icon: "text.redaction",
+                shortcut: shortcut,
+                type: .llmAction(.summarize)
+            ))
 
         // MARK: Address
         case .address:

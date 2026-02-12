@@ -65,7 +65,7 @@ No cloud. No telemetry. No accounts.
 | Content Type | Detection | Actions |
 |---|---|---|
 | **JSON** | Valid JSON object/array | Pretty Print |
-| **Meeting** | Date/time references | Create Calendar Event, Open in Maps |
+| **Meeting** | Date/time references | Reply, Create Calendar Event, Open in Maps, Summarize |
 | **Address** | Street patterns, "at [Place Name]" | Open in Maps |
 | **Word** | 1–2 words | Define, Explain, Translate, Search |
 | **Short Text** | < 100 characters | Explain, Reply, Translate, Search |

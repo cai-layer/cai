@@ -6,8 +6,9 @@ struct SettingsView: View {
     @ObservedObject var settings = CaiSettings.shared
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var updateChecker = UpdateChecker.shared
-    /// Optional callback to navigate to shortcuts management (only available
-    /// when rendered inside ActionListWindow, not the menu bar popover).
+    /// Callback to navigate to shortcuts management. When rendered inside
+    /// ActionListWindow this pushes the shortcuts screen; when rendered in the
+    /// menu bar popover this opens a standalone window.
     var onShowShortcuts: (() -> Void)? = nil
 
     /// LLM connection status — checked each time settings opens.
@@ -114,30 +115,11 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             if let onShowShortcuts = onShowShortcuts {
                                 Button(action: onShowShortcuts) {
-                                    HStack {
-                                        Text(settings.shortcuts.isEmpty
-                                             ? "Create shortcuts for prompts & URLs"
-                                             : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s") configured")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.caiTextPrimary)
-                                        Spacer()
-                                        Image(systemName: "plus.circle.fill")
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(.caiPrimary)
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(.caiTextSecondary.opacity(0.5))
-                                    }
-                                    .padding(.vertical, 4)
-                                    .contentShape(Rectangle())
+                                    shortcutsRow
                                 }
                                 .buttonStyle(.plain)
                             } else {
-                                Text(settings.shortcuts.isEmpty
-                                     ? "No shortcuts configured"
-                                     : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s") configured")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.caiTextSecondary)
+                                shortcutsRow
                             }
                             Text("Type to search shortcuts when Cai is open")
                                 .font(.system(size: 11))
@@ -171,6 +153,27 @@ struct SettingsView: View {
             permissions.checkAccessibilityPermission()
             checkLLMStatus()
         }
+    }
+
+    // MARK: - Shortcuts Row
+
+    private var shortcutsRow: some View {
+        HStack {
+            Text(settings.shortcuts.isEmpty
+                 ? "Create shortcuts for prompts & URLs"
+                 : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s") configured")
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+            Spacer()
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.caiPrimary)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Update Badge

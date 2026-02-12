@@ -227,10 +227,50 @@ struct ShortcutsManagementView: View {
                 Text(formType == .prompt ? "Prompt" : "URL Template")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.caiTextSecondary)
-                TextField(formType.placeholder, text: $formValue)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12, design: .monospaced))
-                if formType == .url {
+                if formType == .prompt {
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $formValue)
+                            .font(.system(size: 12))
+                            .scrollContentBackground(.hidden)
+                            .padding(4)
+                        if formValue.isEmpty {
+                            Text(formType.placeholder)
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextSecondary.opacity(0.4))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .frame(minHeight: 60, maxHeight: 140)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .cornerRadius(5)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+                    )
+                } else {
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $formValue)
+                            .font(.system(size: 12, design: .monospaced))
+                            .scrollContentBackground(.hidden)
+                            .padding(4)
+                        if formValue.isEmpty {
+                            Text(formType.placeholder)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.caiTextSecondary.opacity(0.4))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .frame(minHeight: 60, maxHeight: 140)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .cornerRadius(5)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+                    )
                     Text("Use %s where clipboard text should be inserted")
                         .font(.system(size: 10))
                         .foregroundColor(.caiTextSecondary.opacity(0.5))

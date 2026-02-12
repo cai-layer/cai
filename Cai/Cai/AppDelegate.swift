@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissionsManager = PermissionsManager.shared
     private let clipboardHistory = ClipboardHistory.shared
     private var aboutWindow: NSWindow?
+    private var shortcutsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -45,7 +46,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover?.contentSize = NSSize(width: 340, height: 440)
         popover?.behavior = .transient
-        popover?.contentViewController = NSHostingController(rootView: SettingsView())
+        let settingsView = SettingsView(onShowShortcuts: { [weak self] in
+            self?.popover?.performClose(nil)
+            self?.showShortcutsWindow()
+        })
+        popover?.contentViewController = NSHostingController(rootView: settingsView)
 
         // Check accessibility permission
         permissionsManager.checkAccessibilityPermission()
@@ -149,6 +154,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // because by the time the user clicks this menu item, the frontmost
         // app is Cai itself (or the menu bar), not the app with selected text.
         openWithClipboard()
+    }
+
+    func showShortcutsWindow() {
+        // If already open, bring to front
+        if let existing = shortcutsWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let shortcutsView = ShortcutsManagementView(onBack: { [weak self] in
+            self?.shortcutsWindow?.close()
+        })
+        let hostingView = NSHostingView(rootView: shortcutsView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 420),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Custom Shortcuts"
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 320, height: 300)
+        window.center()
+
+        self.shortcutsWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func showAbout() {

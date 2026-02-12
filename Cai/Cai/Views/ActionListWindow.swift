@@ -20,6 +20,7 @@ struct ActionListWindow: View {
     @StateObject private var historySelectionState = SelectionState()
     @StateObject private var customPromptState = CustomPromptState()
     @ObservedObject private var settings = CaiSettings.shared
+    @ObservedObject private var updateChecker = UpdateChecker.shared
 
     /// Corner radius matching Spotlight's rounded appearance
     private let cornerRadius: CGFloat = 20
@@ -345,6 +346,11 @@ struct ActionListWindow: View {
                 filterBarView
             }
 
+            // Update banner — shown when a newer version is available
+            if let version = updateChecker.availableVersion {
+                updateBannerView(version: version)
+            }
+
             Divider()
                 .background(Color.caiDivider)
 
@@ -434,6 +440,40 @@ struct ActionListWindow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(Color.caiSurface.opacity(0.4))
+    }
+
+    // MARK: - Update Banner
+
+    private func updateBannerView(version: String) -> some View {
+        Button(action: {
+            UpdateChecker.shared.openReleasePage()
+            onDismiss()
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiPrimary)
+                Text("Cai v\(version) available")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiPrimary)
+                Spacer()
+                Text("Download →")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.caiPrimary.opacity(0.7))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(Color.caiPrimary.opacity(0.08))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 
     // MARK: - Header

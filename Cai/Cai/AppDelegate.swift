@@ -74,6 +74,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Check for updates (once per day)
+        Task {
+            await UpdateChecker.shared.checkForUpdate()
+        }
+
         // Setup global hotkey (Option+C)
         setupHotKey()
 

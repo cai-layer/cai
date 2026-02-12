@@ -39,6 +39,7 @@
 		CAI00112 /* CaiShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00113 /* CaiShortcut.swift */; };
 		CAI00114 /* ShortcutsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00115 /* ShortcutsManagementView.swift */; };
 		CAI00116 /* OnboardingPermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00117 /* OnboardingPermissionView.swift */; };
+		CAI00118 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00119 /* UpdateChecker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,6 +88,7 @@
 		CAI00113 /* CaiShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiShortcut.swift; sourceTree = "<group>"; };
 		CAI00115 /* ShortcutsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsManagementView.swift; sourceTree = "<group>"; };
 		CAI00117 /* OnboardingPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPermissionView.swift; sourceTree = "<group>"; };
+		CAI00119 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,6 +178,7 @@
 				CAI00101 /* LLMService.swift */,
 				CAI00103 /* SystemActions.swift */,
 				CAI00105 /* ActionGenerator.swift */,
+				CAI00119 /* UpdateChecker.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -331,6 +334,7 @@
 				CAI00112 /* CaiShortcut.swift in Sources */,
 				CAI00114 /* ShortcutsManagementView.swift in Sources */,
 				CAI00116 /* OnboardingPermissionView.swift in Sources */,
+				CAI00118 /* UpdateChecker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

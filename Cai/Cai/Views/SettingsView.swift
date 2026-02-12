@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var settings = CaiSettings.shared
     @ObservedObject private var permissions = PermissionsManager.shared
+    @ObservedObject private var updateChecker = UpdateChecker.shared
     /// Optional callback to navigate to shortcuts management (only available
     /// when rendered inside ActionListWindow, not the menu bar popover).
     var onShowShortcuts: (() -> Void)? = nil
@@ -30,6 +31,7 @@ struct SettingsView: View {
                 Text("v\(appVersion)")
                     .font(.system(size: 11))
                     .foregroundColor(.caiTextSecondary.opacity(0.4))
+                updateBadge
                 llmStatusIndicator
                 permissionIndicator
             }
@@ -168,6 +170,27 @@ struct SettingsView: View {
         .onAppear {
             permissions.checkAccessibilityPermission()
             checkLLMStatus()
+        }
+    }
+
+    // MARK: - Update Badge
+
+    @ViewBuilder
+    private var updateBadge: some View {
+        if let version = updateChecker.availableVersion {
+            Button(action: {
+                updateChecker.openReleasePage()
+            }) {
+                Text("v\(version) available")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.caiPrimary)
+                    .cornerRadius(4)
+            }
+            .buttonStyle(.plain)
+            .help("Click to download Cai v\(version) from GitHub")
         }
     }
 

@@ -17,6 +17,7 @@ class CaiSettings: ObservableObject {
         static let mapsProvider = "cai_mapsProvider"
         static let launchAtLogin = "cai_launchAtLogin"
         static let shortcuts = "cai_shortcuts"
+        static let outputDestinations = "cai_outputDestinations"
     }
 
     // MARK: - Model Provider
@@ -79,6 +80,24 @@ class CaiSettings: ObservableObject {
         }
     }
 
+    @Published var outputDestinations: [OutputDestination] {
+        didSet {
+            if let data = try? JSONEncoder().encode(outputDestinations) {
+                defaults.set(data, forKey: Keys.outputDestinations)
+            }
+        }
+    }
+
+    /// Destinations that are enabled (shown in result view footer)
+    var enabledDestinations: [OutputDestination] {
+        outputDestinations.filter { $0.isEnabled && $0.isConfigured }
+    }
+
+    /// Destinations enabled AND marked for action list display (direct routing)
+    var actionListDestinations: [OutputDestination] {
+        outputDestinations.filter { $0.isEnabled && $0.showInActionList && $0.isConfigured }
+    }
+
     @Published var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
@@ -127,6 +146,13 @@ class CaiSettings: ObservableObject {
             self.shortcuts = decoded
         } else {
             self.shortcuts = []
+        }
+
+        if let data = defaults.data(forKey: Keys.outputDestinations),
+           let decoded = try? JSONDecoder().decode([OutputDestination].self, from: data) {
+            self.outputDestinations = decoded
+        } else {
+            self.outputDestinations = BuiltInDestinations.all
         }
 
         // Default to true for launch at login — bool(forKey:) returns false when key is absent,

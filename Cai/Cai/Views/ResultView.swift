@@ -3,12 +3,17 @@ import SwiftUI
 /// Shows the result of an action (LLM response, pretty-printed JSON, etc.)
 /// inside the floating window, replacing the action list.
 /// Press Enter to copy and dismiss (toast shows confirmation).
+/// Cmd+1..9 sends result to an output destination.
 /// ESC returns to the action list (handled by parent).
 struct ResultView: View {
     let title: String
     let onBack: () -> Void
     /// Called when the result is ready so the parent can copy on Enter.
     var onResult: ((String) -> Void)?
+    /// Output destinations shown as chips after the result.
+    var destinations: [OutputDestination] = []
+    /// Called when the user selects a destination.
+    var onSelectDestination: ((OutputDestination, String) -> Void)?
 
     @State private var result: String = ""
     @State private var isLoading: Bool = true
@@ -78,6 +83,33 @@ struct ResultView: View {
             .frame(maxHeight: 240)
 
             Spacer(minLength: 0)
+
+            // Destination chips — shown after result loads
+            if !isLoading && error == nil && !destinations.isEmpty {
+                Divider()
+                    .background(Color.caiDivider)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Text("Send to")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+
+                        ForEach(Array(destinations.enumerated()), id: \.element.id) { index, dest in
+                            DestinationChip(
+                                destination: dest,
+                                shortcut: index + 1,
+                                isSelected: false,
+                                action: {
+                                    onSelectDestination?(dest, result)
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                }
+            }
 
             Divider()
                 .background(Color.caiDivider)

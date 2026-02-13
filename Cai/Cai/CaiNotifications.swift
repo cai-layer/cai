@@ -8,6 +8,7 @@ extension NSNotification.Name {
     static let caiArrowUp = NSNotification.Name("CaiArrowUp")
     static let caiArrowDown = NSNotification.Name("CaiArrowDown")
     static let caiCmdNumber = NSNotification.Name("CaiCmdNumber")
+    static let caiTabPressed = NSNotification.Name("CaiTabPressed")
 
     // Actions
     static let caiExecuteAction = NSNotification.Name("CaiExecuteAction")

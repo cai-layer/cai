@@ -10,6 +10,7 @@ struct SettingsView: View {
     /// ActionListWindow this pushes the shortcuts screen; when rendered in the
     /// menu bar popover this opens a standalone window.
     var onShowShortcuts: (() -> Void)? = nil
+    var onShowDestinations: (() -> Void)? = nil
 
     /// LLM connection status — checked each time settings opens.
     @State private var llmConnected: Bool? = nil  // nil = checking
@@ -127,6 +128,23 @@ struct SettingsView: View {
                         }
                     }
 
+                    // Output Destinations
+                    settingsSection(title: "Output Destinations", icon: "arrow.up.right.square") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let onShowDestinations = onShowDestinations {
+                                Button(action: onShowDestinations) {
+                                    destinationsRow
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                destinationsRow
+                            }
+                            Text("Send LLM results to Mail, Notes, Slack, and more")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiTextSecondary)
+                        }
+                    }
+
                     // General
                     settingsSection(title: "General", icon: "gearshape") {
                         Toggle("Launch at Login", isOn: $settings.launchAtLogin)
@@ -162,6 +180,29 @@ struct SettingsView: View {
             Text(settings.shortcuts.isEmpty
                  ? "Create shortcuts for prompts & URLs"
                  : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s") configured")
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+            Spacer()
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.caiPrimary)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Destinations Row
+
+    private var destinationsRow: some View {
+        HStack {
+            let enabled = settings.enabledDestinations.count
+            let total = settings.outputDestinations.count
+            Text(total == 0
+                 ? "Configure where to send results"
+                 : "\(enabled) of \(total) destination\(total == 1 ? "" : "s") enabled")
                 .font(.system(size: 12))
                 .foregroundColor(.caiTextPrimary)
             Spacer()

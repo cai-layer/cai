@@ -25,6 +25,6 @@
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Cai needs accessibility access to register global keyboard shortcuts (⌥C) so you can quickly capture clipboard content from anywhere.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Cai needs permission to copy selected text when you press Option+C.</string>
+	<string>Cai uses Apple Events to send content to apps like Mail, Notes, and Reminders when you choose an output destination.</string>
 </dict>
 </plist>

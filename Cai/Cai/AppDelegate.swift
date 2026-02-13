@@ -12,6 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let clipboardHistory = ClipboardHistory.shared
     private var aboutWindow: NSWindow?
     private var shortcutsWindow: NSWindow?
+    private var destinationsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,10 +47,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover?.contentSize = NSSize(width: 340, height: 440)
         popover?.behavior = .transient
-        let settingsView = SettingsView(onShowShortcuts: { [weak self] in
-            self?.popover?.performClose(nil)
-            self?.showShortcutsWindow()
-        })
+        let settingsView = SettingsView(
+            onShowShortcuts: { [weak self] in
+                self?.popover?.performClose(nil)
+                self?.showShortcutsWindow()
+            },
+            onShowDestinations: { [weak self] in
+                self?.popover?.performClose(nil)
+                self?.showDestinationsWindow()
+            }
+        )
         popover?.contentViewController = NSHostingController(rootView: settingsView)
 
         // Check accessibility permission
@@ -182,6 +189,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
 
         self.shortcutsWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func showDestinationsWindow() {
+        // If already open, bring to front
+        if let existing = destinationsWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let destinationsView = DestinationsManagementView(onBack: { [weak self] in
+            self?.destinationsWindow?.close()
+        })
+        let hostingView = NSHostingView(rootView: destinationsView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 480),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Output Destinations"
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 320, height: 300)
+        window.center()
+
+        self.destinationsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

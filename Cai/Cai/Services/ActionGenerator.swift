@@ -276,6 +276,23 @@ struct ActionGenerator {
             ))
         }
 
+        // Append output destinations configured for action list display (direct routing)
+        // Use a seen set to guard against duplicate destination IDs in persisted data.
+        shortcut = items.last?.shortcut ?? 0
+        var seenDestIDs = Set<UUID>()
+        for dest in settings.actionListDestinations {
+            guard seenDestIDs.insert(dest.id).inserted else { continue }
+            shortcut += 1
+            items.append(ActionItem(
+                id: "dest_\(dest.id.uuidString)",
+                title: dest.name,
+                subtitle: "Send to \(dest.name)",
+                icon: dest.icon,
+                shortcut: shortcut,
+                type: .outputDestination(dest)
+            ))
+        }
+
         return items
     }
 }

@@ -24,6 +24,10 @@ struct CustomPromptView: View {
     let clipboardText: String
     let sourceApp: String?
     @ObservedObject var state: CustomPromptState
+    /// Output destinations shown in result phase.
+    var destinations: [OutputDestination] = []
+    /// Called when user selects a destination.
+    var onSelectDestination: ((OutputDestination, String) -> Void)?
 
     @State private var prompt: String = ""
     @State private var result: String = ""
@@ -68,6 +72,33 @@ struct CustomPromptView: View {
             }
 
             Spacer(minLength: 0)
+
+            // Destination chips — shown in result phase after result loads
+            if state.phase == .result && !isLoading && error == nil && !destinations.isEmpty {
+                Divider()
+                    .background(Color.caiDivider)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Text("Send to")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+
+                        ForEach(Array(destinations.enumerated()), id: \.element.id) { index, dest in
+                            DestinationChip(
+                                destination: dest,
+                                shortcut: index + 1,
+                                isSelected: false,
+                                action: {
+                                    onSelectDestination?(dest, result)
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                }
+            }
 
             Divider()
                 .background(Color.caiDivider)

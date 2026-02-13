@@ -54,7 +54,8 @@ No cloud. No telemetry. No accounts.
 - **Local AI** integration — works with LM Studio, Ollama, or any OpenAI-compatible server
 - **Custom AI action** (⌘1) — set your own prompt to do anything: improve writing, create email replies, translate, count words
 - **Custom shortcuts** — save reusable prompts and URL templates, access them by typing to filter
-- **Type-to-filter** — start typing to filter actions and shortcuts by name
+- **Output destinations** — send results to Mail, Notes, Reminders, or custom webhooks, URL schemes, AppleScript, and shell commands
+- **Type-to-filter** — start typing to filter actions, shortcuts, and destinations by name
 - **Clipboard history** — access last 9 items with ⌘0
 - **App-aware** — Cai knows which app you're in (Mail, Slack, Safari…) and adapts AI responses to match the context
 - **Keyboard-first** — navigate and execute everything without touching the mouse
@@ -169,6 +170,7 @@ Left-click the Cai menu bar icon (or click the logo in the action window footer)
 | **Model Provider** | LM Studio, Ollama, or Custom | LM Studio (auto-detected) |
 | **Custom Action** | Free-form AI prompt via ⌘1 | — |
 | **Custom Shortcuts** | Save prompt and URL shortcuts for instant access | — |
+| **Output Destinations** | Where to send results (Mail, Notes, webhooks, etc.) | Email + Notes enabled |
 | **Launch at Login** | Start Cai automatically | On |
 
 ## Custom Shortcuts
@@ -182,6 +184,41 @@ Save frequently used prompts and URL templates as shortcuts. They appear when yo
 **To create:** Preferences → Custom Shortcuts → click **+** → add a name, pick the type, and enter the prompt or URL template.
 
 **To use:** Press **⌥C**, then start typing the shortcut name. Matching shortcuts appear alongside filtered built-in actions.
+
+## Output Destinations
+
+After an AI action processes your text (or directly from the action list), you can send the result to an output destination instead of just copying it to the clipboard.
+
+### Built-in Destinations
+
+| Destination | What it does | Default |
+|---|---|---|
+| **Email** | Opens Mail.app with a new draft containing the text | Enabled |
+| **Save to Notes** | Creates a new note in Notes.app (preserves line breaks) | Enabled |
+| **Create Reminder** | Adds a reminder to your default Reminders list | Disabled |
+
+Toggle built-in destinations on/off in Preferences → Output Destinations.
+
+### Custom Destinations
+
+Create your own destinations to send text to any app or service:
+
+| Type | Use case | Example |
+|---|---|---|
+| **Webhook** | Send to any API via HTTP POST/PUT/PATCH | Post to Slack channel, create Notion page |
+| **AppleScript** | Control any macOS app | Add to Things, create OmniFocus task |
+| **URL Scheme** | Open deep links with your text | Save to Bear, open in Obsidian |
+| **Shell Command** | Run terminal commands | `gh issue create`, pipe to a script |
+
+**Template placeholders:**
+- `{{result}}` — your clipboard or AI-processed text (auto-escaped for the destination type)
+- `{{field_key}}` — value from a setup field (e.g. `{{api_key}}` for API tokens)
+
+**Setup fields** let you store secrets like API keys. They're resolved at execution time and masked in the UI.
+
+**"Show in action list"** — enable this to make a destination appear as a direct action (skips the AI step). Useful for quick-send workflows like "Send to Slack" directly from the action list.
+
+**To create:** Preferences → Output Destinations → click **+** → pick a type, configure the template, and optionally add setup fields.
 
 ## Requirements
 
@@ -219,8 +256,9 @@ This is not needed when installing from the [official DMG release](../../release
 - **CGEvent** for Cmd+C simulation (private event source to isolate modifier state)
 - **AXUIElement** for text selection detection
 - **NSPanel** subclass for floating window that captures keyboard events
-- **Actor-based** LLMService for thread-safe async/await
+- **Actor-based** LLMService and OutputDestinationService for thread-safe async/await
 - **ICS file generation** for calendar events (no EventKit permissions needed)
+- **AppleScript** integration for native app destinations (Mail, Notes, Reminders)
 - **SMAppService** for Launch at Login
 - [HotKey](https://github.com/soffes/HotKey) (SPM) for global keyboard shortcut
 

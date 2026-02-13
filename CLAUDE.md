@@ -37,16 +37,20 @@ Cai/Cai/
 ├── Models/
 │   ├── ActionItem.swift        # ActionItem, ActionType, LLMAction enums
 │   ├── CaiSettings.swift       # UserDefaults-backed settings (singleton)
-│   └── CaiShortcut.swift       # User-defined shortcut model
+│   ├── CaiShortcut.swift       # User-defined shortcut model
+│   ├── OutputDestination.swift # Destination model, DestinationType, WebhookConfig, SetupField
+│   └── BuiltInDestinations.swift # Pre-defined destinations (Email, Notes, Reminders)
 ├── Services/
 │   ├── WindowController.swift  # Floating panel, keyboard routing, event monitors
 │   ├── ClipboardService.swift  # CGEvent Cmd+C simulation + pasteboard read
 │   ├── ContentDetector.swift   # Priority-based content type detection
-│   ├── ActionGenerator.swift   # Generates actions per content type
+│   ├── ActionGenerator.swift   # Generates actions per content type + appends destinations
 │   ├── LLMService.swift        # Actor-based OpenAI-compatible API client
+│   ├── OutputDestinationService.swift # Actor-based executor for all destination types
 │   ├── SystemActions.swift     # URL, Maps, Calendar ICS, Search, Clipboard
 │   ├── HotKeyManager.swift     # Global Option+C registration
 │   ├── ClipboardHistory.swift  # Last 9 unique clipboard entries
+│   ├── UpdateChecker.swift     # GitHub release version check (24h interval)
 │   └── PermissionsManager.swift # Accessibility permission check/polling
 └── Views/
     ├── ActionListWindow.swift  # Main UI — routes between all screens
@@ -54,8 +58,11 @@ Cai/Cai/
     ├── ResultView.swift        # LLM response display (loading/error/success)
     ├── CustomPromptView.swift  # Free-form LLM prompt (two-phase: input → result)
     ├── SettingsView.swift      # Preferences panel
-    ├── ShortcutsManagementView.swift # Create/edit custom shortcuts
-    ├── ClipboardHistoryView.swift    # Last 9 entries view
+    ├── ShortcutsManagementView.swift  # Create/edit custom shortcuts
+    ├── DestinationsManagementView.swift # Create/edit output destinations
+    ├── DestinationChip.swift   # Destination button for result/custom prompt views
+    ├── ClipboardHistoryView.swift     # Last 9 entries view
+    ├── OnboardingPermissionView.swift # First-launch accessibility permission guide
     ├── CaiColors.swift         # Color theme constants
     ├── CaiLogo.swift           # SVG→SwiftUI Shape for menu bar icon
     ├── KeyboardHint.swift      # Footer keyboard shortcut labels
@@ -71,10 +78,40 @@ Option+C → AppDelegate.handleHotKeyTrigger()
   → Capture frontmost app name (sourceApp)
   → ClipboardService.copySelectedText() [CGEvent Cmd+C simulation]
   → ContentDetector.detect() → ContentResult (type + entities)
-  → ActionGenerator.generateActions() → [ActionItem]
+  → ActionGenerator.generateActions() → [ActionItem] (includes action-list destinations)
   → WindowController.showActionWindow(text, detection, sourceApp)
     → ActionListWindow (SwiftUI) shown in CaiPanel
 ```
+
+## Output Destinations
+
+Output destinations define where to send text after an LLM action (or directly from the action list).
+
+### Built-in Destinations (zero-config, AppleScript)
+- **Email** — opens Mail.app with a new draft containing the text
+- **Save to Notes** — creates a new note in Notes.app (auto-converts to HTML for formatting)
+- **Create Reminder** — adds a reminder to the default list (disabled by default)
+
+### Custom Destination Types
+Users can create custom destinations via Settings → Output Destinations:
+- **Webhook** — HTTP POST/PUT/PATCH with JSON body template
+- **AppleScript** — arbitrary AppleScript with `{{result}}` placeholder
+- **URL Scheme** — deep links (e.g. `bear://x-callback-url/create?text={{result}}`)
+- **Shell Command** — terminal command; text passed via `{{result}}` and stdin
+
+### Template Placeholders
+- `{{result}}` — the clipboard/LLM-processed text (auto-escaped per destination type)
+- `{{field_key}}` — value from a setup field (e.g. `{{api_key}}`)
+
+### Text Escaping Per Destination Type
+`OutputDestinationService` handles escaping automatically:
+- **AppleScript** — backslash, quotes, newlines escaped for AppleScript strings. Notes.app gets HTML conversion (`\n` → `<br>`) since it expects HTML for the `body` property.
+- **Webhook** — `JSONEncoder` for proper JSON string escaping (handles all special chars, unicode, control chars). Body template newlines collapsed (TextEditor artifact). Text trimmed of leading/trailing whitespace.
+- **URL Scheme** — percent-encoded via `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)`
+- **Shell** — raw text in template + piped as stdin
+
+### "Show in Action List"
+Destinations with `showInActionList: true` appear as direct-route actions (skip LLM step). They're appended by `ActionGenerator` and deduplicated by UUID.
 
 ## Bundle IDs
 
@@ -100,19 +137,22 @@ WindowController's local event monitor intercepts all keyboard events and posts 
 Standard NSPanel can't become key window. `CaiPanel` overrides `canBecomeKey` to enable keyboard input.
 
 ### PassThrough Flag
-When `TextEditor` is active (custom prompt input), `WindowController.passThrough = true` lets Enter and arrow keys pass through to the text editor instead of being intercepted.
+When `TextEditor` is active (custom prompt input, destination forms), `WindowController.passThrough = true` lets Enter and arrow keys pass through to the text editor instead of being intercepted.
 
 ### acceptsFilterInput Flag
-When `true`, typed characters are appended to `selectionState.filterText` for type-to-filter. Set to `false` when non-action screens are active (settings, history, etc.).
+When `true`, typed characters are appended to `selectionState.filterText` for type-to-filter. Set to `false` when non-action screens are active (settings, history, destinations, etc.).
 
-### Actor-Based LLMService
-All LLM calls are isolated in a Swift actor for thread safety. Communicates with OpenAI-compatible `/v1/chat/completions` endpoint.
+### Actor-Based Services
+`LLMService` and `OutputDestinationService` are both Swift actors for thread safety. LLMService communicates with OpenAI-compatible `/v1/chat/completions` endpoint. OutputDestinationService executes destinations (webhooks, AppleScript, URL schemes, shell commands).
 
 ### Window Resume Cache
 Dismissed windows are cached for 10 seconds. If reopened with the same clipboard text, the previous state (result view, custom prompt) is restored instead of creating a new window.
 
 ### LazyVStack Row Identity
 Action list rows use `.id(action.id)` (not index-based). This prevents SwiftUI from showing stale cached content when the filtered list changes.
+
+### Type-to-Filter Word Matching
+Filter matches any word in the action title by prefix. "note" matches "Save to **Note**s", but "ote" matches nothing. Implemented via `anyWordHasPrefix()` which splits on spaces and checks `hasPrefix` on each word.
 
 ## Tests
 
@@ -139,6 +179,12 @@ Tests are in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ test cases coveri
 3. Add action generation in `ActionGenerator.swift`
 4. Add tests in `ContentDetectorTests.swift`
 
+### Adding a New Built-in Destination
+
+1. Add static let in `BuiltInDestinations.swift` with a fixed UUID
+2. Add to `BuiltInDestinations.all` array
+3. Note: existing users won't get new built-ins (they loaded from persisted data). Consider a migration in `CaiSettings.init()`.
+
 ### Adding a New Setting
 
 1. Add key to `CaiSettings.Keys`
@@ -157,11 +203,14 @@ See `_docs/BUILD-DMG.md` for the full process. Key points:
 
 - **Never use `.id(index)` on LazyVStack rows** — use `.id(action.id)` to prevent stale cached views when filtering
 - **KeyEventHostingView should NOT have an `onKeyDown` handler** — the local event monitor handles everything; adding `keyDown` causes double-handling
-- **Filter uses `.hasPrefix()` not `.contains()`** — prefix matching by design
+- **Filter uses word-prefix matching** — `anyWordHasPrefix()` splits title on spaces, checks `hasPrefix` per word. "note" matches "Save to Notes", "ote" does not.
 - **Always reset `selectionState.filterText`** when navigating away from the action list
-- **`passThrough` must be set/unset** when entering/leaving TextEditor screens
+- **`passThrough` must be set/unset** when entering/leaving TextEditor screens (custom prompt, destination forms)
 - **Don't use App Sandbox** — CGEvent posting requires it to be disabled
 - **Accessibility permission polling** stops once granted — uses `startPollingForPermission()` on launch, timer invalidates on grant
+- **Notes.app expects HTML** — the `body` property takes HTML, not plain text. `OutputDestinationService` auto-converts via `plainTextToHTML()` when targeting Notes.
+- **Webhook JSON escaping uses JSONEncoder** — not manual string replacement. `JSONEncoder().encode(text)` handles all edge cases. Strip outer quotes since the template provides them.
+- **Destination deduplication** — `ActionGenerator` uses a `seenDestIDs` set to prevent the same destination UUID from appearing twice in the action list.
 
 ## Dependencies
 
@@ -171,7 +220,7 @@ See `_docs/BUILD-DMG.md` for the full process. Key points:
 ## Style Guide
 
 - SwiftUI for views, AppKit for window management and system integration
-- Singletons for services (`CaiSettings.shared`, `LLMService.shared`, `PermissionsManager.shared`, etc.)
+- Singletons for services (`CaiSettings.shared`, `LLMService.shared`, `OutputDestinationService.shared`, `PermissionsManager.shared`, etc.)
 - `@Published` properties with `didSet` for UserDefaults persistence
 - Notification-based communication between AppKit and SwiftUI layers
 - SF Symbols for all icons

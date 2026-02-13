@@ -51,7 +51,7 @@ No cloud. No telemetry. No accounts.
 ## Features
 
 - **Smart detection** of 7 content types with context-aware actions
-- **Local AI** integration — works with LM Studio, Ollama, or any OpenAI-compatible server
+- **Built-in AI** — ships with [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF), downloaded on first launch. Also works with LM Studio, Ollama, or any OpenAI-compatible server
 - **Custom AI action** (⌘1) — set your own prompt to do anything: improve writing, create email replies, translate, count words
 - **Custom shortcuts** — save reusable prompts and URL templates, access them by typing to filter
 - **Output destinations** — send results to Mail, Notes, Reminders, or custom webhooks, URL schemes, AppleScript, and shell commands
@@ -69,8 +69,8 @@ No cloud. No telemetry. No accounts.
 | **Meeting** | Date/time references | Reply, Create Calendar Event, Open in Maps, Summarize |
 | **Address** | Street patterns, "at [Place Name]" | Open in Maps |
 | **Word** | 1–2 words | Define, Explain, Translate, Search |
-| **Short Text** | < 100 characters | Explain, Reply, Translate, Search |
-| **Long Text** | 100+ characters | Summarize, Reply, Translate, Search |
+| **Short Text** | < 100 characters | Explain, Reply, Proofread, Translate, Search |
+| **Long Text** | 100+ characters | Summarize, Reply, Proofread, Translate, Search |
 
 All text types also get **Custom Action** (⌘1) for free-form AI prompts.
 
@@ -94,7 +94,7 @@ All text types also get **Custom Action** (⌘1) for free-form AI prompts.
 1. Download the `.dmg` from the [latest release](../../releases/latest)
 2. Open the DMG and drag **Cai.app** to your Applications folder
 3. Open the app and grant Accessibility permission ([see below](#first-launch-setup))
-4. Configure your LLM server in Preferences (left-click menu bar icon)
+4. Cai will download a small AI model (~2 GB) on first launch — or skip if you already use LM Studio / Ollama
 
 ### First Launch Setup
 
@@ -126,7 +126,15 @@ In Xcode:
 
 ## LLM Setup
 
-Cai works with any OpenAI-compatible local server. AI is optional — system actions (Open URL, Maps, Calendar, Search, Pretty Print JSON) work without it.
+### Built-in (zero config)
+
+Cai ships with a bundled AI engine ([llama.cpp](https://github.com/ggml-org/llama.cpp)). On first launch it downloads [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) (~2 GB) and runs everything locally — no external server needed.
+
+The model is stored in `~/Library/Application Support/Cai/models/`. The engine starts automatically on launch and stops when you quit Cai.
+
+### External providers
+
+If you already use LM Studio, Ollama, or another local server, skip the built-in download. Cai works with any OpenAI-compatible endpoint.
 
 | Provider | Default URL | Setup |
 |---|---|---|
@@ -141,6 +149,8 @@ Cai works with any OpenAI-compatible local server. AI is optional — system act
 **Auto-detection:** On launch, Cai checks if the current provider is reachable. If not, it probes known local ports and switches to the first one that responds — no manual setup needed.
 
 **To configure manually:** Open Cai Preferences (left-click menu bar icon) → select your Model Provider.
+
+AI is optional — system actions (Open URL, Maps, Calendar, Search, Pretty Print JSON) work without it.
 
 ### Recommended Models
 
@@ -167,7 +177,7 @@ Left-click the Cai menu bar icon (or click the logo in the action window footer)
 | **Translation Language** | Target language for translations | English |
 | **Search URL** | Base URL for web searches | Brave Search |
 | **Maps Provider** | Apple Maps or Google Maps | Apple Maps |
-| **Model Provider** | LM Studio, Ollama, or Custom | LM Studio (auto-detected) |
+| **Model Provider** | Built-in, LM Studio, Ollama, or Custom | Built-in (auto-detected) |
 | **Custom Action** | Free-form AI prompt via ⌘1 | — |
 | **Custom Shortcuts** | Save prompt and URL shortcuts for instant access | — |
 | **Output Destinations** | Where to send results (Mail, Notes, webhooks, etc.) | Email + Notes enabled |
@@ -223,8 +233,9 @@ Create your own destinations to send text to any app or service:
 ## Requirements
 
 - **macOS 13.0** (Ventura) or later
+- **Apple Silicon** (M1 or later) for the built-in AI engine
+- **~2.5 GB disk space** for the bundled model (downloaded on first launch)
 - **Accessibility permission** (for global hotkey ⌥C)
-- **Local LLM server** (optional — for AI-powered actions only)
 
 ## Troubleshooting
 
@@ -256,7 +267,8 @@ This is not needed when installing from the [official DMG release](../../release
 - **CGEvent** for Cmd+C simulation (private event source to isolate modifier state)
 - **AXUIElement** for text selection detection
 - **NSPanel** subclass for floating window that captures keyboard events
-- **Actor-based** LLMService and OutputDestinationService for thread-safe async/await
+- **Bundled [llama.cpp](https://github.com/ggml-org/llama.cpp)** for local LLM inference (ARM64 macOS, Metal GPU)
+- **Actor-based** LLMService, BuiltInLLM, and OutputDestinationService for thread-safe async/await
 - **ICS file generation** for calendar events (no EventKit permissions needed)
 - **AppleScript** integration for native app destinations (Mail, Notes, Reminders)
 - **SMAppService** for Launch at Login

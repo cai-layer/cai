@@ -3,6 +3,9 @@ import Foundation
 /// Downloads GGUF model files from Hugging Face with progress tracking,
 /// resume support, and cancellation.
 class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
+    /// Shared instance — survives window close so downloads continue in background.
+    static let shared = ModelDownloader()
+
     @Published var progress: Double = 0          // 0.0 to 1.0
     @Published var downloadedBytes: Int64 = 0
     @Published var totalBytes: Int64 = 0

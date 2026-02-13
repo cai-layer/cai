@@ -4,7 +4,7 @@ import SwiftUI
 /// Shown when no external LLM provider (LM Studio, Ollama) is detected.
 struct ModelSetupView: View {
     @ObservedObject private var settings = CaiSettings.shared
-    @StateObject private var downloader = ModelDownloader()
+    @ObservedObject private var downloader = ModelDownloader.shared
     @State private var phase: SetupPhase = .welcome
     @State private var errorMessage: String?
 
@@ -45,6 +45,16 @@ struct ModelSetupView: View {
         }
         .frame(width: 360, height: 320)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            // If setup was already completed (download finished in background),
+            // show the ready state.
+            if settings.builtInSetupDone && !settings.builtInModelPath.isEmpty {
+                phase = .ready
+            } else if downloader.isDownloading {
+                // Download is still in progress (window was closed and reopened)
+                phase = .downloading
+            }
+        }
     }
 
     // MARK: - Welcome

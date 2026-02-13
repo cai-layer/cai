@@ -49,6 +49,12 @@ actor OutputDestinationService {
             script.executeAndReturnError(&errorDict)
             if let error = errorDict {
                 let message = error[NSAppleScript.errorMessage] as? String ?? error.description
+                let errorNumber = error[NSAppleScript.errorNumber] as? Int ?? 0
+                // -1743 = "not allowed" (Automation permission denied)
+                // -1002 = "not permitted to send Apple events"
+                if errorNumber == -1743 || errorNumber == -1002 || message.lowercased().contains("not allowed") {
+                    throw OutputDestinationError.appleScriptFailed("Permission denied. Open System Settings → Privacy & Security → Automation and allow Cai to control this app.")
+                }
                 throw OutputDestinationError.appleScriptFailed(message)
             }
         }

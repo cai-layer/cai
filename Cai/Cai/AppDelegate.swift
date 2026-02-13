@@ -14,6 +14,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var shortcutsWindow: NSWindow?
     private var destinationsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
+    private var modelSetupWindow: NSWindow?
+    private var pendingLLMSetup = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the status item in the menu bar
@@ -55,6 +57,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onShowDestinations: { [weak self] in
                 self?.popover?.performClose(nil)
                 self?.showDestinationsWindow()
+            },
+            onShowModelSetup: { [weak self] in
+                self?.popover?.performClose(nil)
+                self?.showModelSetupWindow()
             }
         )
         popover?.contentViewController = NSHostingController(rootView: settingsView)
@@ -76,14 +82,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Auto-detect LLM provider on launch:
-        // - First launch (no saved preference): probe all known ports
-        // - Saved provider not reachable: fall back to whatever is running
-        Task {
-            let status = await LLMService.shared.checkStatus()
-            if !status.available {
-                await CaiSettings.shared.autoDetectProvider()
-            }
+        // Clean up any orphaned llama-server from a previous crash
+        Task { await BuiltInLLM.shared.cleanupOrphan() }
+
+        // Start built-in LLM and/or show setup — but only after accessibility is resolved.
+        // If accessibility is already granted, run immediately.
+        // Otherwise, wait for the permission notification before showing the model setup window.
+        if permissionsManager.hasAccessibilityPermission {
+            startBuiltInLLMAndAutoDetect()
+        } else {
+            // Will be triggered when accessibility permission is granted
+            pendingLLMSetup = true
         }
 
         // Check for updates (once per day)
@@ -104,7 +113,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("Accessibility permission granted - re-registering hotkey")
                 self?.setupHotKey()
                 self?.dismissOnboardingWindow()
+
+                // Now that accessibility is sorted, handle LLM setup
+                if self?.pendingLLMSetup == true {
+                    self?.pendingLLMSetup = false
+                    self?.startBuiltInLLMAndAutoDetect()
+                }
             }
+        }
+
+        // Listen for model setup requests from Settings
+        NotificationCenter.default.addObserver(
+            forName: .caiShowModelSetup,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showModelSetupWindow()
         }
     }
 
@@ -301,7 +325,87 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func quitApp() {
+        // Stop the built-in LLM server before quitting
+        Task { await BuiltInLLM.shared.stop() }
         NSApplication.shared.terminate(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Ensure the built-in server is stopped on any termination path
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            await BuiltInLLM.shared.stop()
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 3)
+    }
+
+    // MARK: - Model Setup Window
+
+    private func showModelSetupWindow() {
+        // If already open, bring to front
+        if let existing = modelSetupWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let setupView = ModelSetupView(onComplete: { [weak self] in
+            self?.modelSetupWindow?.close()
+            self?.modelSetupWindow = nil
+        })
+        let hostingView = NSHostingView(rootView: setupView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Cai Setup"
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        self.modelSetupWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Built-in LLM Startup
+
+    private func startBuiltInLLMAndAutoDetect() {
+        Task {
+            let settings = await MainActor.run { CaiSettings.shared }
+            let provider = await MainActor.run { settings.modelProvider }
+            let modelPath = await MainActor.run { settings.builtInModelPath }
+
+            // Start built-in server if that's the configured provider
+            if provider == .builtIn && !modelPath.isEmpty &&
+               FileManager.default.fileExists(atPath: modelPath) {
+                do {
+                    try await BuiltInLLM.shared.start(modelPath: modelPath)
+                    print("Built-in LLM server started successfully")
+                } catch {
+                    print("Failed to start built-in LLM: \(error.localizedDescription)")
+                }
+            }
+
+            // Auto-detect: probe known ports, fall back to built-in if available
+            let status = await LLMService.shared.checkStatus()
+            if !status.available {
+                await settings.autoDetectProvider()
+
+                // If still nothing and setup was never done, show the setup screen
+                let available = await LLMService.shared.checkStatus()
+                let setupDone = await MainActor.run { settings.builtInSetupDone }
+                if !available.available && !setupDone {
+                    await MainActor.run { [weak self] in
+                        self?.showModelSetupWindow()
+                    }
+                }
+            }
+        }
     }
 
     func setupHotKey() {

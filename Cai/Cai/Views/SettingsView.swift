@@ -11,6 +11,7 @@ struct SettingsView: View {
     /// menu bar popover this opens a standalone window.
     var onShowShortcuts: (() -> Void)? = nil
     var onShowDestinations: (() -> Void)? = nil
+    var onShowModelSetup: (() -> Void)? = nil
 
     /// LLM connection status — checked each time settings opens.
     @State private var llmConnected: Bool? = nil  // nil = checking
@@ -98,43 +99,55 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                             .accessibilityLabel("LLM model provider")
 
-                            if settings.modelProvider == .custom {
-                                TextField("http://127.0.0.1:8080", text: $settings.customModelURL)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .accessibilityLabel("Custom model URL")
+                            if settings.modelProvider == .builtIn {
+                                builtInModelSection
+                            } else {
+                                if settings.modelProvider == .custom {
+                                    TextField("http://127.0.0.1:8080", text: $settings.customModelURL)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .accessibilityLabel("Custom model URL")
 
-                                Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary)
-                            }
-
-                            // Model picker
-                            HStack(spacing: 8) {
-                                Picker("", selection: $settings.modelName) {
-                                    Text("Auto-detect").tag("")
-                                    ForEach(availableModels, id: \.self) { model in
-                                        Text(model).tag(model)
-                                    }
-                                }
-                                .labelsHidden()
-                                .pickerStyle(.menu)
-                                .accessibilityLabel("Model selection")
-
-                                Button(action: { fetchAvailableModels() }) {
-                                    Image(systemName: "arrow.clockwise")
-                                        .font(.system(size: 10, weight: .medium))
+                                    Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
+                                        .font(.system(size: 11))
                                         .foregroundColor(.caiTextSecondary)
                                 }
-                                .buttonStyle(.plain)
-                                .help("Refresh model list")
-                            }
 
-                            Text("Select a model or leave on Auto-detect")
-                                .font(.system(size: 10))
-                                .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                // Model picker
+                                HStack(spacing: 8) {
+                                    Picker("", selection: $settings.modelName) {
+                                        Text("Auto-detect").tag("")
+                                        ForEach(availableModels, id: \.self) { model in
+                                            Text(model).tag(model)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                    .accessibilityLabel("Model selection")
+
+                                    Button(action: { fetchAvailableModels() }) {
+                                        Image(systemName: "arrow.clockwise")
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundColor(.caiTextSecondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Refresh model list")
+                                }
+
+                                Text("Select a model or leave on Auto-detect")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                            }
                         }
-                        .onChange(of: settings.modelProvider) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
+                        .onChange(of: settings.modelProvider) { newProvider in
+                            if newProvider == .builtIn {
+                                startBuiltInIfNeeded()
+                            }
+                            forceCheckLLMStatus()
+                            if newProvider != .builtIn {
+                                fetchAvailableModels()
+                            }
+                        }
                         .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
                         .onChange(of: settings.modelName) { _ in forceCheckLLMStatus() }
                     }
@@ -200,6 +213,89 @@ struct SettingsView: View {
             checkLLMStatus()
             fetchAvailableModels()
         }
+    }
+
+    // MARK: - Built-in Model Section
+
+    @ViewBuilder
+    private var builtInModelSection: some View {
+        if settings.builtInSetupDone && !settings.builtInModelPath.isEmpty {
+            // Model is downloaded — show info
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.green)
+                    Text(ModelDownloader.defaultModel.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.caiTextPrimary)
+                    Spacer()
+                    Text(ModelDownloader.defaultModel.formattedSize)
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary)
+                }
+
+                HStack(spacing: 12) {
+                    Text("Runs entirely on your Mac")
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    Spacer()
+                    Button("Delete Model") {
+                        deleteBuiltInModel()
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.red.opacity(0.8))
+                    .buttonStyle(.plain)
+                }
+            }
+        } else {
+            // No model downloaded — show download prompt
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(.orange)
+                    Text("No model downloaded")
+                        .font(.system(size: 12))
+                        .foregroundColor(.caiTextSecondary)
+                }
+
+                Text("Download \(ModelDownloader.defaultModel.name) (\(ModelDownloader.defaultModel.formattedSize)) to use the built-in AI engine.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+                Button(action: { onShowModelSetup?() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 11))
+                        Text("Download Model")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(.caiPrimary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func deleteBuiltInModel() {
+        // Stop the server first
+        Task {
+            await BuiltInLLM.shared.stop()
+        }
+
+        // Delete the model file
+        let modelPath = settings.builtInModelPath
+        if !modelPath.isEmpty {
+            try? FileManager.default.removeItem(atPath: modelPath)
+        }
+
+        // Reset settings
+        settings.builtInModelPath = ""
+        settings.builtInSetupDone = false
+
+        // Switch to a different provider or stay on built-in (will show download prompt)
+        forceCheckLLMStatus()
     }
 
     // MARK: - Shortcuts Row
@@ -301,6 +397,27 @@ struct SettingsView: View {
             await MainActor.run {
                 llmConnected = status.available
             }
+        }
+    }
+
+    private func startBuiltInIfNeeded() {
+        let modelPath = settings.builtInModelPath
+        guard settings.builtInSetupDone,
+              !modelPath.isEmpty,
+              FileManager.default.fileExists(atPath: modelPath) else { return }
+
+        Task {
+            let isRunning = await BuiltInLLM.shared.isRunning
+            if !isRunning {
+                do {
+                    try await BuiltInLLM.shared.start(modelPath: modelPath)
+                    print("Built-in LLM started from Settings")
+                } catch {
+                    print("Failed to start built-in LLM from Settings: \(error.localizedDescription)")
+                }
+            }
+            // Refresh status after starting
+            await MainActor.run { forceCheckLLMStatus() }
         }
     }
 

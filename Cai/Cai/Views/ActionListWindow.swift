@@ -467,6 +467,9 @@ struct ActionListWindow: View {
                         showSettings = false
                         showDestinationsManagement = true
                     }
+                },
+                onShowModelSetup: {
+                    NotificationCenter.default.post(name: .caiShowModelSetup, object: nil)
                 }
             )
             Divider()

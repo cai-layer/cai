@@ -214,6 +214,26 @@ struct ActionGenerator {
                 shortcut: shortcut,
                 type: .openMaps(address)
             ))
+            shortcut += 1
+
+            items.append(ActionItem(
+                id: "explain",
+                title: "Explain",
+                subtitle: "Get an explanation",
+                icon: "lightbulb",
+                shortcut: shortcut,
+                type: .llmAction(.explain)
+            ))
+            shortcut += 1
+
+            items.append(ActionItem(
+                id: "summarize",
+                title: "Summarize",
+                subtitle: "Create a concise summary",
+                icon: "text.redaction",
+                shortcut: shortcut,
+                type: .llmAction(.summarize)
+            ))
 
         // MARK: URL
         case .url:

@@ -1,7 +1,7 @@
 # Cai - macOS Smart Clipboard Actions
 
 ## What It Is
-Native macOS menu bar app (SwiftUI) that detects clipboard content types and offers context-aware actions powered by local AI (LM Studio/Ollama). Privacy-first, no telemetry.
+Native macOS menu bar app (SwiftUI) that detects clipboard content types and offers context-aware actions powered by local AI. Ships with a built-in LLM engine (llama-server) for zero-config experience, or works with LM Studio/Ollama. Privacy-first, no cloud, no telemetry.
 
 ## Core Flow
 1. **Option+C** anywhere → `HotKeyManager` fires
@@ -65,11 +65,14 @@ Native macOS menu bar app (SwiftUI) that detects clipboard content types and off
 - **LazyVStack `.id(action.id)`**: Prevents stale cached rows (not index-based)
 - **ICS files for calendar**: No EventKit permissions needed
 - **Notification-based keyboard routing**: WindowController posts, SwiftUI views subscribe
-- **Actor-based LLMService**: Thread-safe async/await
+- **Actor-based services**: LLMService, BuiltInLLM, OutputDestinationService — thread-safe async/await
 - **App context awareness**: Captures frontmost app before Cmd+C, passes to LLM
+- **Built-in LLM**: Bundled llama-server (llama.cpp b8022) with auto-restart on crash (3 retries), orphan cleanup, PID tracking
+- **Model download**: Singleton ModelDownloader survives window close for background downloads
 
 ## Dependencies
 - **HotKey** (SPM): soffes/HotKey v0.2.0+
+- **llama-server** (bundled): llama.cpp b8022, ARM64 macOS, Metal GPU
 - **System**: AppKit, SwiftUI, Foundation, ApplicationServices, Carbon, ServiceManagement
 
 ## Bundle IDs

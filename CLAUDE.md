@@ -46,6 +46,8 @@ Cai/Cai/
 │   ├── ContentDetector.swift   # Priority-based content type detection
 │   ├── ActionGenerator.swift   # Generates actions per content type + appends destinations
 │   ├── LLMService.swift        # Actor-based OpenAI-compatible API client
+│   ├── BuiltInLLM.swift        # Actor — manages bundled llama-server subprocess
+│   ├── ModelDownloader.swift   # Downloads GGUF models with progress/resume
 │   ├── OutputDestinationService.swift # Actor-based executor for all destination types
 │   ├── SystemActions.swift     # URL, Maps, Calendar ICS, Search, Clipboard
 │   ├── HotKeyManager.swift     # Global Option+C registration
@@ -67,8 +69,11 @@ Cai/Cai/
     ├── CaiLogo.swift           # SVG→SwiftUI Shape for menu bar icon
     ├── KeyboardHint.swift      # Footer keyboard shortcut labels
     ├── ToastWindow.swift       # Pill notification ("Copied to Clipboard")
+    ├── ModelSetupView.swift     # First-launch model download + setup
     ├── AboutView.swift         # About window
     └── VisualEffectBackground.swift  # NSVisualEffectView wrapper
+├── Resources/
+│   └── bin/                    # Bundled llama-server binary + dylibs (llama.cpp b8022, ARM64)
 ```
 
 ## Core Flow
@@ -113,6 +118,29 @@ Users can create custom destinations via Settings → Output Destinations:
 ### "Show in Action List"
 Destinations with `showInActionList: true` appear as direct-route actions (skip LLM step). They're appended by `ActionGenerator` and deduplicated by UUID.
 
+## Built-in LLM
+
+Cai bundles `llama-server` (from llama.cpp) for zero-dependency LLM inference. Users who don't have LM Studio/Ollama get a "Download Model" prompt on first launch.
+
+### Architecture
+- **`BuiltInLLM.swift`** — Actor managing the llama-server subprocess (start/stop/crash recovery/orphan cleanup)
+- **`ModelDownloader.swift`** — Singleton (`ModelDownloader.shared`) that downloads GGUF models with progress tracking and resume support. Survives window close for background downloads.
+- **`ModelSetupView.swift`** — First-launch setup UI (welcome → downloading → starting → ready)
+- **Binary**: `Resources/bin/llama-server` + dylibs (llama.cpp b8022, ARM64 macOS, Metal GPU)
+
+### Key behaviors
+- Server runs on ports 8690-8699 (auto-finds free port)
+- PID file at `~/Library/Application Support/Cai/llama-server.pid` for orphan cleanup
+- Crash recovery: auto-restart up to 3 times with 1s delay, toast notification
+- Model stored at `~/Library/Application Support/Cai/models/`
+- Settings: `CaiSettings.modelProvider == .builtIn`, `builtInModelPath`, `builtInSetupDone`
+- Model setup deferred until after accessibility permission is granted (`pendingLLMSetup` flag)
+
+### Default model
+Ministral 3B Q4_K_M (~2.15 GB) from Hugging Face. Hardcoded in `ModelDownloader.defaultModel`.
+
+See `_docs/BUILT-IN-LLM.md` for full implementation plan and `_docs/dmg-assets/BUILD-DMG.md` for binary signing/update instructions.
+
 ## Bundle IDs
 
 | Build | Bundle ID | Purpose |
@@ -143,7 +171,7 @@ When `TextEditor` is active (custom prompt input, destination forms), `WindowCon
 When `true`, typed characters are appended to `selectionState.filterText` for type-to-filter. Set to `false` when non-action screens are active (settings, history, destinations, etc.).
 
 ### Actor-Based Services
-`LLMService` and `OutputDestinationService` are both Swift actors for thread safety. LLMService communicates with OpenAI-compatible `/v1/chat/completions` endpoint. OutputDestinationService executes destinations (webhooks, AppleScript, URL schemes, shell commands).
+`LLMService`, `OutputDestinationService`, and `BuiltInLLM` are Swift actors for thread safety. LLMService communicates with OpenAI-compatible `/v1/chat/completions` endpoint. OutputDestinationService executes destinations (webhooks, AppleScript, URL schemes, shell commands). BuiltInLLM manages the llama-server subprocess lifecycle.
 
 ### Window Resume Cache
 Dismissed windows are cached for 10 seconds. If reopened with the same clipboard text, the previous state (result view, custom prompt) is restored instead of creating a new window.
@@ -194,7 +222,8 @@ Tests are in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ test cases coveri
 
 ### Building a DMG
 
-See `_docs/BUILD-DMG.md` for the full process. Key points:
+See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
+- Sign bundled llama-server binaries with Developer ID before archiving
 - Background image: `_docs/dmg-assets/extension-icon.png`
 - `.DS_Store` from previous DMG preserves window layout
 - Upload via `gh release upload v1.0.0 Cai-1.0.0-macos.dmg --clobber`
@@ -215,12 +244,13 @@ See `_docs/BUILD-DMG.md` for the full process. Key points:
 ## Dependencies
 
 - **HotKey** (SPM): [soffes/HotKey](https://github.com/soffes/HotKey) v0.2.0+ — global keyboard shortcut
+- **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8022 — local LLM inference engine (ARM64 macOS)
 - **macOS 13.0+** (Ventura) deployment target
 
 ## Style Guide
 
 - SwiftUI for views, AppKit for window management and system integration
-- Singletons for services (`CaiSettings.shared`, `LLMService.shared`, `OutputDestinationService.shared`, `PermissionsManager.shared`, etc.)
+- Singletons for services (`CaiSettings.shared`, `LLMService.shared`, `OutputDestinationService.shared`, `BuiltInLLM.shared`, `ModelDownloader.shared`, `PermissionsManager.shared`, etc.)
 - `@Published` properties with `didSet` for UserDefaults persistence
 - Notification-based communication between AppKit and SwiftUI layers
 - SF Symbols for all icons

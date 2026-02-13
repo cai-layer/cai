@@ -29,5 +29,6 @@ enum LLMAction {
     case define
     case explain
     case reply
+    case proofread
     case custom(String)
 }

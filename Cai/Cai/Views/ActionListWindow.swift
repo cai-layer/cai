@@ -764,6 +764,8 @@ struct ActionListWindow: View {
                     return try await llm.explain(clipboardText, appContext: app)
                 case .reply:
                     return try await llm.reply(clipboardText, appContext: app)
+                case .proofread:
+                    return try await llm.proofread(clipboardText, appContext: app)
                 case .custom(let instruction):
                     return try await llm.customAction(clipboardText, instruction: instruction, appContext: app)
                 }
@@ -809,6 +811,7 @@ struct ActionListWindow: View {
         case .define: return "Definition"
         case .explain: return "Explanation"
         case .reply: return "Reply"
+        case .proofread: return "Proofread"
         case .custom(let prompt): return prompt
         }
     }

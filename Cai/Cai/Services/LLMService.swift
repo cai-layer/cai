@@ -206,6 +206,13 @@ actor LLMService {
             userPrompt: text)
     }
 
+    func proofread(_ text: String, appContext: String? = nil) async throws -> String {
+        let context = appContext.map { " (from \($0))" } ?? ""
+        return try await generate(
+            systemPrompt: "You are a proofreader.\(context) Fix grammar, spelling, and punctuation errors. Keep the original meaning, tone, and style. Output only the corrected text — no explanations, no comments.",
+            userPrompt: text)
+    }
+
     func customAction(_ text: String, instruction: String, appContext: String? = nil) async throws -> String {
         let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(

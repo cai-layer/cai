@@ -92,6 +92,16 @@ struct ActionGenerator {
             ))
             shortcut += 1
 
+            items.append(ActionItem(
+                id: "proofread",
+                title: "Proofread",
+                subtitle: "Fix grammar and spelling",
+                icon: "pencil.and.outline",
+                shortcut: shortcut,
+                type: .llmAction(.proofread)
+            ))
+            shortcut += 1
+
             let lang = settings.translationLanguage
             items.append(ActionItem(
                 id: "translate",
@@ -131,6 +141,16 @@ struct ActionGenerator {
                 icon: "arrowshape.turn.up.left",
                 shortcut: shortcut,
                 type: .llmAction(.reply)
+            ))
+            shortcut += 1
+
+            items.append(ActionItem(
+                id: "proofread",
+                title: "Proofread",
+                subtitle: "Fix grammar and spelling",
+                icon: "pencil.and.outline",
+                shortcut: shortcut,
+                type: .llmAction(.proofread)
             ))
             shortcut += 1
 

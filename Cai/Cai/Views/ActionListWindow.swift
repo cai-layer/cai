@@ -17,6 +17,7 @@ struct ActionListWindow: View {
     @State private var showHistory: Bool = false
     @State private var showCustomPrompt: Bool = false
     @State private var showShortcutsManagement: Bool = false
+    @State private var showDestinationsManagement: Bool = false
     @StateObject private var historySelectionState = SelectionState()
     @StateObject private var customPromptState = CustomPromptState()
     @ObservedObject private var settings = CaiSettings.shared
@@ -27,6 +28,7 @@ struct ActionListWindow: View {
 
     /// Which screen is currently active — used for keyboard routing
     private var activeScreen: Screen {
+        if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
         if showSettings { return .settings }
         if showHistory { return .history }
@@ -36,12 +38,19 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement
+        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
     /// renumbered sequentially. Uses case-insensitive prefix matching:
     /// typing "ex" matches "Explain" (title starts with "ex").
+    /// Checks if any word in `text` starts with `query`.
+    /// "note" matches "Save to Notes", but "ote" does not.
+    private func anyWordHasPrefix(_ text: String, query: String) -> Bool {
+        let words = text.lowercased().split(separator: " ")
+        return words.contains { $0.hasPrefix(query) }
+    }
+
     private var displayedActions: [ActionItem] {
         guard !selectionState.filterText.isEmpty else { return actions }
 
@@ -49,9 +58,9 @@ struct ActionListWindow: View {
         var items: [ActionItem] = []
         var shortcut = 1
 
-        // Filter built-in actions — prefix match on title
+        // Filter built-in actions — any word in title must start with query
         for action in actions {
-            if action.title.lowercased().hasPrefix(query) {
+            if anyWordHasPrefix(action.title, query: query) {
                 items.append(ActionItem(
                     id: action.id,
                     title: action.title,
@@ -64,10 +73,11 @@ struct ActionListWindow: View {
             }
         }
 
-        // Add matching user shortcuts — prefix match on name
+        // Add matching user shortcuts — any word prefix match on name.
+        // (Shortcuts aren't in ActionGenerator output; they only appear via search.)
         let clipboardText = text
         for sc in settings.shortcuts {
-            if sc.name.lowercased().hasPrefix(query) {
+            if anyWordHasPrefix(sc.name, query: query) {
                 let actionType: ActionType
                 let subtitle: String
                 switch sc.type {
@@ -91,6 +101,9 @@ struct ActionListWindow: View {
             }
         }
 
+        // Note: output destinations are already in `actions` (appended by ActionGenerator),
+        // so they're included in the filter loop above — no separate loop needed.
+
         return items
     }
 
@@ -98,7 +111,15 @@ struct ActionListWindow: View {
         ZStack(alignment: .top) {
             VisualEffectBackground()
 
-            if showShortcutsManagement {
+            if showDestinationsManagement {
+                DestinationsManagementView(
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showDestinationsManagement = false
+                        }
+                    }
+                )
+            } else if showShortcutsManagement {
                 ShortcutsManagementView(
                     onBack: {
                         withAnimation(.easeInOut(duration: 0.15)) {
@@ -110,7 +131,11 @@ struct ActionListWindow: View {
                 CustomPromptView(
                     clipboardText: text,
                     sourceApp: sourceApp,
-                    state: customPromptState
+                    state: customPromptState,
+                    destinations: settings.enabledDestinations,
+                    onSelectDestination: { dest, resultText in
+                        executeDestination(dest, with: resultText)
+                    }
                 )
             } else if showSettings {
                 settingsContent
@@ -132,6 +157,10 @@ struct ActionListWindow: View {
                     title: resultTitle,
                     onBack: { goBackToActions() },
                     onResult: { text in pendingResultText = text },
+                    destinations: settings.enabledDestinations,
+                    onSelectDestination: { dest, resultText in
+                        executeDestination(dest, with: resultText)
+                    },
                     generator: generator
                 )
             } else {
@@ -176,6 +205,7 @@ struct ActionListWindow: View {
         .onChange(of: showResult) { _ in updateFilterInputFlag() }
         .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
         .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
+        .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
         .onAppear { updateFilterInputFlag() }
     }
 
@@ -187,7 +217,11 @@ struct ActionListWindow: View {
     // MARK: - Keyboard Routing
 
     private func handleEsc() {
-        if showShortcutsManagement {
+        if showDestinationsManagement {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showDestinationsManagement = false
+            }
+        } else if showShortcutsManagement {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showShortcutsManagement = false
             }
@@ -240,6 +274,21 @@ struct ActionListWindow: View {
                 }
                 executeAction(action)
             }
+        case .result:
+            // Cmd+1..9 on result screen → execute output destination
+            let dests = settings.enabledDestinations
+            let destIndex = number - 1
+            guard destIndex >= 0, destIndex < dests.count,
+                  !pendingResultText.isEmpty else { return }
+            executeDestination(dests[destIndex], with: pendingResultText)
+        case .customPrompt:
+            // Cmd+1..9 on custom prompt result → execute output destination
+            guard customPromptState.phase == .result else { break }
+            let dests = settings.enabledDestinations
+            let destIndex = number - 1
+            guard destIndex >= 0, destIndex < dests.count,
+                  !customPromptState.resultText.isEmpty else { return }
+            executeDestination(dests[destIndex], with: customPromptState.resultText)
         case .history:
             let historyIndex = number - 1
             let entries = ClipboardHistory.shared.entries
@@ -402,12 +451,20 @@ struct ActionListWindow: View {
 
     private var settingsContent: some View {
         VStack(spacing: 0) {
-            SettingsView(onShowShortcuts: {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    showSettings = false
-                    showShortcutsManagement = true
+            SettingsView(
+                onShowShortcuts: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                        showShortcutsManagement = true
+                    }
+                },
+                onShowDestinations: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                        showDestinationsManagement = true
+                    }
                 }
-            })
+            )
             Divider()
                 .background(Color.caiDivider)
             HStack(spacing: 16) {
@@ -613,6 +670,9 @@ struct ActionListWindow: View {
             }
             onDismiss()
 
+        case .outputDestination(let destination):
+            executeDestination(destination, with: text)
+
         default:
             // System actions (openURL, openMaps, search, createCalendar)
             onExecute(action)
@@ -636,6 +696,35 @@ struct ActionListWindow: View {
         case .explain: return "Explanation"
         case .reply: return "Reply"
         case .custom(let prompt): return prompt
+        }
+    }
+
+    // MARK: - Output Destinations
+
+    private func executeDestination(_ destination: OutputDestination, with text: String) {
+        // Always copy to clipboard first
+        SystemActions.copyToClipboard(text)
+
+        Task {
+            do {
+                try await OutputDestinationService.shared.execute(destination, with: text)
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .caiShowToast,
+                        object: nil,
+                        userInfo: ["message": "Sent to \(destination.name)"]
+                    )
+                    onDismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .caiShowToast,
+                        object: nil,
+                        userInfo: ["message": "Failed: \(error.localizedDescription)"]
+                    )
+                }
+            }
         }
     }
 

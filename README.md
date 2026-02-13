@@ -65,14 +65,15 @@ No cloud. No telemetry. No accounts.
 
 | Content Type | Detection | Actions |
 |---|---|---|
-| **JSON** | Valid JSON object/array | Pretty Print |
-| **Meeting** | Date/time references | Reply, Create Calendar Event, Open in Maps, Summarize, Proofread, Translate, Search |
-| **Address** | Street patterns, "at [Place Name]" | Open in Maps |
 | **Word** | 1–2 words | Define, Explain, Translate, Search |
 | **Short Text** | < 100 characters | Explain, Reply, Proofread, Translate, Search |
-| **Long Text** | 100+ characters | Summarize, Reply, Proofread, Translate, Search |
+| **Long Text** | 100+ characters | Summarize, Explain, Reply, Proofread, Translate |
+| **Meeting** | Date/time references (short text only) | Create Event, Open in Maps + all text actions |
+| **Address** | Street patterns, "at [Place Name]" (short text only) | Open in Maps + all text actions |
+| **URL** | `https://` or `www.` | Open in Browser (+ text actions if URL has surrounding text) |
+| **JSON** | Valid JSON object/array | Pretty Print |
 
-All text types also get **Custom Action** (⌘1) for free-form AI prompts.
+All types also get **Custom Action** (⌘1) for free-form AI prompts. Meeting and address detection is limited to short text (≤200 chars) — longer text is treated as text so you always have access to Summarize, Reply, etc.
 
 ## Keyboard Shortcuts
 

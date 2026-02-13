@@ -17,9 +17,9 @@ Native macOS menu bar app (SwiftUI) that detects clipboard content types and off
 |----------|------|-----------------|------------|
 | 1 | URL | Regex `https?://\|www\.` | 1.0 |
 | 2 | JSON | Starts `{`/`[` + JSONSerialization | 1.0 |
-| 3 | Address | International street regex + NSDataDetector | 0.8 |
-| 4 | Meeting | NSDataDetector.date + preprocessing (14h→14:00) | 0.7-0.9 |
-| 5 | Venue | Case-sensitive regex: `at/in` + uppercase place name | 0.6 |
+| 3 | Address | International street regex + NSDataDetector (≤200 chars) | 0.8 |
+| 4 | Meeting | NSDataDetector.date + preprocessing (14h→14:00) (≤200 chars) | 0.7-0.9 |
+| 5 | Venue | Case-sensitive regex: `at/in` + uppercase place name (≤200 chars) | 0.6 |
 | 6 | Word | ≤2 words, <30 chars | 1.0 |
 | 7 | Short Text | <100 chars | 1.0 |
 | 8 | Long Text | ≥100 chars | 1.0 |
@@ -27,14 +27,20 @@ Native macOS menu bar app (SwiftUI) that detects clipboard content types and off
 **Filters**: Currency ($50), durations ("for 5 minutes"), pure numbers
 
 ## Actions Per Content Type
-- **All types**: Custom Action (⌘1, always first)
-- **Word**: Define, Explain, Translate, Search
+
+Structure: Custom Action (⌘1, always first) → type-specific actions → universal text actions.
+Universal text actions (Explain, Reply, Proofread, Translate, Search) appear for all types except JSON and bare URLs, so misdetection never locks the user out of useful actions.
+
+- **Word**: Define + Explain, Translate, Search (no Reply/Proofread)
 - **Short Text**: Explain, Reply, Proofread, Translate, Search
-- **Long Text**: Summarize, Reply, Proofread, Translate, Search
-- **Meeting**: Reply, Create Calendar Event, Open in Maps (if location), Summarize, Proofread, Translate, Search
-- **Address/Venue**: Open in Maps
-- **URL**: Open in Browser (+ Summarize/Explain if substantial text beyond URL)
-- **JSON**: Pretty Print
+- **Long Text**: Summarize, Explain, Reply, Proofread, Translate (no Search)
+- **Meeting**: Create Event, Open in Maps (if location) + all text actions
+- **Address/Venue**: Open in Maps + all text actions
+- **URL (bare)**: Open in Browser only
+- **URL+text**: text actions + Open in Browser
+- **JSON**: Pretty Print only
+
+Meeting/address/venue detection is skipped for text >200 chars — long text always gets text actions.
 
 ## Features
 - **Type-to-filter**: Start typing to filter actions and shortcuts by prefix

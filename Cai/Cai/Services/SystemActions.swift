@@ -9,6 +9,13 @@ struct SystemActions {
     // MARK: - Open URL
 
     static func openURL(_ url: URL) {
+        // Ensure the URL has a scheme — NSWorkspace.open fails with -50 for scheme-less URLs
+        if url.scheme == nil || url.scheme?.isEmpty == true {
+            if let fixed = URL(string: "https://\(url.absoluteString)") {
+                NSWorkspace.shared.open(fixed)
+                return
+            }
+        }
         NSWorkspace.shared.open(url)
     }
 

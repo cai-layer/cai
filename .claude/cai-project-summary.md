@@ -31,7 +31,7 @@ Native macOS menu bar app (SwiftUI) that detects clipboard content types and off
 - **Word**: Define, Explain, Translate, Search
 - **Short Text**: Explain, Reply, Proofread, Translate, Search
 - **Long Text**: Summarize, Reply, Proofread, Translate, Search
-- **Meeting**: Create Calendar Event, Open in Maps (if location)
+- **Meeting**: Reply, Create Calendar Event, Open in Maps (if location), Summarize, Proofread, Translate, Search
 - **Address/Venue**: Open in Maps
 - **URL**: Open in Browser (+ Summarize/Explain if substantial text beyond URL)
 - **JSON**: Pretty Print

@@ -480,7 +480,8 @@ class WindowController: NSObject, ObservableObject {
             hideWindow()
 
         case .search(let query):
-            SystemActions.searchWeb(query, searchBaseURL: CaiSettings.shared.searchURL)
+            let baseURL = CaiSettings.shared.searchURL.isEmpty ? CaiSettings.defaultSearchURL : CaiSettings.shared.searchURL
+            SystemActions.searchWeb(query, searchBaseURL: baseURL)
             hideWindow()
 
         case .createCalendar(let title, let date, let location, let description):

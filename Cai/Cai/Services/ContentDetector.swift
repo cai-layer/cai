@@ -48,15 +48,20 @@ class ContentDetector {
         // Priority 2: JSON
         if let result = detectJSON(trimmed) { return result }
 
-        // Priority 3: Address (street patterns + NSDataDetector)
-        if let result = detectAddress(trimmed) { return result }
+        // Priority 3–5: Address, Meeting, Venue — only for short text (≤200 chars).
+        // Long text that happens to contain a date or address should be treated as text,
+        // not as a meeting/address. Users would select just the relevant portion for that.
+        if trimmed.count <= 200 {
+            // Priority 3: Address (street patterns + NSDataDetector)
+            if let result = detectAddress(trimmed) { return result }
 
-        // Priority 4: Date/Meeting
-        if let result = detectMeeting(trimmed) { return result }
+            // Priority 4: Date/Meeting
+            if let result = detectMeeting(trimmed) { return result }
 
-        // Priority 5: Venue / place name ("at Cafe La Palma", "in Ramones Bar")
-        // Runs after meeting so that date-bearing text gets the richer meeting result.
-        if let result = detectVenue(trimmed) { return result }
+            // Priority 5: Venue / place name ("at Cafe La Palma", "in Ramones Bar")
+            // Runs after meeting so that date-bearing text gets the richer meeting result.
+            if let result = detectVenue(trimmed) { return result }
+        }
 
         // Priority 6: Text classification (always succeeds)
         return classifyText(trimmed)
@@ -147,24 +152,25 @@ class ContentDetector {
             }
         }
 
-        // Backup: try NSDataDetector with .address type
+        // Backup: try NSDataDetector with .address type.
+        // Require at least 2 recognized components to avoid false positives
+        // (NSDataDetector is very loose — it matches random text as "addresses").
         if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.address.rawValue) {
             let range = NSRange(text.startIndex..., in: text)
-            if let match = detector.firstMatch(in: text, range: range) {
-                var entities = ContentEntities()
-                if let components = match.addressComponents {
-                    let parts = [
-                        components[.street],
-                        components[.city],
-                        components[.state],
-                        components[.zip],
-                        components[.country]
-                    ].compactMap { $0 }
+            if let match = detector.firstMatch(in: text, range: range),
+               let components = match.addressComponents {
+                let parts = [
+                    components[.street],
+                    components[.city],
+                    components[.state],
+                    components[.zip],
+                    components[.country]
+                ].compactMap { $0 }
+                if parts.count >= 2 {
+                    var entities = ContentEntities()
                     entities.address = parts.joined(separator: ", ")
-                } else {
-                    entities.address = text
+                    return ContentResult(type: .address, confidence: 0.8, entities: entities)
                 }
-                return ContentResult(type: .address, confidence: 0.8, entities: entities)
             }
         }
 
@@ -254,19 +260,49 @@ class ContentDetector {
     /// Shared helper: extracts a venue/place name from "at [Name]" or "in [Name]" patterns.
     /// Case-sensitive on the place name (must start uppercase) to filter out noise.
     private func extractVenueName(_ text: String) -> String? {
-        // "at/in" case-insensitive, place name must start with uppercase letter
-        let pattern = #"(?:^|\b)(?:[Aa][Tt]|[Ii][Nn])\s+([A-Z][\w\s'&-]+?)(?:\s*[,.!?]|\s+(?:on|at|from|to|for)\b|$)"#
+        // Capture the preposition (group 1) and the place name (group 2).
+        // "at/in" case-insensitive, place name must start with uppercase letter.
+        let pattern = #"(?:^|\b)([Aa][Tt]|[Ii][Nn])\s+([A-Z][\w\s'&-]+?)(?:\s*[,.!?]|\s+(?:on|at|from|to|for)\b|$)"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: text) else {
+              match.numberOfRanges > 2,
+              let prepRange = Range(match.range(at: 1), in: text),
+              let nameRange = Range(match.range(at: 2), in: text) else {
             return nil
         }
-        let candidate = String(text[range]).trimmingCharacters(in: .whitespaces)
+        let candidate = String(text[nameRange]).trimmingCharacters(in: .whitespaces)
 
         // Skip time-of-day words
         let timeWords = ["noon", "midnight", "night", "morning", "evening", "afternoon"]
         guard !timeWords.contains(candidate.lowercased()) else { return nil }
+
+        // Skip if "in"/"at" is part of a phrasal verb/adjective (e.g. "built in", "log in",
+        // "check in", "plug in", "opt in", "look at", "good at"). Check the word before.
+        let prepStart = prepRange.lowerBound
+        if prepStart > text.startIndex {
+            // Walk back past whitespace to find the preceding word
+            var idx = text.index(before: prepStart)
+            while idx > text.startIndex && text[idx].isWhitespace {
+                idx = text.index(before: idx)
+            }
+            if !text[idx].isWhitespace {
+                // Find start of preceding word
+                var wordStart = idx
+                while wordStart > text.startIndex {
+                    let prev = text.index(before: wordStart)
+                    if text[prev].isWhitespace || text[prev].isPunctuation { break }
+                    wordStart = prev
+                }
+                let prevWord = String(text[wordStart...idx]).lowercased()
+                let phrasalPrefixes = [
+                    "built", "log", "plug", "opt", "check", "sign", "fill", "turn",
+                    "bring", "come", "give", "hand", "kick", "let", "move", "put",
+                    "run", "set", "step", "take", "trade", "tune", "write",
+                    "good", "bad", "interested", "involved", "included", "results"
+                ]
+                if phrasalPrefixes.contains(prevWord) { return nil }
+            }
+        }
 
         return candidate
     }

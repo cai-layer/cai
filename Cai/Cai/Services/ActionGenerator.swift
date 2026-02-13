@@ -5,6 +5,10 @@ import Foundation
 /// Generates context-aware actions based on content type and user preferences.
 /// LLM actions are always shown regardless of server availability — errors are
 /// handled at execution time.
+///
+/// Structure: Custom Action → type-specific actions → universal text actions.
+/// Universal text actions appear for all types except JSON and bare URLs,
+/// so misdetection never locks the user out of useful actions.
 struct ActionGenerator {
 
     static func generateActions(
@@ -26,6 +30,10 @@ struct ActionGenerator {
         ))
         shortcut += 1
 
+        // --- Type-specific actions ---
+
+        var appendTextActions = true
+
         switch detection.type {
 
         // MARK: Word
@@ -40,152 +48,12 @@ struct ActionGenerator {
             ))
             shortcut += 1
 
-            items.append(ActionItem(
-                id: "explain",
-                title: "Explain",
-                subtitle: "Get an explanation",
-                icon: "lightbulb",
-                shortcut: shortcut,
-                type: .llmAction(.explain)
-            ))
-            shortcut += 1
-
-            let lang = settings.translationLanguage
-            items.append(ActionItem(
-                id: "translate",
-                title: "Translate to \(lang)",
-                subtitle: nil,
-                icon: "globe",
-                shortcut: shortcut,
-                type: .llmAction(.translate(lang))
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "search_web",
-                title: "Search Web",
-                subtitle: nil,
-                icon: "magnifyingglass",
-                shortcut: shortcut,
-                type: .search(text)
-            ))
-
-        // MARK: Short Text
-        case .shortText:
-            items.append(ActionItem(
-                id: "explain",
-                title: "Explain",
-                subtitle: "Get an explanation",
-                icon: "lightbulb",
-                shortcut: shortcut,
-                type: .llmAction(.explain)
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "reply",
-                title: "Reply",
-                subtitle: "Draft a reply",
-                icon: "arrowshape.turn.up.left",
-                shortcut: shortcut,
-                type: .llmAction(.reply)
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "proofread",
-                title: "Proofread",
-                subtitle: "Fix grammar and spelling",
-                icon: "pencil.and.outline",
-                shortcut: shortcut,
-                type: .llmAction(.proofread)
-            ))
-            shortcut += 1
-
-            let lang = settings.translationLanguage
-            items.append(ActionItem(
-                id: "translate",
-                title: "Translate to \(lang)",
-                subtitle: nil,
-                icon: "globe",
-                shortcut: shortcut,
-                type: .llmAction(.translate(lang))
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "search_web",
-                title: "Search Web",
-                subtitle: nil,
-                icon: "magnifyingglass",
-                shortcut: shortcut,
-                type: .search(text)
-            ))
-
-        // MARK: Long Text
-        case .longText:
-            items.append(ActionItem(
-                id: "summarize",
-                title: "Summarize",
-                subtitle: "Create a concise summary",
-                icon: "text.redaction",
-                shortcut: shortcut,
-                type: .llmAction(.summarize)
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "reply",
-                title: "Reply",
-                subtitle: "Draft a reply",
-                icon: "arrowshape.turn.up.left",
-                shortcut: shortcut,
-                type: .llmAction(.reply)
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "proofread",
-                title: "Proofread",
-                subtitle: "Fix grammar and spelling",
-                icon: "pencil.and.outline",
-                shortcut: shortcut,
-                type: .llmAction(.proofread)
-            ))
-            shortcut += 1
-
-            let lang = settings.translationLanguage
-            items.append(ActionItem(
-                id: "translate",
-                title: "Translate to \(lang)",
-                subtitle: nil,
-                icon: "globe",
-                shortcut: shortcut,
-                type: .llmAction(.translate(lang))
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "search_web",
-                title: "Search Web",
-                subtitle: nil,
-                icon: "magnifyingglass",
-                shortcut: shortcut,
-                type: .search(text)
-            ))
+        // MARK: Short Text, Long Text
+        case .shortText, .longText:
+            break  // no type-specific actions, universal text actions cover it
 
         // MARK: Meeting
         case .meeting:
-            items.append(ActionItem(
-                id: "reply",
-                title: "Reply",
-                subtitle: "Draft a reply",
-                icon: "arrowshape.turn.up.left",
-                shortcut: shortcut,
-                type: .llmAction(.reply)
-            ))
-            shortcut += 1
-
             let dateText = detection.entities.dateText ?? "event"
             items.append(ActionItem(
                 id: "create_event",
@@ -214,15 +82,6 @@ struct ActionGenerator {
                 shortcut += 1
             }
 
-            items.append(ActionItem(
-                id: "summarize",
-                title: "Summarize",
-                subtitle: "Create a concise summary",
-                icon: "text.redaction",
-                shortcut: shortcut,
-                type: .llmAction(.summarize)
-            ))
-
         // MARK: Address
         case .address:
             let address = detection.entities.address ?? text
@@ -236,31 +95,10 @@ struct ActionGenerator {
             ))
             shortcut += 1
 
-            items.append(ActionItem(
-                id: "explain",
-                title: "Explain",
-                subtitle: "Get an explanation",
-                icon: "lightbulb",
-                shortcut: shortcut,
-                type: .llmAction(.explain)
-            ))
-            shortcut += 1
-
-            items.append(ActionItem(
-                id: "summarize",
-                title: "Summarize",
-                subtitle: "Create a concise summary",
-                icon: "text.redaction",
-                shortcut: shortcut,
-                type: .llmAction(.summarize)
-            ))
-
         // MARK: URL
         case .url:
-            // If there's substantial text beyond the URL, show AI actions first
-            // (e.g. an email containing a link — user likely wants to understand the text).
-            // AI actions come before navigation to match the ordering principle used
-            // across all content types: LLM actions first, system actions last.
+            // Open in Browser first for bare URLs.
+            // If there's substantial text beyond the URL, show it after text actions.
             let textBeyondURL: Int = {
                 if let urlString = detection.entities.url {
                     return text.replacingOccurrences(of: urlString, with: "")
@@ -268,41 +106,22 @@ struct ActionGenerator {
                 }
                 return 0
             }()
-            if textBeyondURL > 30 {
-                if text.count >= 100 {
+
+            if textBeyondURL <= 30 {
+                // Bare URL — just Open in Browser, no text actions
+                if let urlString = detection.entities.url, let url = URL(string: urlString) {
                     items.append(ActionItem(
-                        id: "summarize",
-                        title: "Summarize",
-                        subtitle: "Create a concise summary",
-                        icon: "text.redaction",
+                        id: "open_url",
+                        title: "Open in Browser",
+                        subtitle: urlString,
+                        icon: "safari",
                         shortcut: shortcut,
-                        type: .llmAction(.summarize)
+                        type: .openURL(url)
                     ))
-                    shortcut += 1
                 }
-
-                items.append(ActionItem(
-                    id: "explain",
-                    title: "Explain",
-                    subtitle: "Get an explanation",
-                    icon: "lightbulb",
-                    shortcut: shortcut,
-                    type: .llmAction(.explain)
-                ))
-                shortcut += 1
+                appendTextActions = false
             }
-
-            // Open in Browser — last for URL+text, ⌘2 for bare URLs
-            if let urlString = detection.entities.url, let url = URL(string: urlString) {
-                items.append(ActionItem(
-                    id: "open_url",
-                    title: "Open in Browser",
-                    subtitle: urlString,
-                    icon: "safari",
-                    shortcut: shortcut,
-                    type: .openURL(url)
-                ))
-            }
+            // URL+text: text actions will be appended below, then Open in Browser at the end
 
         // MARK: JSON
         case .json:
@@ -314,6 +133,102 @@ struct ActionGenerator {
                 shortcut: shortcut,
                 type: .jsonPrettyPrint(text)
             ))
+            appendTextActions = false
+        }
+
+        // --- Universal text actions ---
+        // Appended for all types except JSON and bare URLs.
+        // Some actions are skipped for specific types where they don't make sense.
+
+        let isWord = detection.type == .word
+        let isLong = detection.type == .longText
+
+        if appendTextActions {
+            shortcut = (items.last?.shortcut ?? 0) + 1
+
+            // Summarize — only for longer text (≥100 chars)
+            if text.count >= 100 {
+                items.append(ActionItem(
+                    id: "summarize",
+                    title: "Summarize",
+                    subtitle: "Create a concise summary",
+                    icon: "text.redaction",
+                    shortcut: shortcut,
+                    type: .llmAction(.summarize)
+                ))
+                shortcut += 1
+            }
+
+            items.append(ActionItem(
+                id: "explain",
+                title: "Explain",
+                subtitle: "Get an explanation",
+                icon: "lightbulb",
+                shortcut: shortcut,
+                type: .llmAction(.explain)
+            ))
+            shortcut += 1
+
+            // Reply / Proofread — skip for single words
+            if !isWord {
+                items.append(ActionItem(
+                    id: "reply",
+                    title: "Reply",
+                    subtitle: "Draft a reply",
+                    icon: "arrowshape.turn.up.left",
+                    shortcut: shortcut,
+                    type: .llmAction(.reply)
+                ))
+                shortcut += 1
+
+                items.append(ActionItem(
+                    id: "proofread",
+                    title: "Proofread",
+                    subtitle: "Fix grammar and spelling",
+                    icon: "pencil.and.outline",
+                    shortcut: shortcut,
+                    type: .llmAction(.proofread)
+                ))
+                shortcut += 1
+            }
+
+            let lang = settings.translationLanguage
+            items.append(ActionItem(
+                id: "translate",
+                title: "Translate to \(lang)",
+                subtitle: nil,
+                icon: "globe",
+                shortcut: shortcut,
+                type: .llmAction(.translate(lang))
+            ))
+            shortcut += 1
+
+            // Search — skip for long text (nobody searches a paragraph)
+            if !isLong {
+                items.append(ActionItem(
+                    id: "search_web",
+                    title: "Search Web",
+                    subtitle: nil,
+                    icon: "magnifyingglass",
+                    shortcut: shortcut,
+                    type: .search(text)
+                ))
+            }
+
+            // URL+text: append Open in Browser after text actions
+            if detection.type == .url,
+               let urlString = detection.entities.url,
+               let url = URL(string: urlString) {
+                shortcut += 1
+                items.append(ActionItem(
+                    id: "open_url",
+                    title: "Open in Browser",
+                    subtitle: urlString,
+                    icon: "safari",
+                    shortcut: shortcut,
+                    type: .openURL(url)
+                ))
+            }
         }
 
         // Append output destinations configured for action list display (direct routing)

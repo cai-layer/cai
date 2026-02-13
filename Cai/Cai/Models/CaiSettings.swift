@@ -140,6 +140,8 @@ class CaiSettings: ObservableObject {
 
     // MARK: - Common Languages
 
+    static let defaultSearchURL = "https://search.brave.com/search?q="
+
     static let commonLanguages = [
         "English", "Spanish", "French", "German", "Italian",
         "Portuguese", "Chinese", "Japanese", "Korean", "Arabic",
@@ -150,7 +152,7 @@ class CaiSettings: ObservableObject {
 
     private init() {
         self.searchURL = defaults.string(forKey: Keys.searchURL)
-            ?? "https://search.brave.com/search?q="
+            ?? Self.defaultSearchURL
 
         self.translationLanguage = defaults.string(forKey: Keys.translationLanguage)
             ?? "English"

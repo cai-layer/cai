@@ -69,10 +69,15 @@ struct SettingsView: View {
 
                     // Search URL
                     settingsSection(title: "Search URL", icon: "magnifyingglass") {
-                        TextField("https://search.brave.com/search?q=", text: $settings.searchURL)
+                        TextField(CaiSettings.defaultSearchURL, text: $settings.searchURL)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 12, design: .monospaced))
                             .accessibilityLabel("Search engine base URL")
+                            .onChange(of: settings.searchURL) { newValue in
+                                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    settings.searchURL = CaiSettings.defaultSearchURL
+                                }
+                            }
                     }
 
                     // Maps Provider

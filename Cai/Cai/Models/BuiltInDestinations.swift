@@ -28,7 +28,7 @@ struct BuiltInDestinations {
         type: .applescript(template: """
             tell application "Notes"
                 activate
-                make new note at folder "Notes" with properties {body:"{{result}}"}
+                make new note with properties {body:"{{result}}"}
             end tell
             """),
         isEnabled: true,

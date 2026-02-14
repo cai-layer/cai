@@ -116,11 +116,15 @@ class CaiSettings: ObservableObject {
         }
     }
 
+    /// Actual port the built-in llama-server is running on (set by BuiltInLLM after start).
+    /// Not persisted — defaults to 8690, updated at runtime.
+    var builtInPort: Int = 8690
+
     /// Resolved model base URL based on provider selection
     var modelURL: String {
         switch modelProvider {
         case .builtIn:
-            return modelProvider.defaultURL  // Updated dynamically if port changes
+            return "http://127.0.0.1:\(builtInPort)"
         case .lmstudio, .ollama:
             return modelProvider.defaultURL
         case .custom:

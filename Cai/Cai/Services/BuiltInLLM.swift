@@ -121,6 +121,10 @@ actor BuiltInLLM {
         // Wait until the server is responsive
         try await waitUntilReady(timeout: 30)
 
+        // Update CaiSettings with the actual port so LLMService connects to the right one
+        let port = assignedPort
+        await MainActor.run { CaiSettings.shared.builtInPort = port }
+
         // Successful start — reset crash counter
         restartCount = 0
     }

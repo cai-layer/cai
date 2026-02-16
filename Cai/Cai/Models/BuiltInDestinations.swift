@@ -33,7 +33,7 @@ struct BuiltInDestinations {
             """),
         isEnabled: true,
         isBuiltIn: true,
-        showInActionList: true
+        showInActionList: false
     )
 
     static let reminders = OutputDestination(

@@ -41,6 +41,8 @@ actor OutputDestinationService {
         }
         let resolved = resolveTemplate(template, text: processedText, fields: fields)
 
+        let targetApp = Self.extractTargetApp(from: template)
+
         try await MainActor.run {
             var errorDict: NSDictionary?
             guard let script = NSAppleScript(source: resolved) else {
@@ -53,7 +55,8 @@ actor OutputDestinationService {
                 // -1743 = "not allowed" (Automation permission denied)
                 // -1002 = "not permitted to send Apple events"
                 if errorNumber == -1743 || errorNumber == -1002 || message.lowercased().contains("not allowed") {
-                    throw OutputDestinationError.appleScriptFailed("Permission denied. Open System Settings → Privacy & Security → Automation and allow Cai to control this app.")
+                    Self.showAutomationPermissionAlert(for: targetApp)
+                    throw OutputDestinationError.appleScriptFailed("Permission denied for \(targetApp ?? "this app").")
                 }
                 throw OutputDestinationError.appleScriptFailed(message)
             }
@@ -197,6 +200,51 @@ actor OutputDestinationService {
         guard process.terminationStatus == 0 else {
             let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             throw OutputDestinationError.shellFailed(Int(process.terminationStatus), output)
+        }
+    }
+
+    // MARK: - Automation Permission
+
+    /// Extracts the target app name from an AppleScript template (e.g. "Notes" from `tell application "Notes"`).
+    private static func extractTargetApp(from template: String) -> String? {
+        let pattern = #"tell application \"([^\"]+)\""#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: template, range: NSRange(template.startIndex..., in: template)),
+              let range = Range(match.range(at: 1), in: template) else {
+            return nil
+        }
+        return String(template[range])
+    }
+
+    /// Purpose descriptions for built-in apps — shown in the permission alert.
+    private static let appPurposeDescriptions: [String: String] = [
+        "Notes": "to create a new note from Cai results",
+        "Mail": "to draft an email from Cai results",
+        "Reminders": "to create reminders from Cai results"
+    ]
+
+    /// Shows an NSAlert explaining why Automation permission is needed, with a button to open System Settings.
+    @MainActor
+    private static func showAutomationPermissionAlert(for appName: String?) {
+        let app = appName ?? "this app"
+        let purpose = appName.flatMap { appPurposeDescriptions[$0] } ?? "to send content from Cai"
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Cai needs permission to control \(app)"
+        alert.informativeText = "Cai requires Automation access to \(app) \(purpose).\n\nGo to System Settings → Privacy & Security → Automation and enable \(app) under Cai."
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Cancel")
+
+        // Force the alert to the front (Cai is an LSUIElement app)
+        NSApp.activate(ignoringOtherApps: true)
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // Deep-link to Automation pane in System Settings
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 

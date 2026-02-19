@@ -21,6 +21,7 @@ class CaiSettings: ObservableObject {
         static let outputDestinations = "cai_outputDestinations"
         static let builtInModelPath = "cai_builtInModelPath"
         static let builtInSetupDone = "cai_builtInSetupDone"
+        static let reduceTransparency = "cai_reduceTransparency"
     }
 
     // MARK: - Model Provider
@@ -116,6 +117,11 @@ class CaiSettings: ObservableObject {
         }
     }
 
+    /// When true, uses a solid background instead of the translucent blur effect.
+    @Published var reduceTransparency: Bool {
+        didSet { defaults.set(reduceTransparency, forKey: Keys.reduceTransparency) }
+    }
+
     /// Actual port the built-in llama-server is running on (set by BuiltInLLM after start).
     /// Not persisted — defaults to 8690, updated at runtime.
     var builtInPort: Int = 8690
@@ -171,6 +177,7 @@ class CaiSettings: ObservableObject {
 
         self.builtInModelPath = defaults.string(forKey: Keys.builtInModelPath) ?? ""
         self.builtInSetupDone = defaults.bool(forKey: Keys.builtInSetupDone)
+        self.reduceTransparency = defaults.bool(forKey: Keys.reduceTransparency)
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple

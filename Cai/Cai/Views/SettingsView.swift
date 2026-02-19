@@ -193,10 +193,16 @@ struct SettingsView: View {
 
                     // General
                     settingsSection(title: "General", icon: "gearshape") {
-                        Toggle("Launch at Login", isOn: $settings.launchAtLogin)
-                            .font(.system(size: 12))
-                            .foregroundColor(.caiTextPrimary)
-                            .accessibilityLabel("Launch Cai at login")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Launch at Login", isOn: $settings.launchAtLogin)
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                                .accessibilityLabel("Launch Cai at login")
+                            Toggle("Reduce Transparency", isOn: $settings.reduceTransparency)
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                                .accessibilityLabel("Use solid background instead of blur")
+                        }
                     }
 
                     // Hotkey reminder

@@ -113,7 +113,7 @@ struct ActionListWindow: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            VisualEffectBackground()
+            VisualEffectBackground(reduceTransparency: settings.reduceTransparency)
 
             if showDestinationsManagement {
                 DestinationsManagementView(

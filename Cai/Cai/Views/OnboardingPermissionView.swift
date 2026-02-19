@@ -4,6 +4,7 @@ import SwiftUI
 /// is not yet granted. Auto-dismisses once the user enables the permission.
 struct OnboardingPermissionView: View {
     @ObservedObject private var permissions = PermissionsManager.shared
+    @ObservedObject private var settings = CaiSettings.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -62,7 +63,7 @@ struct OnboardingPermissionView: View {
             Spacer().frame(height: 20)
         }
         .frame(width: 320, height: 340)
-        .background(VisualEffectBackground(cornerRadius: 0))
+        .background(VisualEffectBackground(cornerRadius: 0, reduceTransparency: settings.reduceTransparency))
     }
 
     private func permissionRow(icon: String, text: String) -> some View {

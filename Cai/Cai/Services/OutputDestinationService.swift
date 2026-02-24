@@ -97,8 +97,10 @@ actor OutputDestinationService {
             .replacingOccurrences(of: "\r", with: "")
         let resolvedBody = resolveTemplate(compactBody, text: escapeForJSON(trimmedText), fields: fields)
 
+        #if DEBUG
         print("🌐 Webhook URL: \(resolvedURL)")
         print("🌐 Webhook body: \(resolvedBody.prefix(500))")
+        #endif
 
         guard let url = URL(string: resolvedURL) else {
             throw OutputDestinationError.invalidURL
@@ -121,11 +123,19 @@ actor OutputDestinationService {
         }
 
         let responseBody = String(data: data, encoding: .utf8) ?? ""
+        #if DEBUG
         print("🌐 Webhook response: \(http.statusCode) — \(responseBody.prefix(300))")
+        #endif
 
         guard (200...299).contains(http.statusCode) else {
             throw OutputDestinationError.webhookFailed(http.statusCode, responseBody)
         }
+    }
+
+    /// Escapes text for safe embedding in shell commands via single-quote wrapping.
+    /// Prevents injection when clipboard text is substituted into {{result}}.
+    private func escapeForShell(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Escapes text for safe embedding inside a JSON string value.
@@ -165,7 +175,7 @@ actor OutputDestinationService {
     // MARK: - Shell Command
 
     private func executeShell(_ command: String, text: String, fields: [SetupField]) async throws {
-        let resolved = resolveTemplate(command, text: text, fields: fields)
+        let resolved = resolveTemplate(command, text: escapeForShell(text), fields: fields)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")

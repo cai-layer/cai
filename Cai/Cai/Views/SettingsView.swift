@@ -207,39 +207,36 @@ struct SettingsView: View {
 
                     // General
                     settingsSection(title: "General", icon: "gearshape") {
+                        HStack {
+                            Text("Hotkey")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
+                            ShortcutRecorderView()
+                                .frame(width: 120, height: 24)
+                        }
+
                         Toggle("Launch at Login", isOn: $settings.launchAtLogin)
                             .font(.system(size: 12))
                             .foregroundColor(.caiTextPrimary)
                             .accessibilityLabel("Launch Cai at login")
                     }
 
-                    // Feedback & hotkey
-                    HStack(spacing: 6) {
-                        Button(action: {
-                            if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "envelope")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text("Send Feedback")
-                                    .font(.system(size: 11))
-                            }
-                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                    // Feedback
+                    Button(action: {
+                        if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
+                            NSWorkspace.shared.open(url)
                         }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-
+                    }) {
                         HStack(spacing: 4) {
-                            Image(systemName: "keyboard")
+                            Image(systemName: "envelope")
                                 .font(.system(size: 10, weight: .medium))
-                            Text("\u{2325}C")
+                            Text("Send Feedback")
                                 .font(.system(size: 11))
                         }
                         .foregroundColor(.caiTextSecondary.opacity(0.5))
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)

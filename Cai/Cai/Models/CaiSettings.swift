@@ -1,4 +1,5 @@
 import Foundation
+import HotKey
 import ServiceManagement
 
 /// Persistent user settings stored in UserDefaults.
@@ -23,6 +24,7 @@ class CaiSettings: ObservableObject {
         static let builtInSetupDone = "cai_builtInSetupDone"
         static let crashReportingEnabled = "cai_crashReportingEnabled"
         static let crashReportingPromptShown = "cai_crashReportingPromptShown"
+        static let hotKeyCombo = "cai_hotKeyCombo"
     }
 
     // MARK: - Model Provider
@@ -161,6 +163,41 @@ class CaiSettings: ObservableObject {
         didSet { defaults.set(crashReportingPromptShown, forKey: Keys.crashReportingPromptShown) }
     }
 
+    /// Custom hotkey combo stored as dictionary. nil = default (Option+C).
+    @Published var hotKeyComboDict: [String: Int]? {
+        didSet {
+            defaults.set(hotKeyComboDict, forKey: Keys.hotKeyCombo)
+            NotificationCenter.default.post(name: .caiHotKeyChanged, object: nil)
+        }
+    }
+
+    /// Default hotkey: Option+C
+    static let defaultKeyCombo = KeyCombo(key: .c, modifiers: [.option])
+
+    /// Resolved key combo — custom if set, otherwise default Option+C
+    var keyCombo: KeyCombo {
+        get {
+            if let dict = hotKeyComboDict {
+                // Convert [String: Int] to [String: Any] for KeyCombo
+                let anyDict: [String: Any] = dict.mapValues { $0 as Any }
+                if let combo = KeyCombo(dictionary: anyDict) {
+                    return combo
+                }
+            }
+            return Self.defaultKeyCombo
+        }
+        set {
+            // Convert KeyCombo.dictionary ([String: Any]) to [String: Int] for Codable storage
+            let dict = newValue.dictionary
+            hotKeyComboDict = dict.compactMapValues { $0 as? Int }
+        }
+    }
+
+    /// Resets hotkey to default Option+C
+    func resetHotKey() {
+        hotKeyComboDict = nil
+    }
+
     // MARK: - Common Languages
 
     static let defaultSearchURL = "https://search.brave.com/search?q="
@@ -193,6 +230,8 @@ class CaiSettings: ObservableObject {
 
         self.crashReportingEnabled = defaults.bool(forKey: Keys.crashReportingEnabled)
         self.crashReportingPromptShown = defaults.bool(forKey: Keys.crashReportingPromptShown)
+
+        self.hotKeyComboDict = defaults.dictionary(forKey: Keys.hotKeyCombo) as? [String: Int]
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple

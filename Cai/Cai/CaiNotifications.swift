@@ -18,4 +18,5 @@ extension NSNotification.Name {
     // System
     static let accessibilityPermissionChanged = NSNotification.Name("AccessibilityPermissionChanged")
     static let caiShowModelSetup = NSNotification.Name("CaiShowModelSetup")
+    static let caiHotKeyChanged = NSNotification.Name("CaiHotKeyChanged")
 }

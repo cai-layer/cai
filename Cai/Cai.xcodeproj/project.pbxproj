@@ -30,6 +30,7 @@
 		CAI00088 /* ClipboardHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00089 /* ClipboardHistoryView.swift */; };
 		CAI00090 /* CustomPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00091 /* CustomPromptView.swift */; };
 		CAI00092 /* ToastWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00093 /* ToastWindow.swift */; };
+		CAI00143 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00144 /* ShortcutRecorderView.swift */; };
 		CAI00100 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00101 /* LLMService.swift */; };
 		CAI00102 /* SystemActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00103 /* SystemActions.swift */; };
 		CAI00104 /* ActionGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00105 /* ActionGenerator.swift */; };
@@ -90,6 +91,7 @@
 		CAI00089 /* ClipboardHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryView.swift; sourceTree = "<group>"; };
 		CAI00091 /* CustomPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPromptView.swift; sourceTree = "<group>"; };
 		CAI00093 /* ToastWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastWindow.swift; sourceTree = "<group>"; };
+		CAI00144 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
 		CAI00101 /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
 		CAI00103 /* SystemActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActions.swift; sourceTree = "<group>"; };
 		CAI00105 /* ActionGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionGenerator.swift; sourceTree = "<group>"; };
@@ -183,6 +185,7 @@
 				CAI00089 /* ClipboardHistoryView.swift */,
 				CAI00091 /* CustomPromptView.swift */,
 				CAI00093 /* ToastWindow.swift */,
+				CAI00144 /* ShortcutRecorderView.swift */,
 				CAI00107 /* AboutView.swift */,
 				CAI00109 /* KeyboardHint.swift */,
 				CAI00115 /* ShortcutsManagementView.swift */,
@@ -360,6 +363,7 @@
 				CAI00088 /* ClipboardHistoryView.swift in Sources */,
 				CAI00090 /* CustomPromptView.swift in Sources */,
 				CAI00092 /* ToastWindow.swift in Sources */,
+				CAI00143 /* ShortcutRecorderView.swift in Sources */,
 				CAI00100 /* LLMService.swift in Sources */,
 				CAI00102 /* SystemActions.swift in Sources */,
 				CAI00104 /* ActionGenerator.swift in Sources */,

@@ -141,6 +141,16 @@ struct SettingsView: View {
                                 Text("Select a model or leave on Auto-detect")
                                     .font(.system(size: 10))
                                     .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+                                // API Key (optional, for cloud or auth-enabled servers)
+                                SecureField("Optional — only needed for cloud or auth-enabled servers", text: $settings.apiKey)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .accessibilityLabel("API key for authenticated LLM providers")
+
+                                Text("API key — leave blank for local servers without auth")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
                             }
                         }
                         .onChange(of: settings.modelProvider) { newProvider in

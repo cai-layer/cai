@@ -25,6 +25,7 @@ class CaiSettings: ObservableObject {
         static let crashReportingEnabled = "cai_crashReportingEnabled"
         static let crashReportingPromptShown = "cai_crashReportingPromptShown"
         static let hotKeyCombo = "cai_hotKeyCombo"
+        static let apiKey = "cai_apiKey"
     }
 
     // MARK: - Model Provider
@@ -163,6 +164,12 @@ class CaiSettings: ObservableObject {
         didSet { defaults.set(crashReportingPromptShown, forKey: Keys.crashReportingPromptShown) }
     }
 
+    /// Optional API key for authenticated LLM providers (cloud APIs, LM Studio with auth).
+    /// Empty string = no auth header sent. Stored locally, never logged in release builds.
+    @Published var apiKey: String {
+        didSet { defaults.set(apiKey, forKey: Keys.apiKey) }
+    }
+
     /// Custom hotkey combo stored as dictionary. nil = default (Option+C).
     @Published var hotKeyComboDict: [String: Int]? {
         didSet {
@@ -232,6 +239,7 @@ class CaiSettings: ObservableObject {
         self.crashReportingPromptShown = defaults.bool(forKey: Keys.crashReportingPromptShown)
 
         self.hotKeyComboDict = defaults.dictionary(forKey: Keys.hotKeyCombo) as? [String: Int]
+        self.apiKey = defaults.string(forKey: Keys.apiKey) ?? ""
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple

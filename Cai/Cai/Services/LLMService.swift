@@ -12,6 +12,14 @@ actor LLMService {
     /// Used in generate() requests — some providers (LM Studio) require it.
     private var cachedModelName: String?
 
+    /// Applies the API key as a Bearer token if one is configured.
+    private func applyAuth(to request: inout URLRequest) async {
+        let key = await MainActor.run { CaiSettings.shared.apiKey }
+        if !key.isEmpty {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
+    }
+
     // MARK: - Status
 
     struct Status {
@@ -31,6 +39,7 @@ actor LLMService {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
+        await applyAuth(to: &request)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -66,6 +75,7 @@ actor LLMService {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
+        await applyAuth(to: &request)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -121,6 +131,7 @@ actor LLMService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30
         request.httpBody = try JSONEncoder().encode(body)
+        await applyAuth(to: &request)
 
         let data: Data
         let response: URLResponse

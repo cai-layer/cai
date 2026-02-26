@@ -51,7 +51,8 @@ Cai/Cai/
 │   ├── CrashReportingService.swift # Opt-in Sentry crash reporting (privacy-first)
 │   ├── OutputDestinationService.swift # Actor-based executor for all destination types
 │   ├── SystemActions.swift     # URL, Maps, Calendar ICS, Search, Clipboard
-│   ├── HotKeyManager.swift     # Global Option+C registration
+│   ├── HotKeyManager.swift     # Global hotkey registration (dynamic, reads from settings)
+│   ├── KeychainHelper.swift    # Lightweight macOS Keychain wrapper for secrets (API keys)
 │   ├── ClipboardHistory.swift  # Last 9 unique clipboard entries
 │   ├── UpdateChecker.swift     # GitHub release version check (24h interval)
 │   └── PermissionsManager.swift # Accessibility permission check/polling
@@ -70,6 +71,7 @@ Cai/Cai/
     ├── CaiLogo.swift           # SVG→SwiftUI Shape for menu bar icon
     ├── KeyboardHint.swift      # Footer keyboard shortcut labels
     ├── ToastWindow.swift       # Pill notification ("Copied to Clipboard")
+    ├── ShortcutRecorderView.swift  # Zen-style hotkey recorder (NSViewRepresentable)
     ├── ModelSetupView.swift     # First-launch model download + setup
     ├── AboutView.swift         # About window
     └── VisualEffectBackground.swift  # NSVisualEffectView wrapper
@@ -255,6 +257,10 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
 - **Notes.app expects HTML** — the `body` property takes HTML, not plain text. `OutputDestinationService` auto-converts via `plainTextToHTML()` when targeting Notes.
 - **Webhook JSON escaping uses JSONEncoder** — not manual string replacement. `JSONEncoder().encode(text)` handles all edge cases. Strip outer quotes since the template provides them.
 - **Destination deduplication** — `ActionGenerator` uses a `seenDestIDs` set to prevent the same destination UUID from appearing twice in the action list.
+- **API key uses Keychain, not UserDefaults** — `KeychainHelper` wraps the Security framework. CaiSettings reads from Keychain on init (with one-time migration from UserDefaults for existing users). Never store secrets in UserDefaults.
+- **Shell destination `{{result}}` is escaped** — `escapeForShell()` wraps text in POSIX single quotes to prevent command injection. Other destination types use their own escaping (JSON, percent-encoding, AppleScript).
+- **Webhook logging is `#if DEBUG` only** — sensitive URLs/bodies with API keys are not logged in release builds.
+- **API key only works with OpenAI-compatible providers** — uses `Authorization: Bearer` header with `/v1/chat/completions`. Works with OpenAI, OpenRouter, Together AI, Groq, Mistral AI, etc. Does NOT work with Anthropic's native API (different endpoint/format/header).
 
 ## Dependencies
 

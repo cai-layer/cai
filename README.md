@@ -151,6 +151,22 @@ If you already use LM Studio, Ollama, or another local server, skip the built-in
 
 **To configure manually:** Open Cai Preferences (left-click menu bar icon) → select your Model Provider.
 
+### Cloud & authenticated providers
+
+Cai works with any OpenAI-compatible cloud API — not just local servers. Set the provider to **Custom**, enter the API base URL, and add your API key in the Settings field below the model picker.
+
+| Provider | Base URL | Notes |
+|---|---|---|
+| **OpenAI** | `https://api.openai.com` | GPT-4o, GPT-4o-mini, etc. |
+| **OpenRouter** | `https://openrouter.ai/api` | 200+ models including Claude, Llama, Mistral |
+| **Together AI** | `https://api.together.xyz` | Fast inference, open models |
+| **Groq** | `https://api.groq.com/openai` | Ultra-fast inference |
+| **Mistral AI** | `https://api.mistral.ai` | Mistral models |
+
+The API key is stored in the **macOS Keychain** (encrypted at rest) and sent as a Bearer token. Leave it blank for local servers that don't require auth.
+
+> **Note:** Anthropic's Claude API is not directly compatible (it uses a different endpoint and auth format). Use [OpenRouter](https://openrouter.ai) to access Claude models through an OpenAI-compatible interface.
+
 AI is optional — system actions (Open URL, Maps, Calendar, Search, Pretty Print JSON) work without it.
 
 ### Recommended Models
@@ -181,9 +197,11 @@ Left-click the Cai menu bar icon (or click the logo in the action window footer)
 | **Search URL** | Base URL for web searches | Brave Search |
 | **Maps Provider** | Apple Maps or Google Maps | Apple Maps |
 | **Model Provider** | Built-in, LM Studio, Ollama, or Custom | Built-in (auto-detected) |
+| **API Key** | Optional Bearer token for cloud or auth-enabled servers | Blank (no auth) |
 | **Custom Action** | Free-form AI prompt via ⌘1 | — |
 | **Custom Shortcuts** | Save prompt and URL shortcuts for instant access | — |
 | **Output Destinations** | Where to send results (Mail, Notes, webhooks, etc.) | Email + Notes enabled |
+| **Hotkey** | Global keyboard shortcut to trigger Cai | ⌥C (Option+C) |
 | **Launch at Login** | Start Cai automatically | On |
 
 ## Custom Shortcuts

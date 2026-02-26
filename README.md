@@ -158,6 +158,7 @@ Cai works with any OpenAI-compatible cloud API — not just local servers. Set t
 | Provider | Base URL | Notes |
 |---|---|---|
 | **OpenAI** | `https://api.openai.com` | GPT-4o, GPT-4o-mini, etc. |
+| **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini Flash, Pro, etc. |
 | **OpenRouter** | `https://openrouter.ai/api` | 200+ models including Claude, Llama, Mistral |
 | **Together AI** | `https://api.together.xyz` | Fast inference, open models |
 | **Groq** | `https://api.groq.com/openai` | Ultra-fast inference |

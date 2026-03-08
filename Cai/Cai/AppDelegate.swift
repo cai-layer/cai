@@ -396,6 +396,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if !status.available {
                 await settings.autoDetectProvider()
 
+                // If auto-detect landed on built-in, start the server now
+                let newProvider = await MainActor.run { settings.modelProvider }
+                let newModelPath = await MainActor.run { settings.builtInModelPath }
+                if newProvider == .builtIn && !newModelPath.isEmpty &&
+                   FileManager.default.fileExists(atPath: newModelPath) {
+                    do {
+                        try await BuiltInLLM.shared.start(modelPath: newModelPath)
+                        print("Built-in LLM server started after auto-detect")
+                    } catch {
+                        print("Failed to start built-in LLM after auto-detect: \(error.localizedDescription)")
+                    }
+                }
+
                 // If still nothing and setup was never done, show the setup screen
                 let available = await LLMService.shared.checkStatus()
                 let setupDone = await MainActor.run { settings.builtInSetupDone }

@@ -370,12 +370,14 @@ struct ActionListWindow: View {
     }
 
     private func copyAndDismissWithToast() {
+        // Dismiss first — orderOut removes the main window from the display
+        // hierarchy so the toast's NSHostingView doesn't conflict with it.
+        onDismiss()
         NotificationCenter.default.post(
             name: .caiShowToast,
             object: nil,
             userInfo: ["message": "Copied to Clipboard"]
         )
-        onDismiss()
     }
 
     private func goBackToActions() {
@@ -867,12 +869,14 @@ struct ActionListWindow: View {
             do {
                 try await OutputDestinationService.shared.execute(destination, with: text)
                 await MainActor.run {
+                    // Dismiss first — orderOut removes the main window from the
+                    // display hierarchy so the toast's NSHostingView doesn't conflict.
+                    onDismiss()
                     NotificationCenter.default.post(
                         name: .caiShowToast,
                         object: nil,
                         userInfo: ["message": "Sent to \(destination.name)"]
                     )
-                    onDismiss()
                 }
             } catch {
                 await MainActor.run {

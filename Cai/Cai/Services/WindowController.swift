@@ -63,6 +63,26 @@ class WindowController: NSObject, ObservableObject {
     /// Minimum visible rows — keeps the window from looking cramped when there are few actions.
     private static let minVisibleRows: CGFloat = 4
 
+    override init() {
+        super.init()
+        // Toast observer is permanent — NOT tied to event monitors.
+        // This allows toasts to show after hideWindow() removes event monitors.
+        toastObserver = NotificationCenter.default.addObserver(
+            forName: .caiShowToast,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let message = notification.userInfo?["message"] as? String ?? "Copied to Clipboard"
+            self?.showToast(message: message)
+        }
+    }
+
+    deinit {
+        if let toastObserver = toastObserver {
+            NotificationCenter.default.removeObserver(toastObserver)
+        }
+    }
+
     /// Calculates dynamic window height based on action count, clamped between 4 and 9 rows.
     private func calculateWindowHeight(actionCount: Int) -> CGFloat {
         let effectiveRows = min(max(CGFloat(actionCount), Self.minVisibleRows), Self.maxVisibleRows)
@@ -217,13 +237,7 @@ class WindowController: NSObject, ObservableObject {
         // The SwiftUI view hierarchy stays alive, preserving result/prompt state.
         if let window = window {
             window.alphaValue = 0
-            // Defer orderOut to next run loop — SwiftUI's NSHostingView may still
-            // have pending constraint updates that crash if the window is removed
-            // from the display hierarchy mid-cycle.
-            let windowToOrderOut = window
-            DispatchQueue.main.async {
-                windowToOrderOut.orderOut(nil)
-            }
+            window.orderOut(nil)
 
             // Replace any previous cache
             cachedWindow = window
@@ -282,15 +296,6 @@ class WindowController: NSObject, ObservableObject {
             return event  // Pass through to responder chain
         }
 
-        // Listen for toast notifications from SwiftUI views
-        toastObserver = NotificationCenter.default.addObserver(
-            forName: .caiShowToast,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            let message = notification.userInfo?["message"] as? String ?? "Copied to Clipboard"
-            self?.showToast(message: message)
-        }
     }
 
     private func removeEventMonitors() {
@@ -305,10 +310,6 @@ class WindowController: NSObject, ObservableObject {
         if let keyMonitor = keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
-        }
-        if let toastObserver = toastObserver {
-            NotificationCenter.default.removeObserver(toastObserver)
-            self.toastObserver = nil
         }
     }
 
@@ -506,14 +507,40 @@ class WindowController: NSObject, ObservableObject {
     func showToast(message: String) {
         hideToast()
 
-        let toastView = ToastView(message: message)
-        let hostingView = NSHostingView(rootView: toastView)
-        hostingView.wantsLayer = true
+        // Pure AppKit toast — no NSHostingView. NSHostingView on borderless
+        // panels triggers an infinite constraint update loop that crashes in
+        // _postWindowNeedsUpdateConstraints during the display cycle.
+        let pill = NSView()
+        pill.wantsLayer = true
+        pill.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
+        pill.layer?.cornerRadius = 18
 
-        // Size the hosting view to fit content
-        let fittingSize = hostingView.fittingSize
-        let width = max(fittingSize.width, 200)
-        let height = max(fittingSize.height, 36)
+        let checkImage = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
+        let imageView = NSImageView(image: checkImage ?? NSImage())
+        imageView.contentTintColor = NSColor.white.withAlphaComponent(0.9)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(labelWithString: message)
+        label.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        label.textColor = .white
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        pill.addSubview(imageView)
+        pill.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 20),
+            imageView.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 14),
+            imageView.heightAnchor.constraint(equalToConstant: 14),
+            label.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -20),
+            label.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+        ])
+
+        let labelSize = label.intrinsicContentSize
+        let width = ceil(20 + 14 + 8 + labelSize.width + 20)
+        let height: CGFloat = 36
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -526,10 +553,9 @@ class WindowController: NSObject, ObservableObject {
         panel.hasShadow = true
         panel.level = .statusBar
         panel.isMovableByWindowBackground = false
-        panel.contentView = hostingView
+        panel.contentView = pill
         panel.ignoresMouseEvents = true
 
-        // Position at top-center of screen
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             let screenFrame = screen.visibleFrame
             let x = screenFrame.midX - width / 2
@@ -541,13 +567,11 @@ class WindowController: NSObject, ObservableObject {
         panel.alphaValue = 0
         panel.orderFront(nil)
 
-        // Fade in
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
             panel.animator().alphaValue = 1
         }
 
-        // Auto-dismiss after 1.5 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.hideToast()
         }
@@ -573,6 +597,31 @@ class WindowController: NSObject, ObservableObject {
 /// so no keyDown override is needed here.
 class KeyEventHostingView<Content: View>: NSHostingView<Content> {
     override var acceptsFirstResponder: Bool { true }
+
+    /// Guards against re-entrant constraint invalidation that crashes in
+    /// `NSWindow._postWindowNeedsUpdateConstraints`. During `updateConstraints()`,
+    /// the SwiftUI view graph can change (size computation → `graphDidChange`),
+    /// which triggers `setNeedsUpdateConstraints:YES` re-entrantly. AppKit throws
+    /// because constraint invalidation can't happen during an active update pass.
+    private var isUpdatingConstraints = false
+
+    override func updateConstraints() {
+        isUpdatingConstraints = true
+        super.updateConstraints()
+        isUpdatingConstraints = false
+    }
+
+    override var needsUpdateConstraints: Bool {
+        get { super.needsUpdateConstraints }
+        set {
+            if isUpdatingConstraints {
+                // Suppress re-entrant constraint invalidation — the next
+                // display cycle will pick up any pending changes.
+                return
+            }
+            super.needsUpdateConstraints = newValue
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

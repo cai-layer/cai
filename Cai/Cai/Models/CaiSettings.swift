@@ -26,6 +26,7 @@ class CaiSettings: ObservableObject {
         static let crashReportingPromptShown = "cai_crashReportingPromptShown"
         static let hotKeyCombo = "cai_hotKeyCombo"
         static let aboutYou = "cai_aboutYou"
+        static let clipboardHistorySize = "cai_clipboardHistorySize"
         // apiKey moved to Keychain — see KeychainHelper
     }
 
@@ -186,6 +187,13 @@ class CaiSettings: ObservableObject {
 
     static let aboutYouMaxLength = 500
 
+    /// Clipboard history size presets for the Settings picker.
+    static let historySizePresets = [10, 25, 50, 100]
+
+    @Published var clipboardHistorySize: Int {
+        didSet { defaults.set(clipboardHistorySize, forKey: Keys.clipboardHistorySize) }
+    }
+
     @Published var hotKeyComboDict: [String: Int]? {
         didSet {
             defaults.set(hotKeyComboDict, forKey: Keys.hotKeyCombo)
@@ -255,6 +263,9 @@ class CaiSettings: ObservableObject {
 
         self.hotKeyComboDict = defaults.dictionary(forKey: Keys.hotKeyCombo) as? [String: Int]
         self.aboutYou = defaults.string(forKey: Keys.aboutYou) ?? ""
+
+        let savedHistorySize = defaults.integer(forKey: Keys.clipboardHistorySize)
+        self.clipboardHistorySize = savedHistorySize > 0 ? savedHistorySize : 50
 
         // API key: read from Keychain, migrate from UserDefaults if needed
         if let keychainKey = KeychainHelper.get(forKey: "cai_apiKey") {

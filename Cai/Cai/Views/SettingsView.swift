@@ -200,6 +200,24 @@ struct SettingsView: View {
                         }
                     }
 
+                    // Clipboard History
+                    settingsSection(title: "Clipboard History", icon: "clock.arrow.circlepath") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Picker("", selection: $settings.clipboardHistorySize) {
+                                ForEach(CaiSettings.historySizePresets, id: \.self) { size in
+                                    Text("\(size) items").tag(size)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .accessibilityLabel("Clipboard history size")
+
+                            Text("Maximum number of items to remember")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiTextSecondary)
+                        }
+                    }
+
                     // About You
                     settingsSection(title: "About You", icon: "person.circle") {
                         VStack(alignment: .leading, spacing: 6) {

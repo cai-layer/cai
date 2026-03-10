@@ -205,6 +205,14 @@ struct ActionListWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .caiEnterPressed)) { _ in
             handleEnter()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .caiFilterCharacter)) { notification in
+            if let char = notification.userInfo?["char"] as? String {
+                handleFilterCharacter(char)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .caiFilterBackspace)) { _ in
+            handleFilterBackspace()
+        }
         .onChange(of: showSettings) { _ in updateFilterInputFlag() }
         .onChange(of: showHistory) { _ in updateFilterInputFlag() }
         .onChange(of: showResult) { _ in updateFilterInputFlag() }
@@ -214,9 +222,17 @@ struct ActionListWindow: View {
         .onAppear { updateFilterInputFlag() }
     }
 
-    /// Only accept type-to-filter input when the action list is showing.
+    /// Accept type-to-filter input on both the action list and history screens.
     private func updateFilterInputFlag() {
-        WindowController.acceptsFilterInput = (activeScreen == .actions)
+        WindowController.acceptsFilterInput = (activeScreen == .actions || activeScreen == .history)
+    }
+
+    /// Filtered history entries for keyboard routing (mirrors ClipboardHistoryView.displayedEntries)
+    private var displayedHistoryEntries: [ClipboardHistory.Entry] {
+        let all = ClipboardHistory.shared.allEntries
+        guard !historySelectionState.filterText.isEmpty else { return all }
+        let query = historySelectionState.filterText.lowercased()
+        return all.filter { $0.text.lowercased().contains(query) }
     }
 
     // MARK: - Keyboard Routing
@@ -246,8 +262,14 @@ struct ActionListWindow: View {
                 showSettings = false
             }
         } else if showHistory {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showHistory = false
+            if !historySelectionState.filterText.isEmpty {
+                // Clear filter first; second Esc goes back
+                historySelectionState.filterText = ""
+                historySelectionState.selectedIndex = 0
+            } else {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showHistory = false
+                }
             }
         } else if showResult {
             goBackToActions()
@@ -264,6 +286,7 @@ struct ActionListWindow: View {
         guard activeScreen == .actions else { return }
         selectionState.filterText = ""
         historySelectionState.selectedIndex = 0
+        historySelectionState.filterText = ""
         withAnimation(.easeInOut(duration: 0.15)) {
             showHistory = true
         }
@@ -296,7 +319,7 @@ struct ActionListWindow: View {
             executeDestination(dests[destIndex], with: customPromptState.resultText)
         case .history:
             let historyIndex = number - 1
-            let entries = ClipboardHistory.shared.entries
+            let entries = displayedHistoryEntries
             guard historyIndex >= 0, historyIndex < entries.count else { return }
             historySelectionState.selectedIndex = historyIndex
             ClipboardHistory.shared.copyEntry(entries[historyIndex])
@@ -314,10 +337,10 @@ struct ActionListWindow: View {
             let current = selectionState.selectedIndex
             selectionState.selectedIndex = current > 0 ? current - 1 : count - 1
         case .history:
-            let entries = ClipboardHistory.shared.entries
-            guard !entries.isEmpty else { return }
+            let count = displayedHistoryEntries.count
+            guard count > 0 else { return }
             let current = historySelectionState.selectedIndex
-            historySelectionState.selectedIndex = current > 0 ? current - 1 : entries.count - 1
+            historySelectionState.selectedIndex = current > 0 ? current - 1 : count - 1
         default:
             break
         }
@@ -331,10 +354,10 @@ struct ActionListWindow: View {
             let current = selectionState.selectedIndex
             selectionState.selectedIndex = current < count - 1 ? current + 1 : 0
         case .history:
-            let entries = ClipboardHistory.shared.entries
-            guard !entries.isEmpty else { return }
+            let count = displayedHistoryEntries.count
+            guard count > 0 else { return }
             let current = historySelectionState.selectedIndex
-            historySelectionState.selectedIndex = current < entries.count - 1 ? current + 1 : 0
+            historySelectionState.selectedIndex = current < count - 1 ? current + 1 : 0
         default:
             break
         }
@@ -348,7 +371,7 @@ struct ActionListWindow: View {
             guard index < visible.count else { return }
             executeAction(visible[index])
         case .history:
-            let entries = ClipboardHistory.shared.entries
+            let entries = displayedHistoryEntries
             let index = historySelectionState.selectedIndex
             guard index < entries.count else { return }
             ClipboardHistory.shared.copyEntry(entries[index])
@@ -379,6 +402,36 @@ struct ActionListWindow: View {
             object: nil,
             userInfo: ["message": "Copied to Clipboard"]
         )
+    }
+
+    private func handleFilterCharacter(_ char: String) {
+        switch activeScreen {
+        case .actions:
+            selectionState.filterText.append(char)
+            selectionState.selectedIndex = 0
+        case .history:
+            historySelectionState.filterText.append(char)
+            historySelectionState.selectedIndex = 0
+        default:
+            break
+        }
+    }
+
+    private func handleFilterBackspace() {
+        switch activeScreen {
+        case .actions:
+            if !selectionState.filterText.isEmpty {
+                selectionState.filterText.removeLast()
+                selectionState.selectedIndex = 0
+            }
+        case .history:
+            if !historySelectionState.filterText.isEmpty {
+                historySelectionState.filterText.removeLast()
+                historySelectionState.selectedIndex = 0
+            }
+        default:
+            break
+        }
     }
 
     private func goBackToActions() {

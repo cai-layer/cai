@@ -431,15 +431,12 @@ class WindowController: NSObject, ObservableObject {
             }
         }
 
-        // Type-to-filter: capture printable characters and backspace
-        // when not in a text input (passThrough) and no modifier keys held.
+        // Type-to-filter: capture printable characters and backspace.
+        // Posts notifications so the active screen (actions or history) routes to the correct SelectionState.
         if !Self.passThrough && Self.acceptsFilterInput && !event.modifierFlags.contains(.command) {
             // Backspace
             if event.keyCode == 51 {
-                if !selectionState.filterText.isEmpty {
-                    selectionState.filterText.removeLast()
-                    selectionState.selectedIndex = 0
-                }
+                NotificationCenter.default.post(name: .caiFilterBackspace, object: nil)
                 return true
             }
 
@@ -450,8 +447,11 @@ class WindowController: NSObject, ObservableObject {
                let chars = event.charactersIgnoringModifiers, !chars.isEmpty,
                chars.rangeOfCharacter(from: .controlCharacters) == nil {
                 let typed = event.characters ?? chars
-                selectionState.filterText.append(typed)
-                selectionState.selectedIndex = 0
+                NotificationCenter.default.post(
+                    name: .caiFilterCharacter,
+                    object: nil,
+                    userInfo: ["char": typed]
+                )
                 return true
             }
         }

@@ -95,14 +95,26 @@ actor LLMService {
     /// Sends a chat completion request and returns the assistant's response text.
     func generate(systemPrompt: String? = nil, userPrompt: String) async throws -> String {
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
+        let aboutYou = await MainActor.run { CaiSettings.shared.aboutYou }
         guard !baseURL.isEmpty,
               baseURL.hasPrefix("http"),
               let url = URL(string: "\(baseURL)/v1/chat/completions") else {
             throw LLMError.invalidURL
         }
 
+        // Build system prompt, prepending "About You" context if set
+        var finalSystemPrompt = systemPrompt
+        if !aboutYou.isEmpty {
+            let userContext = "About the user: \(aboutYou)"
+            if let existing = finalSystemPrompt {
+                finalSystemPrompt = "\(userContext)\n\n\(existing)"
+            } else {
+                finalSystemPrompt = userContext
+            }
+        }
+
         var messages: [ChatMessage] = []
-        if let system = systemPrompt {
+        if let system = finalSystemPrompt {
             messages.append(ChatMessage(role: "system", content: system))
         }
         messages.append(ChatMessage(role: "user", content: userPrompt))

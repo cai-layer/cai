@@ -200,6 +200,40 @@ struct SettingsView: View {
                         }
                     }
 
+                    // About You
+                    settingsSection(title: "About You", icon: "person.circle") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            TextField(
+                                "e.g. My name is Alex. I'm a product designer based in Berlin. I prefer casual, concise replies. I speak English and German.",
+                                text: $settings.aboutYou,
+                                axis: .vertical
+                            )
+                            .lineLimit(2...5)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12))
+                            .accessibilityLabel("About you — personal context for AI responses")
+                            .onChange(of: settings.aboutYou) { newValue in
+                                if newValue.count > CaiSettings.aboutYouMaxLength {
+                                    settings.aboutYou = String(newValue.prefix(CaiSettings.aboutYouMaxLength))
+                                }
+                            }
+
+                            HStack {
+                                Text("Personal context added to every AI response")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                Spacer()
+                                Text("\(settings.aboutYou.count) / \(CaiSettings.aboutYouMaxLength)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(
+                                        settings.aboutYou.count > CaiSettings.aboutYouMaxLength - 50
+                                            ? .orange
+                                            : .caiTextSecondary.opacity(0.4)
+                                    )
+                            }
+                        }
+                    }
+
                     // Privacy
                     settingsSection(title: "Privacy", icon: "hand.raised") {
                         VStack(alignment: .leading, spacing: 8) {

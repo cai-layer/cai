@@ -12,6 +12,9 @@ class ClipboardHistory: ObservableObject {
     /// Maximum number of pinned entries (matches ⌘1-9 range)
     static let maxPinnedEntries = 9
 
+    /// Maximum text length stored per entry (prevents memory bloat from huge clipboard content)
+    static let maxTextLength = 50_000
+
     /// Each history entry stores the full text, timestamp, and pin state
     struct Entry: Identifiable {
         let id: UUID
@@ -152,19 +155,24 @@ class ClipboardHistory: ObservableObject {
     // MARK: - Entry Management
 
     private func addEntry(_ text: String, isImage: Bool = false) {
+        // Clamp text to maxTextLength to prevent memory bloat from huge clipboard content
+        let clampedText = text.count > Self.maxTextLength
+            ? String(text.prefix(Self.maxTextLength))
+            : text
+
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
             // If text matches a pinned entry, skip — don't duplicate
-            if self.pinnedEntries.contains(where: { $0.text == text }) {
+            if self.pinnedEntries.contains(where: { $0.text == clampedText }) {
                 return
             }
 
             // Remove duplicate from regular entries if exists
-            self.regularEntries.removeAll { $0.text == text }
+            self.regularEntries.removeAll { $0.text == clampedText }
 
             // Insert at the beginning (most recent first)
-            let entry = Entry(text: text, timestamp: Date(), isImage: isImage)
+            let entry = Entry(text: clampedText, timestamp: Date(), isImage: isImage)
             self.regularEntries.insert(entry, at: 0)
 
             // Trim to max entries

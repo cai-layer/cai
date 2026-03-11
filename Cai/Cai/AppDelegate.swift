@@ -288,12 +288,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let content = clipboardService.readClipboard() {
             clipboardHistory.recordCurrentClipboard()
 
-            let detection = contentDetector.detect(content)
+            // Clamp text to prevent oversized LLM requests and UI slowdown
+            let clampedContent = content.count > ClipboardHistory.maxTextLength
+                ? String(content.prefix(ClipboardHistory.maxTextLength))
+                : content
+
+            let detection = contentDetector.detect(clampedContent)
             print("Detected: \(detection.type.rawValue) (confidence: \(detection.confidence))")
             CrashReportingService.shared.addBreadcrumb(category: "content", message: "Detected: \(detection.type.rawValue)")
 
             windowController.showActionWindow(
-                text: content,
+                text: clampedContent,
                 detection: detection,
                 sourceApp: sourceApp
             )

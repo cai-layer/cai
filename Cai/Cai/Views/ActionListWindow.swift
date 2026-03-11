@@ -865,6 +865,7 @@ struct ActionListWindow: View {
         case .word: return "textformat.abc"
         case .shortText: return "text.alignleft"
         case .longText: return "doc.text"
+        case .image: return "photo"
         }
     }
 
@@ -877,6 +878,7 @@ struct ActionListWindow: View {
         case .word: return "Word detected"
         case .shortText: return "Text detected"
         case .longText: return "Long text detected"
+        case .image: return "Text extracted from image"
         }
     }
 
@@ -928,6 +930,12 @@ struct ActionListWindow: View {
                 SystemActions.openURL(url)
             }
             onDismiss()
+
+        case .copyText:
+            let extractedText = self.text
+            showResultView(title: "Review Extracted Text") {
+                return extractedText
+            }
 
         case .outputDestination(let destination):
             executeDestination(destination, with: text)

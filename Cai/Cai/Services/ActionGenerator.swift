@@ -123,6 +123,19 @@ struct ActionGenerator {
             }
             // URL+text: text actions will be appended below, then Open in Browser at the end
 
+        // MARK: Image (OCR text)
+        case .image:
+            items.append(ActionItem(
+                id: "extract_text",
+                title: "Review Extracted Text",
+                subtitle: "Review the text extracted from image",
+                icon: "doc.text.viewfinder",
+                shortcut: shortcut,
+                type: .copyText
+            ))
+            shortcut += 1
+            // appendTextActions stays true → Summarize, Explain, Reply, Proofread, Translate added below
+
         // MARK: JSON
         case .json:
             items.append(ActionItem(

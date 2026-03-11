@@ -201,7 +201,7 @@ struct ClipboardHistoryView: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(entry.isPinned ? .caiPrimary : .caiTextSecondary.opacity(0.5))
                     } else {
-                        Image(systemName: "doc.on.clipboard")
+                        Image(systemName: entry.isImage ? "photo" : "doc.on.clipboard")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.caiTextSecondary)
                     }

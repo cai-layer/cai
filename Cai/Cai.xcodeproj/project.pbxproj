@@ -42,6 +42,7 @@
 		CAI00114 /* ShortcutsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00115 /* ShortcutsManagementView.swift */; };
 		CAI00116 /* OnboardingPermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00117 /* OnboardingPermissionView.swift */; };
 		CAI00118 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00119 /* UpdateChecker.swift */; };
+		CAI00147 /* OCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00148 /* OCRService.swift */; };
 		CAI00120 /* OutputDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00121 /* OutputDestination.swift */; };
 		CAI00122 /* BuiltInDestinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00123 /* BuiltInDestinations.swift */; };
 		CAI00124 /* OutputDestinationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00125 /* OutputDestinationService.swift */; };
@@ -103,6 +104,7 @@
 		CAI00115 /* ShortcutsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsManagementView.swift; sourceTree = "<group>"; };
 		CAI00117 /* OnboardingPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPermissionView.swift; sourceTree = "<group>"; };
 		CAI00119 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		CAI00148 /* OCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRService.swift; sourceTree = "<group>"; };
 		CAI00121 /* OutputDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDestination.swift; sourceTree = "<group>"; };
 		CAI00123 /* BuiltInDestinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInDestinations.swift; sourceTree = "<group>"; };
 		CAI00125 /* OutputDestinationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDestinationService.swift; sourceTree = "<group>"; };
@@ -217,6 +219,7 @@
 				CAI00133 /* ModelDownloader.swift */,
 				CAI00139 /* CrashReportingService.swift */,
 				CAI00146 /* KeychainHelper.swift */,
+				CAI00148 /* OCRService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -387,6 +390,7 @@
 				CAI00134 /* ModelSetupView.swift in Sources */,
 				CAI00138 /* CrashReportingService.swift in Sources */,
 				CAI00145 /* KeychainHelper.swift in Sources */,
+				CAI00147 /* OCRService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

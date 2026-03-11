@@ -18,6 +18,7 @@ class ClipboardHistory: ObservableObject {
         let text: String
         let timestamp: Date
         let isPinned: Bool
+        let isImage: Bool
 
         /// Truncated preview for UI display, single-line with "..." if needed
         var preview: String {
@@ -31,11 +32,12 @@ class ClipboardHistory: ObservableObject {
             return singleLine
         }
 
-        init(text: String, timestamp: Date, isPinned: Bool = false) {
+        init(text: String, timestamp: Date, isPinned: Bool = false, isImage: Bool = false) {
             self.id = UUID()
             self.text = text
             self.timestamp = timestamp
             self.isPinned = isPinned
+            self.isImage = isImage
         }
     }
 
@@ -43,6 +45,24 @@ class ClipboardHistory: ObservableObject {
     private struct PinnedEntry: Codable {
         let text: String
         let timestamp: Date
+        let isImage: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case text, timestamp, isImage
+        }
+
+        init(text: String, timestamp: Date, isImage: Bool = false) {
+            self.text = text
+            self.timestamp = timestamp
+            self.isImage = isImage
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            text = try container.decode(String.self, forKey: .text)
+            timestamp = try container.decode(Date.self, forKey: .timestamp)
+            isImage = try container.decodeIfPresent(Bool.self, forKey: .isImage) ?? false
+        }
     }
 
     @Published private(set) var pinnedEntries: [Entry] = []
@@ -90,11 +110,25 @@ class ClipboardHistory: ObservableObject {
         guard currentCount != lastChangeCount else { return }
         lastChangeCount = currentCount
 
-        guard let text = pasteboard.string(forType: .string) else { return }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        // 1. Image file on clipboard (e.g. Finder copy) — OCR takes priority over filename text
+        if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
+            addEntry(ocrText, isImage: true)
+            return
+        }
 
-        addEntry(trimmed)
+        // 2. Try text
+        if let text = pasteboard.string(forType: .string) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                addEntry(trimmed)
+                return
+            }
+        }
+
+        // 3. Image data on clipboard (no file, no text) — OCR
+        if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
+            addEntry(ocrText, isImage: true)
+        }
     }
 
     /// Manually record a clipboard entry (called from ClipboardService after copy)
@@ -107,9 +141,17 @@ class ClipboardHistory: ObservableObject {
         addEntry(trimmed)
     }
 
+    /// Record an OCR-extracted text entry from a clipboard image.
+    func recordImageClipboard(ocrText: String) {
+        let pasteboard = NSPasteboard.general
+        lastChangeCount = pasteboard.changeCount
+        guard !ocrText.isEmpty else { return }
+        addEntry(ocrText, isImage: true)
+    }
+
     // MARK: - Entry Management
 
-    private func addEntry(_ text: String) {
+    private func addEntry(_ text: String, isImage: Bool = false) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -122,7 +164,7 @@ class ClipboardHistory: ObservableObject {
             self.regularEntries.removeAll { $0.text == text }
 
             // Insert at the beginning (most recent first)
-            let entry = Entry(text: text, timestamp: Date())
+            let entry = Entry(text: text, timestamp: Date(), isImage: isImage)
             self.regularEntries.insert(entry, at: 0)
 
             // Trim to max entries
@@ -151,7 +193,7 @@ class ClipboardHistory: ObservableObject {
         regularEntries.removeAll { $0.text == entry.text }
 
         // Add to pinned at the top
-        let pinned = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: true)
+        let pinned = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: true, isImage: entry.isImage)
         pinnedEntries.insert(pinned, at: 0)
         savePinnedEntries()
     }
@@ -165,7 +207,7 @@ class ClipboardHistory: ObservableObject {
         savePinnedEntries()
 
         // Add back to regular entries at top
-        let regular = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: false)
+        let regular = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: false, isImage: entry.isImage)
         regularEntries.insert(regular, at: 0)
 
         // Trim regular if needed
@@ -182,12 +224,12 @@ class ClipboardHistory: ObservableObject {
             return
         }
         pinnedEntries = decoded.map {
-            Entry(text: $0.text, timestamp: $0.timestamp, isPinned: true)
+            Entry(text: $0.text, timestamp: $0.timestamp, isPinned: true, isImage: $0.isImage)
         }
     }
 
     private func savePinnedEntries() {
-        let codable = pinnedEntries.map { PinnedEntry(text: $0.text, timestamp: $0.timestamp) }
+        let codable = pinnedEntries.map { PinnedEntry(text: $0.text, timestamp: $0.timestamp, isImage: $0.isImage) }
         guard let data = try? JSONEncoder().encode(codable) else { return }
         try? FileManager.default.createDirectory(
             at: BuiltInLLM.supportDirectory,

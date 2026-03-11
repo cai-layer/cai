@@ -278,26 +278,59 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Reads clipboard content and shows the action window, or shows a toast if empty.
+    /// Priority: image file (Finder) → text → image data → empty.
     private func openWithClipboard(sourceApp: String? = nil) {
-        if let content = clipboardService.readClipboard() {
-            // Record to clipboard history
+        // 1. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
+        if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
+            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
+
+        // 2. Text found — existing flow
+        } else if let content = clipboardService.readClipboard() {
             clipboardHistory.recordCurrentClipboard()
 
-            // Detect content type
             let detection = contentDetector.detect(content)
             print("Detected: \(detection.type.rawValue) (confidence: \(detection.confidence))")
             CrashReportingService.shared.addBreadcrumb(category: "content", message: "Detected: \(detection.type.rawValue)")
 
-            // Show the action window immediately — LLM errors handled at execution time
             windowController.showActionWindow(
                 text: content,
                 detection: detection,
                 sourceApp: sourceApp
             )
+
+        // 3. Image data on clipboard (e.g. Preview copy, screenshot to clipboard) — OCR it
+        } else if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
+            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
+
+        // 4. Image present but OCR found no text
+        } else if OCRService.shared.hasImageOnClipboard() || OCRService.shared.hasImageFileOnClipboard() {
+            print("No text found in clipboard image")
+            windowController.showToast(message: "No text found in image")
+
+        // 5. Nothing on clipboard
         } else {
             print("Clipboard is empty")
             windowController.showToast(message: "Clipboard is empty")
         }
+    }
+
+    /// Shows the action window with OCR-extracted text from an image.
+    private func showImageOCRResult(ocrText: String, sourceApp: String?) {
+        clipboardHistory.recordImageClipboard(ocrText: ocrText)
+
+        let detection = ContentResult(
+            type: .image,
+            confidence: 1.0,
+            entities: ContentEntities()
+        )
+        print("Detected: image with OCR text (\(ocrText.count) chars)")
+        CrashReportingService.shared.addBreadcrumb(category: "content", message: "Detected: image (OCR \(ocrText.count) chars)")
+
+        windowController.showActionWindow(
+            text: ocrText,
+            detection: detection,
+            sourceApp: sourceApp
+        )
     }
 
     // MARK: - Onboarding Window

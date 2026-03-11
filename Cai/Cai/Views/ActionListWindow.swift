@@ -777,7 +777,8 @@ struct ActionListWindow: View {
 
     private func refreshCurrentModel() async {
         let status = await LLMService.shared.checkStatus()
-        let name = status.modelName ?? ""
+        let userModel = await MainActor.run { settings.modelName }
+        let name = !userModel.isEmpty ? userModel : (status.modelName ?? "")
         await MainActor.run {
             currentModelName = shortenModelName(name)
         }

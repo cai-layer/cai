@@ -142,7 +142,7 @@ struct SettingsView: View {
                                 }
 
                                 HStack {
-                                    Text("Personal context added to every AI response")
+                                    Text("Helps tailor replies, translations, etc.")
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
                                     Spacer()

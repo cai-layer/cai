@@ -34,11 +34,17 @@ struct CustomPromptView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.caiTextPrimary)
 
-                    Text(clipboardText)
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    if clipboardText.isEmpty {
+                        Text("Ask anything")
+                            .font(.system(size: 11))
+                            .foregroundColor(.caiTextSecondary)
+                    } else {
+                        Text(clipboardText)
+                            .font(.system(size: 11))
+                            .foregroundColor(.caiTextSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
 
                 Spacer()
@@ -51,7 +57,7 @@ struct CustomPromptView: View {
 
             // Input content
             VStack(spacing: 12) {
-                Text("What would you like to do with this content?")
+                Text(clipboardText.isEmpty ? "What would you like to ask?" : "What would you like to do with this content?")
                     .font(.system(size: 12))
                     .foregroundColor(.caiTextSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -74,7 +80,9 @@ struct CustomPromptView: View {
 
                     // Placeholder (TextEditor has no native placeholder)
                     if state.promptText.isEmpty {
-                        Text("e.g. Rewrite formally, Extract key points, Convert to bullet list...")
+                        Text(clipboardText.isEmpty
+                            ? "e.g. What is the capital of France?, Calculate 15% tip on $85..."
+                            : "e.g. Rewrite formally, Extract key points, Convert to bullet list...")
                             .font(.system(size: 13))
                             .foregroundColor(.caiTextSecondary.opacity(0.5))
                             .padding(.horizontal, 12)

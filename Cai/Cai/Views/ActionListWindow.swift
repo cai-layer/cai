@@ -29,6 +29,7 @@ struct ActionListWindow: View {
     @State private var showFollowUpInput: Bool = false
     @State private var followUpText: String = ""
     @State private var resultViewId: Int = 0
+    @State private var isNewAction: Bool = false
 
     @State private var availableModels: [String] = []
     @State private var showModelPicker: Bool = false
@@ -141,8 +142,8 @@ struct ActionListWindow: View {
                 )
             } else if showCustomPrompt {
                 CustomPromptView(
-                    clipboardText: text,
-                    sourceApp: sourceApp,
+                    clipboardText: isNewAction ? "" : text,
+                    sourceApp: isNewAction ? nil : sourceApp,
                     state: customPromptState,
                     onSubmit: { instruction in
                         handleCustomPromptSubmit(instruction)
@@ -227,6 +228,9 @@ struct ActionListWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .caiCmdEnterPressed)) { _ in
             handleCmdEnter()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .caiCmdNPressed)) { _ in
+            handleNewAction()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .caiFilterCharacter)) { notification in
             if let char = notification.userInfo?["char"] as? String {
                 handleFilterCharacter(char)
@@ -273,6 +277,7 @@ struct ActionListWindow: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showCustomPrompt = false
                 customPromptState.reset()
+                isNewAction = false
             }
         } else if showSettings {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -447,6 +452,16 @@ struct ActionListWindow: View {
         showFollowUpInput = true
     }
 
+    private func handleNewAction() {
+        guard activeScreen == .actions else { return }
+        selectionState.filterText = ""
+        isNewAction = true
+        customPromptState.reset()
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showCustomPrompt = true
+        }
+    }
+
     private func handleCmdEnter() {
         guard activeScreen == .result, showFollowUpInput else { return }
         submitFollowUp()
@@ -493,6 +508,7 @@ struct ActionListWindow: View {
             conversationHistory = []
             isFollowUpEnabled = false
             followUpText = ""
+            isNewAction = false
         }
     }
 
@@ -872,6 +888,7 @@ struct ActionListWindow: View {
             KeyboardHint(key: "Esc", label: selectionState.filterText.isEmpty ? "Close" : "Clear")
             if selectionState.filterText.isEmpty {
                 KeyboardHint(key: "⌘0", label: "History")
+                KeyboardHint(key: "⌘N", label: "New")
             }
 
             Spacer()
@@ -1005,18 +1022,32 @@ struct ActionListWindow: View {
     }
 
     private func handleCustomPromptSubmit(_ instruction: String) {
-        let clipboardText = self.text
-        let app = self.sourceApp
-
         showCustomPrompt = false
 
-        let prompts = LLMService.prompts(for: .custom(instruction), text: clipboardText, appContext: app)
-        let initialMessages = buildInitialMessages(systemPrompt: prompts.system, userPrompt: prompts.user)
-        conversationHistory = initialMessages
-        isFollowUpEnabled = true
+        if isNewAction {
+            // New action mode — no clipboard context, general assistant
+            let systemPrompt = "You are a helpful assistant. Answer clearly and concisely. For math, use Unicode symbols."
+            let initialMessages = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: instruction)
+            conversationHistory = initialMessages
+            isFollowUpEnabled = true
+            isNewAction = false
 
-        showResultView(title: instruction) {
-            return try await LLMService.shared.generateWithMessages(initialMessages)
+            showResultView(title: instruction) {
+                return try await LLMService.shared.generateWithMessages(initialMessages)
+            }
+        } else {
+            // Existing custom action flow — clipboard text as context
+            let clipboardText = self.text
+            let app = self.sourceApp
+
+            let prompts = LLMService.prompts(for: .custom(instruction), text: clipboardText, appContext: app)
+            let initialMessages = buildInitialMessages(systemPrompt: prompts.system, userPrompt: prompts.user)
+            conversationHistory = initialMessages
+            isFollowUpEnabled = true
+
+            showResultView(title: instruction) {
+                return try await LLMService.shared.generateWithMessages(initialMessages)
+            }
         }
     }
 

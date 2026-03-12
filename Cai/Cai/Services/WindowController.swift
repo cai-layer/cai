@@ -430,6 +430,12 @@ class WindowController: NSObject, ObservableObject {
             return true
         }
 
+        // Cmd+N — new action (no clipboard context)
+        if event.modifierFlags.contains(.command) && event.keyCode == 45 {  // 45 = 'N'
+            NotificationCenter.default.post(name: .caiCmdNPressed, object: nil)
+            return true
+        }
+
         // Cmd+1 through Cmd+9
         if event.modifierFlags.contains(.command) {
             let keyNumber = keyCodeToNumber(event.keyCode)

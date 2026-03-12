@@ -9,6 +9,7 @@ extension NSNotification.Name {
     static let caiArrowDown = NSNotification.Name("CaiArrowDown")
     static let caiCmdNumber = NSNotification.Name("CaiCmdNumber")
     static let caiTabPressed = NSNotification.Name("CaiTabPressed")
+    static let caiCmdNPressed = NSNotification.Name("CaiCmdNPressed")
     static let caiFilterCharacter = NSNotification.Name("CaiFilterCharacter")   // userInfo["char": String]
     static let caiFilterBackspace = NSNotification.Name("CaiFilterBackspace")
 

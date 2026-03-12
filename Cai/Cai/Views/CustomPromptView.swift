@@ -81,12 +81,12 @@ struct CustomPromptView: View {
                     // Placeholder (TextEditor has no native placeholder)
                     if state.promptText.isEmpty {
                         Text(clipboardText.isEmpty
-                            ? "e.g. What is the capital of France?, Calculate 15% tip on $85..."
+                            ? "e.g. What's the population of Paris?, Calculate 15% tip on $85..."
                             : "e.g. Rewrite formally, Extract key points, Convert to bullet list...")
                             .font(.system(size: 13))
                             .foregroundColor(.caiTextSecondary.opacity(0.5))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 16)
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 9)
                             .allowsHitTesting(false)
                     }
                 }

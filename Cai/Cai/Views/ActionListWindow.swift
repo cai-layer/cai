@@ -741,11 +741,13 @@ struct ActionListWindow: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.caiTextSecondary)
 
-                Text(text)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.caiTextPrimary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+                if !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.caiTextPrimary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
             }
 
             Spacer()
@@ -954,6 +956,7 @@ struct ActionListWindow: View {
         case .shortText: return "text.alignleft"
         case .longText: return "doc.text"
         case .image: return "photo"
+        case .empty: return "tray"
         }
     }
 
@@ -967,6 +970,7 @@ struct ActionListWindow: View {
         case .shortText: return "Text detected"
         case .longText: return "Long text detected"
         case .image: return "Text extracted from image"
+        case .empty: return "Nothing on clipboard"
         }
     }
 
@@ -1044,7 +1048,7 @@ struct ActionListWindow: View {
     private func handleCustomPromptSubmit(_ instruction: String) {
         showCustomPrompt = false
 
-        if isNewAction {
+        if isNewAction || text.isEmpty {
             // New action mode — no clipboard context, general assistant
             let systemPrompt = "You are a helpful assistant. Answer clearly and concisely. For math, use Unicode symbols."
             let initialMessages = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: instruction)

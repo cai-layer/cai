@@ -270,15 +270,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
             showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
 
-        // 4. Image present but OCR found no text
+        // 4. Image present but OCR found no text — still open window
         } else if OCRService.shared.hasImageOnClipboard() || OCRService.shared.hasImageFileOnClipboard() {
-            print("No text found in clipboard image")
-            windowController.showToast(message: "No text found in image")
+            print("No text found in clipboard image — opening window")
+            showEmptyWindow(sourceApp: sourceApp)
 
-        // 5. Nothing on clipboard
+        // 5. Nothing on clipboard — still open window
         } else {
-            print("Clipboard is empty")
-            windowController.showToast(message: "Clipboard is empty")
+            print("Clipboard is empty — opening window")
+            showEmptyWindow(sourceApp: sourceApp)
         }
     }
 
@@ -296,6 +296,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         windowController.showActionWindow(
             text: ocrText,
+            detection: detection,
+            sourceApp: sourceApp
+        )
+    }
+
+    /// Opens the action window with no clipboard content (empty state).
+    /// User can still use Cmd+N (new action) or Cmd+0 (clipboard history).
+    private func showEmptyWindow(sourceApp: String?) {
+        let detection = ContentResult(
+            type: .empty,
+            confidence: 1.0,
+            entities: ContentEntities()
+        )
+
+        windowController.showActionWindow(
+            text: "",
             detection: detection,
             sourceApp: sourceApp
         )

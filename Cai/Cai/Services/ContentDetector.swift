@@ -11,6 +11,7 @@ enum ContentType: String, Codable {
     case shortText // <100 chars
     case longText  // ≥100 chars
     case image     // Text extracted from clipboard image via OCR
+    case empty     // Nothing on clipboard
 }
 
 struct ContentEntities {

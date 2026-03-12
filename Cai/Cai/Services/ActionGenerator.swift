@@ -23,12 +23,33 @@ struct ActionGenerator {
         items.append(ActionItem(
             id: "custom_prompt",
             title: "Custom Action",
-            subtitle: "Ask AI anything about this content",
+            subtitle: text.isEmpty ? "Ask AI anything" : "Ask AI anything about this content",
             icon: "bolt.fill",
             shortcut: shortcut,
             type: .customPrompt
         ))
         shortcut += 1
+
+        // Empty clipboard — only Custom Action + destinations (user can also Cmd+N or Cmd+0)
+        if detection.type == .empty {
+            // Skip straight to destinations below
+            let destinationStart = items.last?.shortcut ?? 0
+            var destShortcut = destinationStart
+            var seenDestIDs = Set<UUID>()
+            for dest in settings.actionListDestinations {
+                guard seenDestIDs.insert(dest.id).inserted else { continue }
+                destShortcut += 1
+                items.append(ActionItem(
+                    id: "dest_\(dest.id.uuidString)",
+                    title: dest.name,
+                    subtitle: "Send to \(dest.name)",
+                    icon: dest.icon,
+                    shortcut: destShortcut,
+                    type: .outputDestination(dest)
+                ))
+            }
+            return items
+        }
 
         // --- Type-specific actions ---
 
@@ -147,6 +168,9 @@ struct ActionGenerator {
                 type: .jsonPrettyPrint(text)
             ))
             appendTextActions = false
+
+        case .empty:
+            break  // handled by early return above
         }
 
         // --- Universal text actions ---

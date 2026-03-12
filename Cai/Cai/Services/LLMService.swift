@@ -1,5 +1,14 @@
 import Foundation
 
+// MARK: - Chat Message
+
+/// A single message in the chat conversation.
+/// Public so ActionListWindow can build and manage conversation history for follow-ups.
+struct ChatMessage: Encodable {
+    let role: String   // "system", "user", "assistant"
+    let content: String
+}
+
 // MARK: - LLM Service
 
 /// Communicates with a local OpenAI-compatible API (LM Studio, Ollama, etc.)
@@ -90,34 +99,67 @@ actor LLMService {
         return []
     }
 
+    // MARK: - Prompt Templates
+
+    /// Returns the (system, user) prompt pair for a given LLM action.
+    /// Extracted so callers can build conversation history for follow-ups
+    /// without duplicating prompt strings.
+    nonisolated static func prompts(
+        for action: LLMAction,
+        text: String,
+        appContext: String?
+    ) -> (system: String, user: String) {
+        let context = appContext.map { " (from \($0))" } ?? ""
+        switch action {
+        case .summarize:
+            return (
+                system: "Output only the summary.\(context) Use bullet points. No preamble, no introductions.",
+                user: "Summarize this in 2-3 bullet points. Each bullet should be one sentence. Capture the key points only.\n\n\(text)"
+            )
+        case .translate(let lang):
+            return (
+                system: "You are a translator.\(context) Output only the translation. Preserve the original tone, formatting, and line breaks.",
+                user: "Translate to \(lang):\n\n\(text)"
+            )
+        case .define:
+            return (
+                system: "You are a dictionary. Be concise. Output only the definition in the exact format requested.",
+                user: "Define \"\(text)\". Use this format:\n**\(text)** (part of speech) \u{2014} definition.\nExample: \"sentence using the word.\""
+            )
+        case .explain:
+            return (
+                system: "Explain clearly in plain language.\(context) Under 100 words. Start directly \u{2014} no preamble.",
+                user: "Explain this:\n\n\(text)"
+            )
+        case .reply:
+            return (
+                system: "Write a reply to the message below.\(context) Match the tone, language and formality of the original. Be concise. Output only the reply \u{2014} no preamble and no bold letters.",
+                user: text
+            )
+        case .proofread:
+            return (
+                system: "You are a proofreader.\(context) Fix grammar, spelling, and punctuation errors. Keep the original meaning, tone, and style. Output only the corrected text \u{2014} no explanations, no comments.",
+                user: text
+            )
+        case .custom(let instruction):
+            return (
+                system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard.",
+                user: "\(instruction)\n\n\(text)"
+            )
+        }
+    }
+
     // MARK: - Generation
 
-    /// Sends a chat completion request and returns the assistant's response text.
-    func generate(systemPrompt: String? = nil, userPrompt: String) async throws -> String {
+    /// Sends a pre-built messages array to the chat completions endpoint.
+    /// Used by follow-up conversations where the caller manages message history.
+    func generateWithMessages(_ messages: [ChatMessage]) async throws -> String {
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
-        let aboutYou = await MainActor.run { CaiSettings.shared.aboutYou }
         guard !baseURL.isEmpty,
               baseURL.hasPrefix("http"),
               let url = URL(string: "\(baseURL)/v1/chat/completions") else {
             throw LLMError.invalidURL
         }
-
-        // Build system prompt, prepending "About You" context if set
-        var finalSystemPrompt = systemPrompt
-        if !aboutYou.isEmpty {
-            let userContext = "About the user: \(aboutYou)"
-            if let existing = finalSystemPrompt {
-                finalSystemPrompt = "\(userContext)\n\n\(existing)"
-            } else {
-                finalSystemPrompt = userContext
-            }
-        }
-
-        var messages: [ChatMessage] = []
-        if let system = finalSystemPrompt {
-            messages.append(ChatMessage(role: "system", content: system))
-        }
-        messages.append(ChatMessage(role: "user", content: userPrompt))
 
         // Use user-specified model name if set, otherwise auto-detect
         let userModel = await MainActor.run { CaiSettings.shared.modelName }
@@ -178,84 +220,71 @@ actor LLMService {
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Sends a chat completion request and returns the assistant's response text.
+    /// Thin wrapper that builds messages with "About You" context, then delegates
+    /// to generateWithMessages().
+    func generate(systemPrompt: String? = nil, userPrompt: String) async throws -> String {
+        let aboutYou = await MainActor.run { CaiSettings.shared.aboutYou }
+
+        // Build system prompt, prepending "About You" context if set
+        var finalSystemPrompt = systemPrompt
+        if !aboutYou.isEmpty {
+            let userContext = "About the user: \(aboutYou)"
+            if let existing = finalSystemPrompt {
+                finalSystemPrompt = "\(userContext)\n\n\(existing)"
+            } else {
+                finalSystemPrompt = userContext
+            }
+        }
+
+        var messages: [ChatMessage] = []
+        if let system = finalSystemPrompt {
+            messages.append(ChatMessage(role: "system", content: system))
+        }
+        messages.append(ChatMessage(role: "user", content: userPrompt))
+
+        return try await generateWithMessages(messages)
+    }
+
     // MARK: - Action Methods
 
     func summarize(_ text: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " (from \($0))" } ?? ""
-        return try await generate(
-            systemPrompt: "Output only the summary.\(context) Use bullet points. No preamble, no introductions.",
-            userPrompt: """
-                Summarize this in 2-3 bullet points. Each bullet should be one sentence. Capture the key points only.
-
-                \(text)
-                """)
+        let p = Self.prompts(for: .summarize, text: text, appContext: appContext)
+        return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
 
     func translate(_ text: String, to language: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " (from \($0))" } ?? ""
-        return try await generate(
-            systemPrompt: "You are a translator.\(context) Output only the translation. Preserve the original tone, formatting, and line breaks.",
-            userPrompt: """
-                Translate to \(language):
-
-                \(text)
-                """)
+        let p = Self.prompts(for: .translate(language), text: text, appContext: appContext)
+        return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
 
     func define(_ word: String) async throws -> String {
-        return try await generate(
-            systemPrompt: "You are a dictionary. Be concise. Output only the definition in the exact format requested.",
-            userPrompt: """
-                Define "\(word)". Use this format:
-                **\(word)** (part of speech) — definition.
-                Example: "sentence using the word."
-                """)
+        let p = Self.prompts(for: .define, text: word, appContext: nil)
+        return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
 
     func explain(_ text: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " (from \($0))" } ?? ""
-        return try await generate(
-            systemPrompt: "Explain clearly in plain language.\(context) Under 100 words. Start directly — no preamble.",
-            userPrompt: """
-                Explain this:
-
-                \(text)
-                """)
+        let p = Self.prompts(for: .explain, text: text, appContext: appContext)
+        return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
 
     func reply(_ text: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " (from \($0))" } ?? ""
-        return try await generate(
-            systemPrompt: "Write a reply to the message below.\(context) Match the tone, language and formality of the original. Be concise. Output only the reply — no preamble and no bold letters.",
-            userPrompt: text)
+        let p = Self.prompts(for: .reply, text: text, appContext: appContext)
+        return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
 
     func proofread(_ text: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " (from \($0))" } ?? ""
-        return try await generate(
-            systemPrompt: "You are a proofreader.\(context) Fix grammar, spelling, and punctuation errors. Keep the original meaning, tone, and style. Output only the corrected text — no explanations, no comments.",
-            userPrompt: text)
+        let p = Self.prompts(for: .proofread, text: text, appContext: appContext)
+        return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
 
     func customAction(_ text: String, instruction: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " (from \($0))" } ?? ""
-        return try await generate(
-            systemPrompt: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" — the result is copied directly to clipboard.",
-            userPrompt: """
-                \(instruction)
-
-                \(text)
-                """
-        )
+        let p = Self.prompts(for: .custom(instruction), text: text, appContext: appContext)
+        return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
 }
 
 // MARK: - API Types
-
-private struct ChatMessage: Encodable {
-    let role: String
-    let content: String
-}
 
 private struct ChatRequest: Encodable {
     let model: String

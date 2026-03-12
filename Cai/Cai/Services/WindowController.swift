@@ -374,6 +374,18 @@ class WindowController: NSObject, ObservableObject {
             return true
         }
 
+        // Tab — trigger follow-up mode (only when no text editor is active)
+        if event.keyCode == 48 {
+            if !Self.passThrough {
+                NotificationCenter.default.post(
+                    name: .caiTabPressed,
+                    object: nil
+                )
+            }
+            // Always consume Tab to prevent focus cycling between UI elements
+            return true
+        }
+
         // When a text editor is active, let plain Return and arrows pass through
         // (Return adds newlines, arrows move cursor)
         if Self.passThrough {

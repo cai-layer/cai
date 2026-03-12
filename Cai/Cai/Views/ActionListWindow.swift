@@ -23,6 +23,13 @@ struct ActionListWindow: View {
     @ObservedObject private var settings = CaiSettings.shared
     @ObservedObject private var updateChecker = UpdateChecker.shared
 
+    // Follow-up conversation state
+    @State private var conversationHistory: [ChatMessage] = []
+    @State private var isFollowUpEnabled: Bool = false
+    @State private var showFollowUpInput: Bool = false
+    @State private var followUpText: String = ""
+    @State private var resultViewId: Int = 0
+
     @State private var availableModels: [String] = []
     @State private var showModelPicker: Bool = false
     @State private var currentModelName: String = ""
@@ -160,13 +167,23 @@ struct ActionListWindow: View {
                 ResultView(
                     title: resultTitle,
                     onBack: { goBackToActions() },
-                    onResult: { text in pendingResultText = text },
+                    onResult: { text in
+                        pendingResultText = text
+                        if isFollowUpEnabled {
+                            conversationHistory.append(
+                                ChatMessage(role: "assistant", content: text))
+                        }
+                    },
                     destinations: settings.enabledDestinations,
                     onSelectDestination: { dest, resultText in
                         executeDestination(dest, with: resultText)
                     },
+                    isFollowUpEnabled: isFollowUpEnabled,
+                    showFollowUpInput: $showFollowUpInput,
+                    followUpText: $followUpText,
                     generator: generator
                 )
+                .id(resultViewId)
             } else {
                 actionListContent
             }
@@ -204,6 +221,12 @@ struct ActionListWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .caiEnterPressed)) { _ in
             handleEnter()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .caiTabPressed)) { _ in
+            handleTab()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .caiCmdEnterPressed)) { _ in
+            handleCmdEnter()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .caiFilterCharacter)) { notification in
             if let char = notification.userInfo?["char"] as? String {
                 handleFilterCharacter(char)
@@ -218,6 +241,7 @@ struct ActionListWindow: View {
         .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
         .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
         .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
+        .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
         .onAppear { updateFilterInputFlag() }
     }
 
@@ -265,7 +289,12 @@ struct ActionListWindow: View {
                 }
             }
         } else if showResult {
-            goBackToActions()
+            if showFollowUpInput {
+                showFollowUpInput = false
+                followUpText = ""
+            } else {
+                goBackToActions()
+            }
         } else if !selectionState.filterText.isEmpty {
             // Clear filter first; second Esc dismisses
             selectionState.filterText = ""
@@ -412,12 +441,58 @@ struct ActionListWindow: View {
         }
     }
 
+    private func handleTab() {
+        guard activeScreen == .result, isFollowUpEnabled, !showFollowUpInput,
+              !pendingResultText.isEmpty else { return }
+        showFollowUpInput = true
+    }
+
+    private func handleCmdEnter() {
+        guard activeScreen == .result, showFollowUpInput else { return }
+        submitFollowUp()
+    }
+
+    private func submitFollowUp() {
+        let trimmed = followUpText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        conversationHistory.append(ChatMessage(role: "user", content: trimmed))
+        let messages = conversationHistory
+
+        showFollowUpInput = false
+        followUpText = ""
+        pendingResultText = ""
+        WindowController.passThrough = false
+
+        resultGenerator = {
+            return try await LLMService.shared.generateWithMessages(messages)
+        }
+        resultViewId += 1
+    }
+
+    /// Builds the initial [ChatMessage] array for an LLM action, including "About You" context.
+    private func buildInitialMessages(systemPrompt: String, userPrompt: String) -> [ChatMessage] {
+        let aboutYou = settings.aboutYou
+        var finalSystem = systemPrompt
+        if !aboutYou.isEmpty {
+            finalSystem = "About the user: \(aboutYou)\n\n\(finalSystem)"
+        }
+        return [
+            ChatMessage(role: "system", content: finalSystem),
+            ChatMessage(role: "user", content: userPrompt)
+        ]
+    }
+
     private func goBackToActions() {
         withAnimation(.easeInOut(duration: 0.15)) {
             showResult = false
+            showFollowUpInput = false
             resultGenerator = nil
             resultTitle = ""
             pendingResultText = ""
+            conversationHistory = []
+            isFollowUpEnabled = false
+            followUpText = ""
         }
     }
 
@@ -867,6 +942,7 @@ struct ActionListWindow: View {
         CrashReportingService.shared.addBreadcrumb(category: "action", message: "Execute: \(action.title)")
         switch action.type {
         case .jsonPrettyPrint(let json):
+            isFollowUpEnabled = false
             showResultView(title: "Pretty Print JSON") {
                 return Self.prettyPrintJSON(json)
             }
@@ -875,24 +951,14 @@ struct ActionListWindow: View {
             let title = llmActionTitle(llmAction)
             let clipboardText = self.text
             let app = self.sourceApp
+
+            let prompts = LLMService.prompts(for: llmAction, text: clipboardText, appContext: app)
+            let initialMessages = buildInitialMessages(systemPrompt: prompts.system, userPrompt: prompts.user)
+            conversationHistory = initialMessages
+            isFollowUpEnabled = true
+
             showResultView(title: title) {
-                let llm = LLMService.shared
-                switch llmAction {
-                case .summarize:
-                    return try await llm.summarize(clipboardText, appContext: app)
-                case .translate(let lang):
-                    return try await llm.translate(clipboardText, to: lang, appContext: app)
-                case .define:
-                    return try await llm.define(clipboardText)
-                case .explain:
-                    return try await llm.explain(clipboardText, appContext: app)
-                case .reply:
-                    return try await llm.reply(clipboardText, appContext: app)
-                case .proofread:
-                    return try await llm.proofread(clipboardText, appContext: app)
-                case .custom(let instruction):
-                    return try await llm.customAction(clipboardText, instruction: instruction, appContext: app)
-                }
+                return try await LLMService.shared.generateWithMessages(initialMessages)
             }
 
         case .customPrompt:
@@ -911,6 +977,7 @@ struct ActionListWindow: View {
             onDismiss()
 
         case .copyText:
+            isFollowUpEnabled = false
             let extractedText = self.text
             showResultView(title: "Review Extracted Text") {
                 return extractedText
@@ -929,6 +996,9 @@ struct ActionListWindow: View {
         selectionState.filterText = ""
         resultTitle = title
         resultGenerator = generator
+        pendingResultText = ""
+        showFollowUpInput = false
+        followUpText = ""
         withAnimation(.easeInOut(duration: 0.15)) {
             showResult = true
         }
@@ -940,9 +1010,13 @@ struct ActionListWindow: View {
 
         showCustomPrompt = false
 
+        let prompts = LLMService.prompts(for: .custom(instruction), text: clipboardText, appContext: app)
+        let initialMessages = buildInitialMessages(systemPrompt: prompts.system, userPrompt: prompts.user)
+        conversationHistory = initialMessages
+        isFollowUpEnabled = true
+
         showResultView(title: instruction) {
-            return try await LLMService.shared.customAction(
-                clipboardText, instruction: instruction, appContext: app)
+            return try await LLMService.shared.generateWithMessages(initialMessages)
         }
     }
 

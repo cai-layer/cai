@@ -127,7 +127,7 @@ struct ActionGenerator {
         case .image:
             items.append(ActionItem(
                 id: "extract_text",
-                title: "Review Extracted Text",
+                title: "Extracted Text",
                 subtitle: "Review the text extracted from image",
                 icon: "doc.text.viewfinder",
                 shortcut: shortcut,

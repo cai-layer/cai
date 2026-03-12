@@ -1011,9 +1011,12 @@ struct ActionListWindow: View {
             onDismiss()
 
         case .copyText:
-            isFollowUpEnabled = false
             let extractedText = self.text
-            showResultView(title: "Review Extracted Text") {
+            let systemPrompt = "You are a helpful assistant. The user shared text extracted from an image via OCR. Help them with any questions about it. For math, use Unicode symbols."
+            conversationHistory = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: extractedText)
+            // onResult callback will append the assistant message with extractedText
+            isFollowUpEnabled = true
+            showResultView(title: "Extracted Text") {
                 return extractedText
             }
 

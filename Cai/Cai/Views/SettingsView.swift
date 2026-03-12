@@ -253,11 +253,18 @@ struct SettingsView: View {
                                     .frame(width: 120, height: 24)
                             }
 
-                            Toggle("Launch at Login", isOn: $settings.launchAtLogin)
-                                .toggleStyle(.switch)
-                                .font(.system(size: 12))
-                                .foregroundColor(.caiTextPrimary)
-                                .accessibilityLabel("Launch Cai at login")
+                            HStack {
+                                Text("Launch at Login")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.caiTextPrimary)
+                                Spacer()
+                                Toggle("", isOn: $settings.launchAtLogin)
+                                    .toggleStyle(.switch)
+                                    .controlSize(.mini)
+                                    .tint(.caiPrimary)
+                                    .labelsHidden()
+                            }
+                            .accessibilityLabel("Launch Cai at login")
                         }
 
                         settingsDivider
@@ -283,11 +290,18 @@ struct SettingsView: View {
 
                         settingsSection(title: "Privacy", icon: "hand.raised") {
                             VStack(alignment: .leading, spacing: 8) {
-                                Toggle("Send crash reports", isOn: $settings.crashReportingEnabled)
-                                    .toggleStyle(.switch)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.caiTextPrimary)
-                                    .accessibilityLabel("Send crash reports to help improve Cai")
+                                HStack {
+                                    Text("Send crash reports")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.caiTextPrimary)
+                                    Spacer()
+                                    Toggle("", isOn: $settings.crashReportingEnabled)
+                                        .toggleStyle(.switch)
+                                        .controlSize(.mini)
+                                        .tint(.caiPrimary)
+                                        .labelsHidden()
+                                }
+                                .accessibilityLabel("Send crash reports to help improve Cai")
 
                                 Text("When enabled, anonymous crash data is sent to help fix bugs. No clipboard content, personal data, or usage patterns are collected.")
                                     .font(.system(size: 10))

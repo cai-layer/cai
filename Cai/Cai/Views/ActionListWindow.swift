@@ -667,18 +667,18 @@ struct ActionListWindow: View {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiPrimary)
+                    .foregroundColor(.white)
                 Text("Cai v\(version) available")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiPrimary)
+                    .foregroundColor(.white)
                 Spacer()
                 Text("Download →")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.caiPrimary.opacity(0.7))
+                    .foregroundColor(.white.opacity(0.7))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
-            .background(Color.caiPrimary.opacity(0.08))
+            .background(Color.caiPrimary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -699,11 +699,11 @@ struct ActionListWindow: View {
             HStack(spacing: 8) {
                 Image(systemName: "ladybug")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
+                    .foregroundColor(.white.opacity(0.8))
 
                 Text("Send anonymous crash reports?")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextPrimary)
+                    .foregroundColor(.white)
 
                 Spacer()
 
@@ -712,19 +712,19 @@ struct ActionListWindow: View {
                     settings.crashReportingPromptShown = true
                 }
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.caiPrimary)
+                .foregroundColor(.white)
                 .buttonStyle(.plain)
 
                 Button("Nope") {
                     settings.crashReportingPromptShown = true
                 }
                 .font(.system(size: 10))
-                .foregroundColor(.caiTextSecondary)
+                .foregroundColor(.white.opacity(0.6))
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
-            .background(Color.caiSurface.opacity(0.4))
+            .background(Color.caiPrimary)
         }
     }
 

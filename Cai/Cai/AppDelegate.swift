@@ -80,10 +80,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             pendingLLMSetup = true
         }
 
-        // Check for updates (once per day)
-        Task {
-            await UpdateChecker.shared.checkForUpdate()
-        }
+        // Initialize Sparkle auto-updater (checks for updates on its own schedule)
+        _ = SparkleUpdater.shared
 
         // Setup global hotkey (Option+C)
         setupHotKey()

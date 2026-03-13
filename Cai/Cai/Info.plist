@@ -26,5 +26,15 @@
 	<string>Cai needs accessibility access to register global keyboard shortcuts (⌥C) so you can quickly capture clipboard content from anywhere.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Cai uses Apple Events to send content to apps like Mail, Notes, and Reminders when you choose an output destination.</string>
+	<key>SUFeedURL</key>
+	<string>https://getcai.app/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>8YP+xrUbvPwaSZex0KHZocx8c8YZdae88aq9BgFjph8=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 </dict>
 </plist>

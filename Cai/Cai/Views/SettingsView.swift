@@ -4,7 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var settings = CaiSettings.shared
     @ObservedObject private var permissions = PermissionsManager.shared
-    @ObservedObject private var updateChecker = UpdateChecker.shared
+    @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
     /// Callback to navigate to shortcuts management (pushes inline screen).
     var onShowShortcuts: (() -> Void)? = nil
     var onShowDestinations: (() -> Void)? = nil
@@ -494,23 +494,17 @@ struct SettingsView: View {
 
     // MARK: - Update Badge
 
-    @ViewBuilder
     private var updateBadge: some View {
-        if let version = updateChecker.availableVersion {
-            Button(action: {
-                updateChecker.openReleasePage()
-            }) {
-                Text("v\(version) available")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.caiPrimary)
-                    .cornerRadius(4)
-            }
-            .buttonStyle(.plain)
-            .help("Click to download Cai v\(version) from GitHub")
+        Button(action: {
+            sparkleUpdater.checkForUpdates()
+        }) {
+            Text("Check for Updates")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.caiPrimary)
         }
+        .buttonStyle(.plain)
+        .disabled(!sparkleUpdater.canCheckForUpdates)
+        .opacity(sparkleUpdater.canCheckForUpdates ? 1.0 : 0.5)
     }
 
     // MARK: - LLM Status

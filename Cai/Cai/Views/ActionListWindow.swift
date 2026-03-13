@@ -22,7 +22,7 @@ struct ActionListWindow: View {
     @StateObject private var historySelectionState = SelectionState()
     @StateObject private var customPromptState = CustomPromptState()
     @ObservedObject private var settings = CaiSettings.shared
-    @ObservedObject private var updateChecker = UpdateChecker.shared
+    @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
 
     // Follow-up conversation state
     @State private var conversationHistory: [ChatMessage] = []
@@ -546,12 +546,7 @@ struct ActionListWindow: View {
                 filterBarView
             }
 
-            // Update banner — shown when a newer version is available
-            if let version = updateChecker.availableVersion {
-                updateBannerView(version: version)
-            }
-
-            // Crash reporting opt-in — shown once
+            updateBanner
             crashReportingPrompt
 
             Divider()
@@ -659,35 +654,30 @@ struct ActionListWindow: View {
 
     // MARK: - Update Banner
 
-    private func updateBannerView(version: String) -> some View {
-        Button(action: {
-            UpdateChecker.shared.openReleasePage()
-            onDismiss()
-        }) {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.down.circle.fill")
+    @ViewBuilder
+    private var updateBanner: some View {
+        if sparkleUpdater.updateAvailable {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
+
+                Text("A new version of Cai is available")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
-                Text("Cai v\(version) available")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
+
                 Spacer()
-                Text("Download →")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
+
+                Button("Update") {
+                    sparkleUpdater.checkForUpdates()
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white)
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
             .background(Color.caiPrimary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
         }
     }
 
@@ -695,7 +685,7 @@ struct ActionListWindow: View {
 
     @ViewBuilder
     private var crashReportingPrompt: some View {
-        if !settings.crashReportingPromptShown {
+        if !settings.crashReportingPromptShown && !sparkleUpdater.updateAvailable {
             HStack(spacing: 8) {
                 Image(systemName: "ladybug")
                     .font(.system(size: 11, weight: .medium))

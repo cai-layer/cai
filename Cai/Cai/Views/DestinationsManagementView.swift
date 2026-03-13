@@ -24,8 +24,8 @@ struct DestinationsManagementView: View {
     @State private var formWebhookHeaders: String = "{\"Content-Type\": \"application/json\"}"
     @State private var formWebhookBody: String = ""
 
-    // URL Scheme
-    @State private var formURLScheme: String = ""
+    // Deeplink
+    @State private var formDeeplink: String = ""
 
     // Shell
     @State private var formShellCommand: String = ""
@@ -243,7 +243,7 @@ struct DestinationsManagementView: View {
             Picker("", selection: $formTypeTag) {
                 Text("Webhook").tag("webhook")
                 Text("AppleScript").tag("applescript")
-                Text("URL Scheme").tag("urlScheme")
+                Text("Deeplink").tag("deeplink")
                 Text("Shell").tag("shell")
             }
             .pickerStyle(.segmented)
@@ -270,8 +270,8 @@ struct DestinationsManagementView: View {
                 appleScriptFields
             case "webhook":
                 webhookFields
-            case "urlScheme":
-                urlSchemeFields
+            case "deeplink":
+                deeplinkFields
             case "shell":
                 shellFields
             default:
@@ -454,12 +454,12 @@ struct DestinationsManagementView: View {
         }
     }
 
-    private var urlSchemeFields: some View {
+    private var deeplinkFields: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("URL template (use {{result}} for text)")
                 .font(.system(size: 10))
                 .foregroundColor(.caiTextSecondary)
-            TextField("e.g. bear://x-callback-url/create?text={{result}}", text: $formURLScheme)
+            TextField("e.g. bear://x-callback-url/create?text={{result}}", text: $formDeeplink)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11, design: .monospaced))
         }
@@ -499,8 +499,8 @@ struct DestinationsManagementView: View {
                 headers: headers,
                 bodyTemplate: formWebhookBody
             ))
-        case "urlScheme":
-            return .urlScheme(template: formURLScheme)
+        case "deeplink":
+            return .deeplink(template: formDeeplink)
         case "shell":
             return .shell(command: formShellCommand)
         default:
@@ -534,9 +534,9 @@ struct DestinationsManagementView: View {
                 formWebhookHeaders = str
             }
             formWebhookBody = config.bodyTemplate
-        case .urlScheme(let template):
-            formTypeTag = "urlScheme"
-            formURLScheme = template
+        case .deeplink(let template):
+            formTypeTag = "deeplink"
+            formDeeplink = template
         case .shell(let command):
             formTypeTag = "shell"
             formShellCommand = command
@@ -580,7 +580,7 @@ struct DestinationsManagementView: View {
         switch tag {
         case "webhook": return "arrow.up.right.square"
         case "applescript": return "applescript"
-        case "urlScheme": return "link"
+        case "deeplink": return "link"
         case "shell": return "terminal"
         default: return "arrow.up.right.square"
         }
@@ -595,7 +595,7 @@ struct DestinationsManagementView: View {
         formWebhookMethod = "POST"
         formWebhookHeaders = "{\"Content-Type\": \"application/json\"}"
         formWebhookBody = ""
-        formURLScheme = ""
+        formDeeplink = ""
         formShellCommand = ""
         formSetupFields = []
     }

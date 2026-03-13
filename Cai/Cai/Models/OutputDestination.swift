@@ -43,28 +43,86 @@ struct OutputDestination: Codable, Identifiable, Equatable {
 
 // MARK: - Destination Type
 
-enum DestinationType: Codable, Equatable {
+enum DestinationType: Equatable {
     case applescript(template: String)
     case webhook(WebhookConfig)
-    case urlScheme(template: String)
+    case deeplink(template: String)
     case shell(command: String)
 
     var label: String {
         switch self {
         case .applescript: return "AppleScript"
         case .webhook: return "Webhook"
-        case .urlScheme: return "URL Scheme"
+        case .deeplink: return "Deeplink"
         case .shell: return "Shell Command"
         }
     }
 
-    /// String tag for Codable and picker identification
+    /// String tag for picker identification
     var tag: String {
         switch self {
         case .applescript: return "applescript"
         case .webhook: return "webhook"
-        case .urlScheme: return "urlScheme"
+        case .deeplink: return "deeplink"
         case .shell: return "shell"
+        }
+    }
+}
+
+// MARK: - DestinationType Codable (with urlScheme migration)
+
+extension DestinationType: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case applescript, webhook, deeplink, shell
+        case urlScheme // legacy
+    }
+
+    private enum NestedKeys: String, CodingKey {
+        case template, command
+        case _0 // unlabeled associated value (webhook)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.applescript) {
+            let nested = try container.nestedContainer(keyedBy: NestedKeys.self, forKey: .applescript)
+            self = .applescript(template: try nested.decode(String.self, forKey: .template))
+        } else if container.contains(.webhook) {
+            let nested = try container.nestedContainer(keyedBy: NestedKeys.self, forKey: .webhook)
+            self = .webhook(try nested.decode(WebhookConfig.self, forKey: ._0))
+        } else if container.contains(.deeplink) {
+            let nested = try container.nestedContainer(keyedBy: NestedKeys.self, forKey: .deeplink)
+            self = .deeplink(template: try nested.decode(String.self, forKey: .template))
+        } else if container.contains(.urlScheme) {
+            // Migrate old "urlScheme" → .deeplink
+            let nested = try container.nestedContainer(keyedBy: NestedKeys.self, forKey: .urlScheme)
+            self = .deeplink(template: try nested.decode(String.self, forKey: .template))
+        } else if container.contains(.shell) {
+            let nested = try container.nestedContainer(keyedBy: NestedKeys.self, forKey: .shell)
+            self = .shell(command: try nested.decode(String.self, forKey: .command))
+        } else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unknown destination type"
+            ))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .applescript(let template):
+            var nested = container.nestedContainer(keyedBy: NestedKeys.self, forKey: .applescript)
+            try nested.encode(template, forKey: .template)
+        case .webhook(let config):
+            var nested = container.nestedContainer(keyedBy: NestedKeys.self, forKey: .webhook)
+            try nested.encode(config, forKey: ._0)
+        case .deeplink(let template):
+            var nested = container.nestedContainer(keyedBy: NestedKeys.self, forKey: .deeplink)
+            try nested.encode(template, forKey: .template)
+        case .shell(let command):
+            var nested = container.nestedContainer(keyedBy: NestedKeys.self, forKey: .shell)
+            try nested.encode(command, forKey: .command)
         }
     }
 }

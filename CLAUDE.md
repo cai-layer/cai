@@ -111,7 +111,7 @@ Output destinations define where to send text after an LLM action (or directly f
 Users can create custom destinations via Settings → Output Destinations:
 - **Webhook** — HTTP POST/PUT/PATCH with JSON body template
 - **AppleScript** — arbitrary AppleScript with `{{result}}` placeholder
-- **URL Scheme** — deep links (e.g. `bear://x-callback-url/create?text={{result}}`)
+- **Deeplink** — deep links (e.g. `bear://x-callback-url/create?text={{result}}`)
 - **Shell Command** — terminal command; text passed via `{{result}}` and stdin
 
 ### Template Placeholders
@@ -122,7 +122,7 @@ Users can create custom destinations via Settings → Output Destinations:
 `OutputDestinationService` handles escaping automatically:
 - **AppleScript** — backslash, quotes, newlines escaped for AppleScript strings. Notes.app gets HTML conversion (`\n` → `<br>`) since it expects HTML for the `body` property.
 - **Webhook** — `JSONEncoder` for proper JSON string escaping (handles all special chars, unicode, control chars). Body template newlines collapsed (TextEditor artifact). Text trimmed of leading/trailing whitespace.
-- **URL Scheme** — percent-encoded via `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)`
+- **Deeplink** — percent-encoded via `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)`
 - **Shell** — raw text in template + piped as stdin
 
 ### "Show in Action List"

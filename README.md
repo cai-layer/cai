@@ -172,7 +172,7 @@ Send results to an output destination instead of just copying to clipboard.
 
 **Built-in:** Email (Mail.app), Save to Notes, Create Reminder.
 
-**Custom destinations:** Webhook, AppleScript, URL Scheme, Shell Command — use `{{result}}` as a placeholder for your text.
+**Custom destinations:** Webhook, AppleScript, Deeplink, Shell Command — use `{{result}}` as a placeholder for your text.
 
 Create them in Preferences → Output Destinations. Enable "Show in action list" for direct-access workflows.
 

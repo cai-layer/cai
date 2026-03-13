@@ -21,8 +21,8 @@ actor OutputDestinationService {
             try await executeAppleScript(template, text: text, fields: destination.setupFields)
         case .webhook(let config):
             try await executeWebhook(config, text: text, fields: destination.setupFields)
-        case .urlScheme(let template):
-            try await executeURLScheme(template, text: text, fields: destination.setupFields)
+        case .deeplink(let template):
+            try await executeDeeplink(template, text: text, fields: destination.setupFields)
         case .shell(let command):
             try await executeShell(command, text: text, fields: destination.setupFields)
         }
@@ -157,9 +157,9 @@ actor OutputDestinationService {
         return String(jsonString.dropFirst().dropLast())
     }
 
-    // MARK: - URL Scheme
+    // MARK: - Deeplink
 
-    private func executeURLScheme(_ template: String, text: String, fields: [SetupField]) async throws {
+    private func executeDeeplink(_ template: String, text: String, fields: [SetupField]) async throws {
         let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
         let resolved = resolveTemplate(template, text: encoded, fields: fields)
 

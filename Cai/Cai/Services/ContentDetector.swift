@@ -3,6 +3,7 @@ import Foundation
 // MARK: - Models
 
 enum ContentType: String, Codable {
+    case caiExtension // Community extension YAML (# cai header)
     case url
     case json
     case address
@@ -42,6 +43,11 @@ class ContentDetector {
 
         guard !trimmed.isEmpty else {
             return ContentResult(type: .shortText, confidence: 1.0, entities: ContentEntities())
+        }
+
+        // Priority 0: Cai extension YAML
+        if trimmed.hasPrefix("# cai-extension") {
+            return ContentResult(type: .caiExtension, confidence: 1.0, entities: ContentEntities())
         }
 
         // Priority 1: URL

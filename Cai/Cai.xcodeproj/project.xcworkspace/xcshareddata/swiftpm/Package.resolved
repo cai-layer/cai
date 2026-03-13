@@ -1,5 +1,5 @@
 {
-  "originHash" : "02e6bdf7d9e4bcd286289d4487cd446b836d59c4149580f1dfa783cd5377a9a4",
+  "originHash" : "7f0183a6a9d0961566af57684fa8f8339daa79803004c4b68be0c0fec191caa3",
   "pins" : [
     {
       "identity" : "hotkey",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "21d8df80440b1ca3b65fa82e40782f1e5a9e6ba2",
         "version" : "2.9.0"
+      }
+    },
+    {
+      "identity" : "yams",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpsim/Yams",
+      "state" : {
+        "revision" : "3d6871d5b4a5cd519adf233fbb576e0a2af71c17",
+        "version" : "5.4.0"
       }
     }
   ],

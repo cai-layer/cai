@@ -32,6 +32,10 @@ struct ActionListWindow: View {
     @State private var resultViewId: Int = 0
     @State private var isNewAction: Bool = false
 
+    // Extension install confirmation
+    @State private var showExtensionConfirm: Bool = false
+    @State private var pendingExtension: ExtensionParser.ParsedExtension?
+
     @State private var availableModels: [String] = []
     @State private var showModelPicker: Bool = false
     @State private var currentModelName: String = ""
@@ -42,6 +46,7 @@ struct ActionListWindow: View {
 
     /// Which screen is currently active — used for keyboard routing
     private var activeScreen: Screen {
+        if showExtensionConfirm { return .extensionConfirm }
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
         if showSettings { return .settings }
@@ -52,7 +57,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement
+        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionConfirm
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -125,7 +130,9 @@ struct ActionListWindow: View {
         ZStack(alignment: .top) {
             VisualEffectBackground()
 
-            if showDestinationsManagement {
+            if showExtensionConfirm, let ext = pendingExtension {
+                extensionConfirmView(ext)
+            } else if showDestinationsManagement {
                 DestinationsManagementView(
                     onBack: {
                         withAnimation(.easeInOut(duration: 0.15)) {
@@ -246,6 +253,7 @@ struct ActionListWindow: View {
         .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
         .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
         .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
+        .onChange(of: showExtensionConfirm) { _ in updateFilterInputFlag() }
         .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
         .onReceive(NotificationCenter.default.publisher(for: .caiShowSettings)) { _ in
             if showSettings {
@@ -258,6 +266,7 @@ struct ActionListWindow: View {
                 showCustomPrompt = false
                 showShortcutsManagement = false
                 showDestinationsManagement = false
+                showExtensionConfirm = false
                 withAnimation(.easeInOut(duration: 0.15)) {
                     showSettings = true
                 }
@@ -287,7 +296,12 @@ struct ActionListWindow: View {
     // MARK: - Keyboard Routing
 
     private func handleEsc() {
-        if showDestinationsManagement {
+        if showExtensionConfirm {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showExtensionConfirm = false
+                pendingExtension = nil
+            }
+        } else if showDestinationsManagement {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showDestinationsManagement = false
             }
@@ -422,6 +436,8 @@ struct ActionListWindow: View {
                 SystemActions.copyToClipboard(pendingResultText)
             }
             copyAndDismissWithToast()
+        case .extensionConfirm:
+            confirmInstallExtension()
         default:
             break
         }
@@ -938,6 +954,7 @@ struct ActionListWindow: View {
 
     private func iconForType(_ type: ContentType) -> String {
         switch type {
+        case .caiExtension: return "puzzlepiece.extension"
         case .url: return "link"
         case .json: return "curlybraces"
         case .address: return "mappin.and.ellipse"
@@ -952,6 +969,7 @@ struct ActionListWindow: View {
 
     private func labelForType(_ type: ContentType) -> String {
         switch type {
+        case .caiExtension: return "Cai Extension"
         case .url: return "URL detected"
         case .json: return "JSON detected"
         case .address: return "Address detected"
@@ -1014,6 +1032,9 @@ struct ActionListWindow: View {
                 return extractedText
             }
 
+        case .installExtension:
+            installExtension()
+
         case .outputDestination(let destination):
             executeDestination(destination, with: text)
 
@@ -1074,6 +1095,215 @@ struct ActionListWindow: View {
         case .reply: return "Reply"
         case .proofread: return "Fix Grammar"
         case .custom(let prompt): return prompt
+        }
+    }
+
+    // MARK: - Extension Confirm View
+
+    private func extensionConfirmView(_ ext: ExtensionParser.ParsedExtension) -> some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 10) {
+                Image(systemName: ext.icon)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(.caiPrimary)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ext.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.caiTextPrimary)
+                    Text(ext.typeLabel)
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiTextSecondary)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+
+            Divider()
+
+            // Details
+            VStack(alignment: .leading, spacing: 10) {
+                if let desc = ext.extensionDescription, !desc.isEmpty {
+                    detailRow(label: "Description", value: desc)
+                }
+
+                if let author = ext.author, !author.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Author")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.caiTextSecondary)
+                            .textCase(.uppercase)
+                        Button(action: {
+                            if let url = URL(string: "https://github.com/\(author)") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                GitHubIcon(color: .caiPrimary)
+                                    .frame(width: 10, height: 10)
+                                Text(author)
+                                    .font(.system(size: 12))
+                            }
+                            .foregroundColor(.caiPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+                    }
+                }
+
+                if let detail = ext.securityDetail {
+                    detailRow(label: "Sends data to", value: detail, isWarning: true)
+                }
+
+                // Trust warning
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                    Text("Extensions can modify your clipboard text and send data to external services.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            // Actions
+            HStack(spacing: 10) {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showExtensionConfirm = false
+                        pendingExtension = nil
+                    }
+                }) {
+                    Text("Cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.caiTextPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                }
+                .buttonStyle(.plain)
+                .background(Color.caiSurface.opacity(0.4))
+                .cornerRadius(6)
+
+                Button(action: {
+                    confirmInstallExtension()
+                }) {
+                    Text("Install")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                }
+                .buttonStyle(.plain)
+                .background(Color.caiPrimary)
+                .cornerRadius(6)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+
+            Spacer(minLength: 0)
+
+            // Footer
+            Divider()
+            HStack(spacing: 16) {
+                KeyboardHint(key: "Esc", label: "Cancel")
+                Spacer()
+                KeyboardHint(key: "↵", label: "Install")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func detailRow(label: String, value: String, isWarning: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.caiTextSecondary)
+                .textCase(.uppercase)
+            Text(value)
+                .font(.system(size: 12))
+                .foregroundColor(isWarning ? .orange : .caiTextPrimary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+    }
+
+    // MARK: - Extension Install
+
+    private func installExtension() {
+        do {
+            let parsed = try ExtensionParser.parse(text)
+            pendingExtension = parsed
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showExtensionConfirm = true
+            }
+        } catch {
+            NotificationCenter.default.post(
+                name: .caiShowToast,
+                object: nil,
+                userInfo: ["message": error.localizedDescription]
+            )
+        }
+    }
+
+    private func confirmInstallExtension() {
+        guard let parsed = pendingExtension else { return }
+
+        switch parsed {
+        case .shortcut(let shortcut, _, _):
+            // Check for existing shortcut with same name → update
+            if let index = settings.shortcuts.firstIndex(where: { $0.name == shortcut.name }) {
+                settings.shortcuts[index].type = shortcut.type
+                settings.shortcuts[index].value = shortcut.value
+                onDismiss()
+                NotificationCenter.default.post(
+                    name: .caiShowToast,
+                    object: nil,
+                    userInfo: ["message": "Updated: \(shortcut.name)"]
+                )
+            } else {
+                settings.shortcuts.append(shortcut)
+                onDismiss()
+                NotificationCenter.default.post(
+                    name: .caiShowToast,
+                    object: nil,
+                    userInfo: ["message": "Installed: \(shortcut.name)"]
+                )
+            }
+
+        case .destination(let destination, _, _):
+            // Check for existing destination with same name → update
+            if let index = settings.outputDestinations.firstIndex(where: { $0.name == destination.name && !$0.isBuiltIn }) {
+                settings.outputDestinations[index].type = destination.type
+                settings.outputDestinations[index].icon = destination.icon
+                settings.outputDestinations[index].showInActionList = destination.showInActionList
+                settings.outputDestinations[index].setupFields = destination.setupFields
+                onDismiss()
+                NotificationCenter.default.post(
+                    name: .caiShowToast,
+                    object: nil,
+                    userInfo: ["message": "Updated: \(destination.name)"]
+                )
+            } else {
+                settings.outputDestinations.append(destination)
+                onDismiss()
+                NotificationCenter.default.post(
+                    name: .caiShowToast,
+                    object: nil,
+                    userInfo: ["message": "Installed: \(destination.name)"]
+                )
+            }
         }
     }
 

@@ -48,6 +48,8 @@
 		CAI00124 /* OutputDestinationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00125 /* OutputDestinationService.swift */; };
 		CAI00126 /* DestinationsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00127 /* DestinationsManagementView.swift */; };
 		CAI00128 /* DestinationChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00129 /* DestinationChip.swift */; };
+		CAI00160 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00161 /* Yams */; };
+		CAI00163 /* ExtensionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00164 /* ExtensionParser.swift */; };
 		CAI00130 /* BuiltInLLM.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00131 /* BuiltInLLM.swift */; };
 		CAI00132 /* ModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00133 /* ModelDownloader.swift */; };
 		CAI00134 /* ModelSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00135 /* ModelSetupView.swift */; };
@@ -55,6 +57,7 @@
 		CAI00138 /* CrashReportingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00139 /* CrashReportingService.swift */; };
 		CAI00140 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00141 /* Sentry */; };
 		CAI00150 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00151 /* Sparkle */; };
+		CAI00166 /* GitHubIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00165 /* GitHubIcon.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -117,6 +120,8 @@
 		CAI00137 /* bin */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bin; path = Resources/bin; sourceTree = "<group>"; };
 		CAI00139 /* CrashReportingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportingService.swift; sourceTree = "<group>"; };
 		CAI00146 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		CAI00164 /* ExtensionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionParser.swift; sourceTree = "<group>"; };
+		CAI00165 /* GitHubIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubIcon.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -127,6 +132,7 @@
 				CAI00026 /* HotKey in Frameworks */,
 				CAI00140 /* Sentry in Frameworks */,
 				CAI00150 /* Sparkle in Frameworks */,
+				CAI00160 /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -199,6 +205,7 @@
 				CAI00127 /* DestinationsManagementView.swift */,
 				CAI00129 /* DestinationChip.swift */,
 				CAI00135 /* ModelSetupView.swift */,
+				CAI00165 /* GitHubIcon.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -222,6 +229,7 @@
 				CAI00139 /* CrashReportingService.swift */,
 				CAI00146 /* KeychainHelper.swift */,
 				CAI00148 /* OCRService.swift */,
+				CAI00164 /* ExtensionParser.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -263,6 +271,7 @@
 				CAI00027 /* HotKey */,
 				CAI00141 /* Sentry */,
 				CAI00151 /* Sparkle */,
+				CAI00161 /* Yams */,
 			);
 			productName = Cai;
 			productReference = CAI00009 /* Cai.app */;
@@ -318,6 +327,7 @@
 				CAI00028 /* XCRemoteSwiftPackageReference "HotKey" */,
 				CAI00142 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				CAI00152 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				CAI00162 /* XCRemoteSwiftPackageReference "Yams" */,
 			);
 			productRefGroup = CAI00015 /* Products */;
 			projectDirPath = "";
@@ -395,6 +405,8 @@
 				CAI00138 /* CrashReportingService.swift in Sources */,
 				CAI00145 /* KeychainHelper.swift in Sources */,
 				CAI00147 /* OCRService.swift in Sources */,
+				CAI00163 /* ExtensionParser.swift in Sources */,
+				CAI00166 /* GitHubIcon.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -692,6 +704,14 @@
 				minimumVersion = 2.0.0;
 			};
 		};
+		CAI00162 /* XCRemoteSwiftPackageReference "Yams" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jpsim/Yams";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -709,6 +729,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CAI00152 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		CAI00161 /* Yams */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CAI00162 /* XCRemoteSwiftPackageReference "Yams" */;
+			productName = Yams;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

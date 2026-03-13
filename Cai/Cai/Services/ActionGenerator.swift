@@ -57,6 +57,18 @@ struct ActionGenerator {
 
         switch detection.type {
 
+        // MARK: Cai Extension
+        case .caiExtension:
+            items.append(ActionItem(
+                id: "install_extension",
+                title: "Install Extension",
+                subtitle: "Add this extension to Cai",
+                icon: "puzzlepiece.extension",
+                shortcut: shortcut,
+                type: .installExtension
+            ))
+            return items  // No other actions for extension YAML
+
         // MARK: Word
         case .word:
             items.append(ActionItem(

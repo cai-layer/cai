@@ -315,21 +315,38 @@ struct SettingsView: View {
                         }
                     }
 
-                    // Feedback (outside groups)
-                    Button(action: {
-                        if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
-                            NSWorkspace.shared.open(url)
+                    // Links (outside groups)
+                    HStack(spacing: 16) {
+                        Button(action: {
+                            if let url = URL(string: "https://github.com/clipboard-ai/cai-extensions") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "puzzlepiece.extension")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("Community Extensions")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
                         }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "envelope")
-                                .font(.system(size: 10, weight: .medium))
-                            Text("Send Feedback")
-                                .font(.system(size: 11))
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "envelope")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("Send Feedback")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
                         }
-                        .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)

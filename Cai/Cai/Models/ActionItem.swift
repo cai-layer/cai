@@ -22,6 +22,7 @@ enum ActionType {
     case shortcutURL(String)  // URL template with %s placeholder
     case outputDestination(OutputDestination)  // Send text to external app/service
     case copyText  // Show extracted text in ResultView (used by "Show Extracted Text" from image OCR)
+    case installExtension  // Install community extension from clipboard YAML
 }
 
 enum LLMAction {

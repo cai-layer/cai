@@ -37,7 +37,11 @@ struct ExtensionParser {
         var typeLabel: String {
             switch self {
             case .shortcut(let s, _, _):
-                return s.type == .prompt ? "Prompt Shortcut" : "URL Shortcut"
+                switch s.type {
+                case .prompt: return "Prompt Shortcut"
+                case .url: return "URL Shortcut"
+                case .shell: return "Shell Command"
+                }
             case .destination(let d, _, _):
                 switch d.type {
                 case .webhook: return "Webhook Destination"
@@ -57,7 +61,9 @@ struct ExtensionParser {
         /// Returns a detail string for security-sensitive types (e.g. webhook URL).
         var securityDetail: String? {
             switch self {
-            case .shortcut: return nil
+            case .shortcut(let s, _, _):
+                if s.type == .shell { return s.value }
+                return nil
             case .destination(let d, _, _):
                 if case .webhook(let config) = d.type {
                     return config.url
@@ -96,7 +102,8 @@ struct ExtensionParser {
     // MARK: - Parse
 
     /// Parses a YAML string (with `# cai` header already detected) into a ParsedExtension.
-    static func parse(_ yaml: String) throws -> ParsedExtension {
+    /// Set `allowShell` to true when installing from the curated repo (reviewed extensions).
+    static func parse(_ yaml: String, allowShell: Bool = false) throws -> ParsedExtension {
         // Strip the `# cai` header line
         let lines = yaml.components(separatedBy: .newlines)
         let body = lines.dropFirst().joined(separator: "\n")
@@ -129,6 +136,9 @@ struct ExtensionParser {
         case "applescript":
             throw ParseError.blockedType("AppleScript")
         case "shell":
+            if allowShell {
+                return try parseShellShortcut(dict, name: name, icon: icon, author: author, description: description)
+            }
             throw ParseError.blockedType("Shell")
         default:
             throw ParseError.unsupportedType(type)
@@ -157,6 +167,18 @@ struct ExtensionParser {
             name: name,
             type: .url,
             value: url.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        return .shortcut(shortcut, author: author, description: description)
+    }
+
+    private static func parseShellShortcut(_ dict: [String: Any], name: String, icon: String, author: String?, description: String?) throws -> ParsedExtension {
+        guard let command = dict["shell"] as? String, !command.isEmpty else {
+            throw ParseError.missingField("shell")
+        }
+        let shortcut = CaiShortcut(
+            name: name,
+            type: .shell,
+            value: command.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         return .shortcut(shortcut, author: author, description: description)
     }

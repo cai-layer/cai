@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import HotKey
 import ServiceManagement
@@ -30,6 +31,8 @@ class CaiSettings: ObservableObject {
         static let hotKeyCombo = "cai_hotKeyCombo"
         static let aboutYou = "cai_aboutYou"
         static let clipboardHistorySize = "cai_clipboardHistorySize"
+        static let installedExtensions = "cai_installedExtensions"
+        static let appearance = "cai_appearance"
         // apiKey moved to Keychain — see KeychainHelper
     }
 
@@ -61,6 +64,16 @@ class CaiSettings: ObservableObject {
     enum MapsProvider: String, CaseIterable, Identifiable {
         case apple = "Apple Maps"
         case google = "Google Maps"
+
+        var id: String { rawValue }
+    }
+
+    // MARK: - Appearance
+
+    enum Appearance: String, CaseIterable, Identifiable {
+        case system = "System"
+        case light = "Light"
+        case dark = "Dark"
 
         var id: String { rawValue }
     }
@@ -108,6 +121,13 @@ class CaiSettings: ObservableObject {
             if let data = try? JSONEncoder().encode(outputDestinations) {
                 defaults.set(data, forKey: Keys.outputDestinations)
             }
+        }
+    }
+
+    /// Slugs of community extensions installed from the curated repo.
+    @Published var installedExtensions: Set<String> {
+        didSet {
+            defaults.set(Array(installedExtensions), forKey: Keys.installedExtensions)
         }
     }
 
@@ -201,6 +221,25 @@ class CaiSettings: ObservableObject {
         didSet { defaults.set(clipboardHistorySize, forKey: Keys.clipboardHistorySize) }
     }
 
+    @Published var appearance: Appearance {
+        didSet {
+            defaults.set(appearance.rawValue, forKey: Keys.appearance)
+            applyAppearance()
+        }
+    }
+
+    /// Applies the user's appearance preference to the app.
+    func applyAppearance() {
+        switch appearance {
+        case .system:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+
     @Published var hotKeyComboDict: [String: Int]? {
         didSet {
             defaults.set(hotKeyComboDict, forKey: Keys.hotKeyCombo)
@@ -274,6 +313,9 @@ class CaiSettings: ObservableObject {
         let savedHistorySize = defaults.integer(forKey: Keys.clipboardHistorySize)
         self.clipboardHistorySize = savedHistorySize > 0 ? savedHistorySize : 50
 
+        let appearanceRaw = defaults.string(forKey: Keys.appearance) ?? Appearance.system.rawValue
+        self.appearance = Appearance(rawValue: appearanceRaw) ?? .system
+
         // API key: read from Keychain, migrate from UserDefaults if needed
         if let keychainKey = KeychainHelper.get(forKey: "cai_apiKey") {
             self.apiKey = keychainKey
@@ -302,6 +344,9 @@ class CaiSettings: ObservableObject {
         } else {
             self.outputDestinations = BuiltInDestinations.all
         }
+
+        let installedSlugs = defaults.stringArray(forKey: Keys.installedExtensions) ?? []
+        self.installedExtensions = Set(installedSlugs)
 
         // Default to true for launch at login — bool(forKey:) returns false when key is absent,
         // so we check if the key has ever been set explicitly.

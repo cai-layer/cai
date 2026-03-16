@@ -20,6 +20,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingLLMSetup = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Apply saved appearance preference
+        CaiSettings.shared.applyAppearance()
+
         // Start crash reporting early if user has opted in
         CrashReportingService.shared.startIfEnabled()
 

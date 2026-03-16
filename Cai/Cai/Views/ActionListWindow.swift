@@ -19,6 +19,7 @@ struct ActionListWindow: View {
     @State private var showCustomPrompt: Bool = false
     @State private var showShortcutsManagement: Bool = false
     @State private var showDestinationsManagement: Bool = false
+    @State private var showExtensionBrowser: Bool = false
     @StateObject private var historySelectionState = SelectionState()
     @StateObject private var customPromptState = CustomPromptState()
     @ObservedObject private var settings = CaiSettings.shared
@@ -48,6 +49,7 @@ struct ActionListWindow: View {
     /// Which screen is currently active — used for keyboard routing
     private var activeScreen: Screen {
         if showExtensionConfirm { return .extensionConfirm }
+        if showExtensionBrowser { return .extensionBrowser }
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
         if showSettings { return .settings }
@@ -58,7 +60,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionConfirm
+        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -142,6 +144,16 @@ struct ActionListWindow: View {
                     onBack: {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             showDestinationsManagement = false
+                            showSettings = true
+                        }
+                    }
+                )
+            } else if showExtensionBrowser {
+                ExtensionBrowserView(
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showExtensionBrowser = false
+                            showSettings = true
                         }
                     }
                 )
@@ -150,6 +162,7 @@ struct ActionListWindow: View {
                     onBack: {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             showShortcutsManagement = false
+                            showSettings = true
                         }
                     }
                 )
@@ -306,13 +319,20 @@ struct ActionListWindow: View {
                 showExtensionConfirm = false
                 pendingExtension = nil
             }
+        } else if showExtensionBrowser {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showExtensionBrowser = false
+                showSettings = true
+            }
         } else if showDestinationsManagement {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showDestinationsManagement = false
+                showSettings = true
             }
         } else if showShortcutsManagement {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showShortcutsManagement = false
+                showSettings = true
             }
         } else if showCustomPrompt {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -632,6 +652,12 @@ struct ActionListWindow: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = false
                         showDestinationsManagement = true
+                    }
+                },
+                onShowExtensions: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                        showExtensionBrowser = true
                     }
                 },
                 onShowModelSetup: {

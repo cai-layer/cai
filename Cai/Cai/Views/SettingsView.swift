@@ -8,6 +8,7 @@ struct SettingsView: View {
     /// Callback to navigate to shortcuts management (pushes inline screen).
     var onShowShortcuts: (() -> Void)? = nil
     var onShowDestinations: (() -> Void)? = nil
+    var onShowExtensions: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
 
     /// LLM connection status — checked each time settings opens.
@@ -164,26 +165,27 @@ struct SettingsView: View {
 
                     // MARK: Actions Group
                     settingsGroup(title: "Actions") {
-                        settingsSection(title: "Translation Language", icon: "globe") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Picker("", selection: $settings.translationLanguage) {
-                                    ForEach(CaiSettings.commonLanguages, id: \.self) { lang in
-                                        Text(lang).tag(lang)
-                                    }
+                        HStack {
+                            Text("Translation")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
+                            Picker("", selection: $settings.translationLanguage) {
+                                ForEach(CaiSettings.commonLanguages, id: \.self) { lang in
+                                    Text(lang).tag(lang)
                                 }
-                                .labelsHidden()
-                                .pickerStyle(.menu)
-                                .accessibilityLabel("Translation language")
-
-                                Text("Default language for the Translate action")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary)
                             }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .accessibilityLabel("Translation language")
                         }
 
                         settingsDivider
 
-                        settingsSection(title: "Search URL", icon: "magnifyingglass") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Search URL")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
                             TextField(CaiSettings.defaultSearchURL, text: $settings.searchURL)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 12, design: .monospaced))
@@ -197,7 +199,11 @@ struct SettingsView: View {
 
                         settingsDivider
 
-                        settingsSection(title: "Maps", icon: "map") {
+                        HStack {
+                            Text("Maps")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
                             Picker("", selection: $settings.mapsProvider) {
                                 ForEach(CaiSettings.MapsProvider.allCases) { provider in
                                     Text(provider.rawValue).tag(provider)
@@ -207,146 +213,112 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                             .accessibilityLabel("Maps provider")
                         }
+                    }
+
+                    // MARK: Shortcuts & Extensions Group
+                    settingsGroup(title: "Shortcuts & Extensions") {
+                        navRow(label: "Shortcuts", count: settings.shortcuts.count, action: onShowShortcuts)
 
                         settingsDivider
 
-                        settingsSection(title: "Custom Shortcuts", icon: "bolt.circle.fill") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                if let onShowShortcuts = onShowShortcuts {
-                                    Button(action: onShowShortcuts) {
-                                        shortcutsRow
-                                    }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    shortcutsRow
-                                }
-                                Text("Type to search shortcuts when Cai is open")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary)
-                            }
-                        }
+                        navRow(label: "Destinations", count: settings.enabledDestinations.count, total: settings.outputDestinations.count, action: onShowDestinations)
 
                         settingsDivider
 
-                        settingsSection(title: "Output Destinations", icon: "arrow.up.right.square") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                if let onShowDestinations = onShowDestinations {
-                                    Button(action: onShowDestinations) {
-                                        destinationsRow
-                                    }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    destinationsRow
-                                }
-                                Text("Send LLM results to Mail, Notes, Slack, and more")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary)
-                            }
-                        }
+                        navRow(label: "Community Extensions", count: settings.installedExtensions.count, action: onShowExtensions)
                     }
 
                     // MARK: General Group
                     settingsGroup(title: "General") {
-                        settingsSection(title: "Hotkey & Startup", icon: "gearshape") {
-                            HStack {
-                                Text("Hotkey")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.caiTextPrimary)
-                                Spacer()
-                                ShortcutRecorderView()
-                                    .frame(width: 120, height: 24)
-                            }
-
-                            HStack {
-                                Text("Launch at Login")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.caiTextPrimary)
-                                Spacer()
-                                Toggle("", isOn: $settings.launchAtLogin)
-                                    .toggleStyle(.switch)
-                                    .controlSize(.mini)
-                                    .tint(.caiPrimary)
-                                    .labelsHidden()
-                            }
-                            .accessibilityLabel("Launch Cai at login")
+                        HStack {
+                            Text("Hotkey")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
+                            ShortcutRecorderView()
+                                .frame(width: 120, height: 24)
                         }
 
                         settingsDivider
 
-                        settingsSection(title: "Clipboard History", icon: "clock.arrow.circlepath") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Picker("", selection: $settings.clipboardHistorySize) {
-                                    ForEach(CaiSettings.historySizePresets, id: \.self) { size in
-                                        Text("\(size) items").tag(size)
-                                    }
+                        HStack {
+                            Text("Appearance")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
+                            Picker("", selection: $settings.appearance) {
+                                ForEach(CaiSettings.Appearance.allCases) { mode in
+                                    Text(mode.rawValue).tag(mode)
                                 }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .accessibilityLabel("Appearance")
+                        }
+
+                        settingsDivider
+
+                        HStack {
+                            Text("Clipboard History")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
+                            Picker("", selection: $settings.clipboardHistorySize) {
+                                ForEach(CaiSettings.historySizePresets, id: \.self) { size in
+                                    Text("\(size) items").tag(size)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .accessibilityLabel("Clipboard history size")
+                        }
+
+                        settingsDivider
+
+                        HStack {
+                            Text("Launch at Login")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
+                            Toggle("", isOn: $settings.launchAtLogin)
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                                .tint(.caiPrimary)
                                 .labelsHidden()
-                                .pickerStyle(.menu)
-                                .accessibilityLabel("Clipboard history size")
-
-                                Text("Maximum number of items to remember")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary)
-                            }
                         }
+                        .accessibilityLabel("Launch Cai at login")
 
                         settingsDivider
 
-                        settingsSection(title: "Privacy", icon: "hand.raised") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text("Send crash reports")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.caiTextPrimary)
-                                    Spacer()
-                                    Toggle("", isOn: $settings.crashReportingEnabled)
-                                        .toggleStyle(.switch)
-                                        .controlSize(.mini)
-                                        .tint(.caiPrimary)
-                                        .labelsHidden()
-                                }
-                                .accessibilityLabel("Send crash reports to help improve Cai")
-
-                                Text("When enabled, anonymous crash data is sent to help fix bugs. No clipboard content, personal data, or usage patterns are collected.")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
+                        HStack {
+                            Text("Crash Reports")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                            Spacer()
+                            Toggle("", isOn: $settings.crashReportingEnabled)
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                                .tint(.caiPrimary)
+                                .labelsHidden()
                         }
+                        .accessibilityLabel("Send crash reports to help improve Cai")
                     }
 
-                    // Links (outside groups)
-                    HStack(spacing: 16) {
-                        Button(action: {
-                            if let url = URL(string: "https://github.com/clipboard-ai/cai-extensions") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "puzzlepiece.extension")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text("Community Extensions")
-                                    .font(.system(size: 11))
-                            }
-                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                    // Feedback link (outside groups)
+                    Button(action: {
+                        if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
+                            NSWorkspace.shared.open(url)
                         }
-                        .buttonStyle(.plain)
-
-                        Button(action: {
-                            if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "envelope")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text("Send Feedback")
-                                    .font(.system(size: 11))
-                            }
-                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "envelope")
+                                .font(.system(size: 10, weight: .medium))
+                            Text("Send Feedback")
+                                .font(.system(size: 11))
                         }
-                        .buttonStyle(.plain)
+                        .foregroundColor(.caiTextSecondary.opacity(0.5))
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
@@ -465,48 +437,39 @@ struct SettingsView: View {
         forceCheckLLMStatus()
     }
 
-    // MARK: - Shortcuts Row
+    // MARK: - Navigation Row
 
-    private var shortcutsRow: some View {
-        HStack {
-            Text(settings.shortcuts.isEmpty
-                 ? "Create shortcuts for prompts & URLs"
-                 : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s") configured")
+    /// Apple Settings-style navigation row: label + optional count badge + chevron.
+    private func navRow(label: String, count: Int = 0, total: Int? = nil, action: (() -> Void)? = nil) -> some View {
+        let row = HStack {
+            Text(label)
                 .font(.system(size: 12))
                 .foregroundColor(.caiTextPrimary)
             Spacer()
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.caiPrimary)
+            if let total = total {
+                Text("\(count)/\(total)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.caiTextSecondary)
+            } else if count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.caiTextSecondary)
+            }
             Image(systemName: "chevron.right")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.caiTextSecondary.opacity(0.5))
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
         .contentShape(Rectangle())
-    }
 
-    // MARK: - Destinations Row
-
-    private var destinationsRow: some View {
-        HStack {
-            let enabled = settings.enabledDestinations.count
-            let total = settings.outputDestinations.count
-            Text(total == 0
-                 ? "Configure where to send results"
-                 : "\(enabled) of \(total) destination\(total == 1 ? "" : "s") enabled")
-                .font(.system(size: 12))
-                .foregroundColor(.caiTextPrimary)
-            Spacer()
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.caiPrimary)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.caiTextSecondary.opacity(0.5))
+        return Group {
+            if let action = action {
+                Button(action: action) { row }
+                    .buttonStyle(.plain)
+            } else {
+                row
+            }
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
     }
 
     // MARK: - Update Badge

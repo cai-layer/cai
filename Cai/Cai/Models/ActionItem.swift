@@ -20,6 +20,7 @@ enum ActionType {
     case jsonPrettyPrint(String)
     case customPrompt
     case shortcutURL(String)  // URL template with %s placeholder
+    case shortcutShell(String)  // Shell command template with {{result}} placeholder
     case outputDestination(OutputDestination)  // Send text to external app/service
     case copyText  // Show extracted text in ResultView (used by "Show Extracted Text" from image OCR)
     case installExtension  // Install community extension from clipboard YAML

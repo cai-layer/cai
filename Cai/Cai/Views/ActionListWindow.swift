@@ -106,6 +106,9 @@ struct ActionListWindow: View {
                 case .url:
                     actionType = .shortcutURL(sc.value)
                     subtitle = sc.value.replacingOccurrences(of: "%s", with: clipboardText.prefix(20) + (clipboardText.count > 20 ? "…" : ""))
+                case .shell:
+                    actionType = .shortcutShell(sc.value)
+                    subtitle = sc.value
                 }
 
                 items.append(ActionItem(
@@ -1022,6 +1025,15 @@ struct ActionListWindow: View {
             }
             onDismiss()
 
+        case .shortcutShell(let command):
+            let clipboardText = self.text
+            let systemPrompt = "You are a helpful assistant. The user ran a shell command on their clipboard text. Help them with any questions about the output."
+            conversationHistory = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: clipboardText)
+            isFollowUpEnabled = true
+            showResultView(title: action.title) {
+                return try await Self.runShellCommand(command, text: clipboardText)
+            }
+
         case .copyText:
             let extractedText = self.text
             let systemPrompt = "You are a helpful assistant. The user shared text extracted from an image via OCR. Help them with any questions about it. For math, use Unicode symbols."
@@ -1348,5 +1360,53 @@ struct ActionListWindow: View {
             return json
         }
         return result
+    }
+
+    /// Runs a shell command template with clipboard text substituted for {{result}}.
+    /// Text is also piped as stdin. Returns stdout on success, throws on failure/timeout.
+    private static func runShellCommand(_ template: String, text: String) async throws -> String {
+        let escaped = "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let resolved = template.replacingOccurrences(of: "{{result}}", with: escaped)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", resolved]
+
+        // Pass text as stdin
+        let inputPipe = Pipe()
+        let inputData = text.data(using: .utf8) ?? Data()
+        inputPipe.fileHandleForWriting.write(inputData)
+        inputPipe.fileHandleForWriting.closeFile()
+        process.standardInput = inputPipe
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        try process.run()
+
+        // Timeout after 15 seconds
+        let deadline = DispatchTime.now() + .seconds(15)
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            process.waitUntilExit()
+            done.signal()
+        }
+
+        if done.wait(timeout: deadline) == .timedOut {
+            process.terminate()
+            throw NSError(domain: "Cai", code: 1, userInfo: [NSLocalizedDescriptionKey: "Command timed out after 15 seconds"])
+        }
+
+        let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        guard process.terminationStatus == 0 else {
+            let message = stderr.isEmpty ? "Command failed with exit code \(process.terminationStatus)" : stderr
+            throw NSError(domain: "Cai", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message])
+        }
+
+        return stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

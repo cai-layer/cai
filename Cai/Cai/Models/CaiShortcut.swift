@@ -14,11 +14,13 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
     enum ShortcutType: String, Codable, CaseIterable {
         case prompt
         case url
+        case shell
 
         var icon: String {
             switch self {
             case .prompt: return "bolt.circle.fill"
             case .url: return "safari.fill"
+            case .shell: return "terminal.fill"
             }
         }
 
@@ -26,6 +28,7 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
             switch self {
             case .prompt: return "Prompt"
             case .url: return "URL"
+            case .shell: return "Shell"
             }
         }
 
@@ -33,6 +36,7 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
             switch self {
             case .prompt: return "e.g. Rewrite as a professional email reply"
             case .url: return "e.g. https://www.reddit.com/search/?q=%s"
+            case .shell: return "e.g. echo '{{result}}' | base64 -D"
             }
         }
     }

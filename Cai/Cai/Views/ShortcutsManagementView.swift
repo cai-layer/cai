@@ -226,54 +226,44 @@ struct ShortcutsManagementView: View {
 
             // Value field
             VStack(alignment: .leading, spacing: 4) {
-                Text(formType == .prompt ? "Prompt" : "URL Template")
+                let fieldLabel: String = {
+                    switch formType {
+                    case .prompt: return "Prompt"
+                    case .url: return "URL Template"
+                    case .shell: return "Shell Command"
+                    }
+                }()
+                Text(fieldLabel)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.caiTextSecondary)
-                if formType == .prompt {
-                    ZStack(alignment: .topLeading) {
-                        TextEditor(text: $formValue)
-                            .font(.system(size: 12))
-                            .scrollContentBackground(.hidden)
-                            .padding(4)
-                        if formValue.isEmpty {
-                            Text(formType.placeholder)
-                                .font(.system(size: 12))
-                                .foregroundColor(.caiTextSecondary.opacity(0.4))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 8)
-                                .allowsHitTesting(false)
-                        }
+                let useMonospaced = formType == .url || formType == .shell
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $formValue)
+                        .font(.system(size: 12, design: useMonospaced ? .monospaced : .default))
+                        .scrollContentBackground(.hidden)
+                        .padding(4)
+                    if formValue.isEmpty {
+                        Text(formType.placeholder)
+                            .font(.system(size: 12, design: useMonospaced ? .monospaced : .default))
+                            .foregroundColor(.caiTextSecondary.opacity(0.4))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
                     }
-                    .frame(minHeight: 60, maxHeight: 140)
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .cornerRadius(5)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-                    )
-                } else {
-                    ZStack(alignment: .topLeading) {
-                        TextEditor(text: $formValue)
-                            .font(.system(size: 12, design: .monospaced))
-                            .scrollContentBackground(.hidden)
-                            .padding(4)
-                        if formValue.isEmpty {
-                            Text(formType.placeholder)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(.caiTextSecondary.opacity(0.4))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 8)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .frame(minHeight: 60, maxHeight: 140)
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .cornerRadius(5)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-                    )
+                }
+                .frame(minHeight: 60, maxHeight: 140)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(5)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+                )
+                if formType == .url {
                     Text("Use %s where clipboard text should be inserted")
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary.opacity(0.5))
+                } else if formType == .shell {
+                    Text("Use {{result}} where clipboard text should be inserted. Text is also passed via stdin.")
                         .font(.system(size: 10))
                         .foregroundColor(.caiTextSecondary.opacity(0.5))
                 }

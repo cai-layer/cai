@@ -153,7 +153,7 @@ actor LLMService {
         case .proofread:
             return (
                 system: "You are a proofreader.\(context) Fix grammar, spelling, and punctuation errors. Keep the original meaning, tone, and style. Output only the corrected text \u{2014} no explanations, no comments. Do not use any markdown formatting (no **, no *, no #, no `).",
-                user: text
+                user: "Proofread and return only the corrected version:\n\n\(text)"
             )
         case .custom(let instruction):
             return (

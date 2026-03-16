@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with this repository.
+Quick reference for Claude Code. For detailed feature docs, see [`_docs/ARCHITECTURE.md`](_docs/ARCHITECTURE.md).
 
 ## What is Cai?
 
@@ -14,17 +14,10 @@ open Cai.xcodeproj
 # Select "Cai" scheme → "My Mac" → Cmd+R
 ```
 
-Or via command line:
-
 ```bash
-# Debug build
-xcodebuild -scheme Cai -configuration Debug build
-
-# Release archive (for DMG)
-xcodebuild -scheme Cai -configuration Release archive -archivePath /tmp/Cai.xcarchive
-
-# Run tests
-xcodebuild -scheme Cai -configuration Debug test
+xcodebuild -scheme Cai -configuration Debug build      # Debug build
+xcodebuild -scheme Cai -configuration Debug test        # Run tests
+xcodebuild -scheme Cai -configuration Release archive -archivePath /tmp/Cai.xcarchive  # Release
 ```
 
 ## Project Structure
@@ -83,202 +76,17 @@ Cai/Cai/
 │   └── bin/                    # Bundled llama-server binary + dylibs (llama.cpp b8022, ARM64)
 ```
 
-## Core Flow
+## Feature Overview
 
-```
-Option+C → AppDelegate.handleHotKeyTrigger()
-  → Capture frontmost app name (sourceApp)
-  → ClipboardService.copySelectedText() [CGEvent Cmd+C simulation]
-  → openWithClipboard() priority chain:
-    1. Image file on clipboard (Finder copy) → OCRService extracts text
-    2. Text on clipboard → existing text flow
-    3. Image data on clipboard (screenshot, Preview copy) → OCRService extracts text
-    4. Image present but no text found → "No text found in image" toast
-    5. Nothing → "Clipboard is empty" toast
-  → ContentDetector.detect() → ContentResult (type + entities)
-  → ActionGenerator.generateActions() → [ActionItem] (includes action-list destinations)
-  → WindowController.showActionWindow(text, detection, sourceApp)
-    → ActionListWindow (SwiftUI) shown in CaiPanel
-```
+> Detailed docs for each: [`_docs/ARCHITECTURE.md`](_docs/ARCHITECTURE.md)
 
-## Custom Shortcuts
-
-User-defined shortcuts appear in the action list alongside built-in actions. Managed via Settings → Shortcuts.
-
-### Shortcut Types (`CaiShortcut.ShortcutType`)
-- **Prompt** (`.prompt`) — LLM prompt template with `{{result}}` placeholder. Runs through LLMService, result shown in ResultView.
-- **URL** (`.url`) — URL template with `%s` placeholder for clipboard text. Opens in default browser.
-- **Shell** (`.shell`) — Shell command with `{{result}}` placeholder. Runs via `/bin/zsh -c`, captures stdout, displays result in ResultView. Text also piped via stdin. 15-second timeout. Follow-up LLM queries enabled on output.
-
-### Shell Shortcut Execution (`ActionListWindow.runShellCommand`)
-- Replaces `{{result}}` in template with shell-escaped text (single-quote escaping only, no wrapping quotes — template controls quoting)
-- Pipes raw clipboard text as stdin
-- Captures stdout for display, stderr for error reporting
-- 15-second timeout via `DispatchQueue.asyncAfter`
-- Example: `echo '{{result}}' | base64 -D` decodes Base64 text
-
-## Output Destinations
-
-Output destinations define where to send text after an LLM action (or directly from the action list).
-
-### Built-in Destinations (zero-config, AppleScript)
-- **Email** — opens Mail.app with a new draft containing the text
-- **Save to Notes** — creates a new note in Notes.app (auto-converts to HTML for formatting)
-- **Create Reminder** — adds a reminder to the default list (disabled by default)
-
-### Custom Destination Types
-Users can create custom destinations via Settings → Output Destinations:
-- **Webhook** — HTTP POST/PUT/PATCH with JSON body template
-- **AppleScript** — arbitrary AppleScript with `{{result}}` placeholder
-- **Deeplink** — deep links (e.g. `bear://x-callback-url/create?text={{result}}`)
-- **Shell Command** — terminal command; text passed via `{{result}}` and stdin
-
-### Template Placeholders
-- `{{result}}` — the clipboard/LLM-processed text (auto-escaped per destination type)
-- `{{field_key}}` — value from a setup field (e.g. `{{api_key}}`)
-
-### Text Escaping Per Destination Type
-`OutputDestinationService` handles escaping automatically:
-- **AppleScript** — backslash, quotes, newlines escaped for AppleScript strings. Notes.app gets HTML conversion (`\n` → `<br>`) since it expects HTML for the `body` property.
-- **Webhook** — `JSONEncoder` for proper JSON string escaping (handles all special chars, unicode, control chars). Body template newlines collapsed (TextEditor artifact). Text trimmed of leading/trailing whitespace.
-- **Deeplink** — percent-encoded via `addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)`
-- **Shell** — raw text in template + piped as stdin
-
-### "Show in Action List"
-Destinations with `showInActionList: true` appear as direct-route actions (skip LLM step). They're appended by `ActionGenerator` and deduplicated by UUID.
-
-## Community Extensions
-
-Users can install extensions from the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo via two methods:
-
-### In-App Extension Browser (Primary)
-1. Settings → Community Extensions → Browse
-2. `ExtensionService.fetchIndex()` loads `index.json` from curated GitHub repo
-3. `ExtensionBrowserView` shows searchable list (filters by name, description, tags)
-4. One-tap install for prompt/url/webhook/deeplink types
-5. Shell extensions show confirmation alert with command preview before install
-6. Installed extensions tracked via `CaiSettings.installedExtensions` (Set<String> of slugs)
-7. Click "Installed" button to uninstall (removes shortcut/destination + slug tracking)
-
-### Clipboard Install (Secondary)
-1. User copies extension YAML (starts with `# cai-extension` header)
-2. `ContentDetector` detects `.caiExtension` at priority 0 (highest)
-3. `ActionGenerator` shows single "Install Extension" action
-4. `ExtensionParser` parses YAML via Yams into `ParsedExtension` (.shortcut or .destination)
-5. Trust confirmation view shows name, type, author (clickable GitHub link), and webhook URL warning
-6. On confirm: saves as `CaiShortcut` or `OutputDestination`, with duplicate detection by name
-7. **applescript/shell blocked** from clipboard install for security (error shown in result view)
-
-### Extension Types
-- **prompt** → `CaiShortcut` with `.prompt` type
-- **url** → `CaiShortcut` with `.url` type
-- **shell** → `CaiShortcut` with `.shell` type (curated repo only, requires confirmation)
-- **webhook** → `OutputDestination` with `.webhook` type (HTTPS required)
-- **deeplink** → `OutputDestination` with `.deeplink` type
-- **applescript** → blocked entirely (must be created locally in Settings)
-
-### Extension Repo Structure
-```
-cai-extensions/
-├── index.json                    # Array of ExtensionEntry objects
-├── extensions/
-│   ├── base64-decode/extension.yaml
-│   ├── explain-like-im-five/extension.yaml
-│   └── ...
-└── .github/workflows/validate.yml  # PR validation (YAML format, HTTPS check, author match)
-```
-
-### YAML Format
-```yaml
-# cai-extension
-name: Extension Name
-description: What it does
-author: github-username
-version: "1.0"
-tags: [tag1, tag2]
-icon: sf.symbol.name
-type: prompt
-prompt: |
-  Your prompt here with {{result}} placeholder
-```
-
-## Built-in LLM
-
-Cai bundles `llama-server` (from llama.cpp) for zero-dependency LLM inference. Users who don't have LM Studio/Ollama get a "Download Model" prompt on first launch.
-
-### Architecture
-- **`BuiltInLLM.swift`** — Actor managing the llama-server subprocess (start/stop/crash recovery/orphan cleanup)
-- **`ModelDownloader.swift`** — Singleton (`ModelDownloader.shared`) that downloads GGUF models with progress tracking and resume support. Survives window close for background downloads.
-- **`ModelSetupView.swift`** — First-launch setup UI (welcome → downloading → starting → ready)
-- **Binary**: `Resources/bin/llama-server` + dylibs (llama.cpp b8022, ARM64 macOS, Metal GPU)
-
-### Key behaviors
-- Server runs on ports 8690-8699 (auto-finds free port)
-- PID file at `~/Library/Application Support/Cai/llama-server.pid` for orphan cleanup
-- Crash recovery: auto-restart up to 3 times with 1s delay, toast notification
-- Model stored at `~/Library/Application Support/Cai/models/`
-- Settings: `CaiSettings.modelProvider == .builtIn`, `builtInModelPath`, `builtInSetupDone`
-- Model setup deferred until after accessibility permission is granted (`pendingLLMSetup` flag)
-
-### Default model
-Ministral 3B Q4_K_M (~2.15 GB) from Hugging Face. Hardcoded in `ModelDownloader.defaultModel`.
-
-See `_docs/BUILT-IN-LLM.md` for full implementation plan and `_docs/dmg-assets/BUILD-DMG.md` for binary signing/update instructions.
-
-## Crash Reporting (Sentry)
-
-Opt-in crash reporting via Sentry, disabled by default. Respects privacy-first philosophy.
-
-- **`CrashReportingService`** singleton wraps all Sentry SDK calls
-- Controlled by `CaiSettings.crashReportingEnabled` (default: `false`)
-- Initialized early in `AppDelegate.applicationDidFinishLaunching()`
-- Runtime toggle: `SentrySDK.start()` / `SentrySDK.close()` — no restart needed
-- One-time prompt: inline banner in `ActionListWindow` (same pattern as update banner)
-- Breadcrumbs at: content detection, action execution, built-in LLM lifecycle
-- **No PII**: `sendDefaultPii = false`, no session tracking, no screenshots, no performance tracing
-- `beforeSend` strips `user` and `serverName` as safety net
-- dSYM upload required for symbolicated crash reports (see `BUILD-DMG.md`)
-
-## Bundle IDs
-
-| Build | Bundle ID | Purpose |
-|-------|-----------|---------|
-| Debug (Xcode Run) | `com.soyasis.cai.dev` | Separate accessibility entry for dev |
-| Release (Archive/DMG) | `com.soyasis.cai` | Production |
-
-This prevents debug builds from resetting production accessibility permissions.
-
-## Key Architecture Patterns
-
-### No Sandbox
-Required for CGEvent posting and global hotkey. The app needs Accessibility permission.
-
-### CGEvent Private Event Source
-When Option+C fires, the Option key is physically held. To simulate clean Cmd+C, we use `CGEventSource(stateID: .privateState)` to isolate from physical modifier state.
-
-### Notification-Based Keyboard Routing
-WindowController's local event monitor intercepts all keyboard events and posts notifications (`caiEscPressed`, `caiEnterPressed`, `caiArrowUp`, etc.). SwiftUI views subscribe via `.onReceive()`. This bridges the AppKit event system to SwiftUI.
-
-### CaiPanel (NSPanel subclass)
-Standard NSPanel can't become key window. `CaiPanel` overrides `canBecomeKey` to enable keyboard input.
-
-### PassThrough Flag
-When `TextEditor` is active (custom prompt input, destination forms), `WindowController.passThrough = true` lets Enter and arrow keys pass through to the text editor instead of being intercepted.
-
-### acceptsFilterInput Flag
-When `true`, typed characters are appended to `selectionState.filterText` for type-to-filter. Set to `false` when non-action screens are active (settings, history, destinations, etc.).
-
-### Actor-Based Services
-`LLMService`, `OutputDestinationService`, and `BuiltInLLM` are Swift actors for thread safety. LLMService communicates with OpenAI-compatible `/v1/chat/completions` endpoint. OutputDestinationService executes destinations (webhooks, AppleScript, URL schemes, shell commands). BuiltInLLM manages the llama-server subprocess lifecycle.
-
-### Window Resume Cache
-Dismissed windows are cached for 10 seconds. If reopened with the same clipboard text, the previous state (result view, custom prompt) is restored instead of creating a new window.
-
-### LazyVStack Row Identity
-Action list rows use `.id(action.id)` (not index-based). This prevents SwiftUI from showing stale cached content when the filtered list changes.
-
-### Type-to-Filter Word Matching
-Filter matches any word in the action title by prefix. "note" matches "Save to **Note**s", but "ote" matches nothing. Implemented via `anyWordHasPrefix()` which splits on spaces and checks `hasPrefix` on each word.
+- **Core flow**: Option+C → CGEvent Cmd+C → ContentDetector → ActionGenerator → ActionListWindow
+- **Custom shortcuts**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView.
+- **Output destinations**: Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type.
+- **Community extensions**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
+- **Built-in LLM**: Bundled llama-server (llama.cpp b8022). Auto-download Ministral 3B. Crash recovery. See also `_docs/BUILT-IN-LLM.md`.
+- **Crash reporting**: Opt-in Sentry, disabled by default. No PII.
+- **Bundle IDs**: Debug `com.soyasis.cai.dev`, Release `com.soyasis.cai` (separate accessibility entries).
 
 ## Tests
 
@@ -286,12 +94,11 @@ Filter matches any word in the action title by prefix. "note" matches "Save to *
 xcodebuild -scheme Cai -configuration Debug test
 ```
 
-Tests are in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ test cases covering all content types, edge cases, priority ordering, and international address formats.
+Tests in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ cases covering all content types.
 
 ## Common Tasks
 
 ### Adding a New LLM Action
-
 1. Add case to `LLMAction` enum in `ActionItem.swift`
 2. Add method to `LLMService.swift` (with `appContext` parameter)
 3. Add to `ActionGenerator.swift` for relevant content types
@@ -299,40 +106,30 @@ Tests are in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ test cases coveri
 5. Add title in `llmActionTitle()` in `ActionListWindow.swift`
 
 ### Adding a New Content Type
-
 1. Add case to `ContentType` in `ContentDetector.swift`
 2. Add detection logic in `detect()` (respects priority order)
 3. Add action generation in `ActionGenerator.swift`
 4. Add tests in `ContentDetectorTests.swift`
 
 ### Adding a New Built-in Destination
-
 1. Add static let in `BuiltInDestinations.swift` with a fixed UUID
 2. Add to `BuiltInDestinations.all` array
 3. Note: existing users won't get new built-ins (they loaded from persisted data). Consider a migration in `CaiSettings.init()`.
 
 ### Adding a New Setting
-
 1. Add key to `CaiSettings.Keys`
 2. Add `@Published` property with `didSet` persistence
 3. Initialize in `CaiSettings.init()`
 4. Add UI in `SettingsView.swift`
 
 ### Adding a New Community Extension
-
 1. Create `extensions/<slug>/extension.yaml` in the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo
 2. Add entry to `index.json` with slug, name, description, author, version, icon, type, tags
 3. YAML must start with `# cai-extension` header
 4. PR validation runs automatically (checks format, HTTPS for webhooks, author match)
-5. Shell extensions require extra security review
 
 ### Building a DMG
-
-See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
-- Sign bundled llama-server binaries with Developer ID before archiving
-- Background image: `_docs/dmg-assets/extension-icon.png`
-- `.DS_Store` from previous DMG preserves window layout
-- Upload via `gh release upload v1.0.0 Cai-1.0.0-macos.dmg --clobber`
+See `_docs/dmg-assets/BUILD-DMG.md` for the full process.
 
 ## Important Gotchas
 
@@ -342,22 +139,16 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
 - **Always reset `selectionState.filterText`** when navigating away from the action list
 - **`passThrough` must be set/unset** when entering/leaving TextEditor screens (custom prompt, destination forms)
 - **Don't use App Sandbox** — CGEvent posting requires it to be disabled
-- **Accessibility permission polling** stops once granted — uses `startPollingForPermission()` on launch, timer invalidates on grant
-- **Notes.app expects HTML** — the `body` property takes HTML, not plain text. `OutputDestinationService` auto-converts via `plainTextToHTML()` when targeting Notes.
-- **Webhook JSON escaping uses JSONEncoder** — not manual string replacement. `JSONEncoder().encode(text)` handles all edge cases. Strip outer quotes since the template provides them.
-- **Destination deduplication** — `ActionGenerator` uses a `seenDestIDs` set to prevent the same destination UUID from appearing twice in the action list.
-- **API key uses Keychain, not UserDefaults** — `KeychainHelper` wraps the Security framework. CaiSettings reads from Keychain on init (with one-time migration from UserDefaults for existing users). Never store secrets in UserDefaults.
-- **Shell destination `{{result}}` is escaped** — `escapeForShell()` wraps text in POSIX single quotes to prevent command injection. Other destination types use their own escaping (JSON, percent-encoding, AppleScript).
-- **Webhook logging is `#if DEBUG` only** — sensitive URLs/bodies with API keys are not logged in release builds.
-- **API key only works with OpenAI-compatible providers** — uses `Authorization: Bearer` header with `/v1/chat/completions`. Works with OpenAI, OpenRouter, Together AI, Groq, Mistral AI, etc. Does NOT work with Anthropic's native API (different endpoint/format/header).
-- **Clipboard text is clamped to 50K characters** — `ClipboardHistory.maxTextLength` (50,000 chars) prevents memory bloat from huge clipboard content. Applied in `addEntry()` (history storage) and `openWithClipboard()` (action pipeline). Silent truncation — no UI indicator.
-- **OCR uses Apple Vision framework** — `OCRService` extracts text from clipboard images on-device (~50-200ms, Neural Engine). Supports all macOS image formats via `NSImage(pasteboard:)`. Background OCR in `ClipboardHistory.checkForChanges()` gives parity with text entries. Image entries use `photo` SF Symbol (macOS 13+ compatible, NOT `doc.text.image` which is macOS 14+).
-- **Extension detection uses `# cai-extension` header** — `ContentDetector` checks `trimmed.hasPrefix("# cai-extension")` at priority 0 (before URL). `ExtensionParser` strips the header line before passing to Yams. AppleScript/shell types are blocked from clipboard install — they must be created locally in Settings.
-- **Image file detection checks file URLs** — `extractTextFromClipboardImageFile()` uses `NSPasteboard.readObjects(forClasses: [NSURL.self])` with `urlReadingFileURLsOnly: true` to detect Finder-copied image files. Filters by image extensions (png, jpg, jpeg, tiff, etc.). Runs before text check in priority chain.
-- **Shell shortcut escaping differs from shell destinations** — Shell shortcuts use `escapeForShell()` which only escapes single quotes inside the text (`'` → `'\''`), without wrapping in quotes (the template controls quoting, e.g. `echo '{{result}}'`). Shell destinations in `OutputDestinationService` wrap the entire text in single quotes.
-- **ExtensionParser `allowShell` parameter** — `parse(yaml, allowShell: true)` is used when installing from the curated repo (reviewed extensions). `allowShell: false` (default) is used for clipboard-based installs. Shell type throws `ParseError.blockedType` when not allowed.
-- **Webhook URLs must use HTTPS** — `ExtensionParser` enforces `url.lowercased().hasPrefix("https://")` for webhook destinations. The GitHub Actions validator in `cai-extensions` also checks this on PRs.
-- **ExtensionService uses `reloadIgnoringLocalCacheData`** — Prevents URLSession from serving stale cached responses from `raw.githubusercontent.com`. Both `fetchIndex()` and `fetchYAML()` set this cache policy.
+- **Notes.app expects HTML** — `OutputDestinationService` auto-converts via `plainTextToHTML()` when targeting Notes
+- **Webhook JSON escaping uses JSONEncoder** — not manual string replacement. Strip outer quotes since the template provides them.
+- **API key uses Keychain, not UserDefaults** — `KeychainHelper` wraps the Security framework. Never store secrets in UserDefaults.
+- **Shell shortcut escaping differs from shell destinations** — Shortcuts: single-quote escaping only, no wrapping (template controls quoting). Destinations: wraps entire text in single quotes.
+- **ExtensionParser `allowShell`** — `true` for curated repo installs, `false` (default) for clipboard installs
+- **Webhook URLs must use HTTPS** — enforced in both `ExtensionParser` and GitHub Actions validator
+- **ExtensionService uses `reloadIgnoringLocalCacheData`** — prevents stale cached responses from GitHub CDN
+- **Clipboard text clamped to 50K chars** — `ClipboardHistory.maxTextLength`. Silent truncation.
+- **OCR uses Apple Vision framework** — on-device, ~50-200ms. Image entries use `photo` SF Symbol (macOS 13+, NOT `doc.text.image`).
+- **Extension detection uses `# cai-extension` header** — priority 0 (before URL). Shell/AppleScript blocked from clipboard install.
 
 ## Dependencies
 

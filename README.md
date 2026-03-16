@@ -44,9 +44,9 @@ No cloud. No telemetry. No accounts.
 - Select `"serendipity"` → Define, Explain, Translate, Search
 - Select `"Let's meet Tuesday at 3pm at Starbucks"` → Create calendar event, Open in Maps
 - Select an email in Mail → Reply, Summarize, Translate
-- Select any text → Custom Action: *"Extract ingredients for 2 people"*
+- Select any text → Ask AI: *"Extract ingredients for 2 people"*
 - Copy a screenshot → Image to Text (OCR), then Summarize, Translate, or any action
-- Select a project name → Shortcut: search in Google Drive (`https://drive.google.com/drive/search?q=%s`)
+- Select a project name → Custom action: search in Google Drive (`https://drive.google.com/drive/search?q=%s`)
 
 ## Features
 
@@ -54,13 +54,13 @@ No cloud. No telemetry. No accounts.
 - **Image to Text** — copy a screenshot or image and Cai extracts the text via on-device OCR (Apple Vision), then run any action on it
 - **Built-in AI** — ships with [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF), downloaded on first launch. Also compatible with [Apple Intelligence](#apple-intelligence) (macOS 26+), LM Studio, Ollama, or any OpenAI-compatible server
 - **Built-in chat** — ask follow-up questions with **Tab**, or press **⌘N** to start a new chat without clipboard content
-- **Custom AI action** (⌘1) — free-form prompt to do anything: improve writing, create email replies, translate, count words
-- **Custom shortcuts** — save reusable prompts and URL templates, access them by typing to filter
+- **Ask AI** (⌘1) — free-form prompt to do anything: improve writing, create email replies, translate, count words
+- **Custom actions** — save reusable prompts and URL templates, access them by typing to filter
 - **Output destinations** — send results to Mail, Notes, Reminders, or custom webhooks, URL schemes, AppleScript, and shell commands
 - **Clipboard history** — search, pin, and reuse your last 100 clipboard items with **⌘0**
 - **App-aware** — Cai knows which app you're in (Mail, Slack, Safari…) and adapts AI responses to match the context
 - **About You** — set personal context (profession, tone, preferences) so AI responses are tailored to you
-- **Type-to-filter** — start typing to filter actions, shortcuts, and destinations by name
+- **Type-to-filter** — start typing to filter actions and destinations by name
 - **Keyboard-first** — navigate and execute everything without touching the mouse
 - **Privacy-first** — no internet required, no data leaves your machine
 
@@ -76,7 +76,7 @@ No cloud. No telemetry. No accounts.
 | **⌘N** | New chat (ask anything, without clipboard content) |
 | **⌘↵** | Submit custom prompt / Copy result |
 | **Tab** | Ask a follow-up question on the result |
-| **A–Z** | Type to filter actions and shortcuts |
+| **A–Z** | Type to filter actions |
 | **Esc** | Clear filter / Back / Dismiss |
 
 ## Installation
@@ -136,14 +136,14 @@ Cai works with **LM Studio**, **Ollama**, or any OpenAI-compatible endpoint (loc
 
 AI is optional — system actions (Maps, Calendar, Search, Pretty Print JSON) work without it. API keys are stored in the **macOS Keychain**.
 
-## Custom Shortcuts
+## Custom Actions
 
-Save frequently used prompts and URL templates as shortcuts. They appear when you type to filter the action list.
+Save frequently used prompts and URL templates as custom actions. They appear when you type to filter the action list.
 
 - **Prompt** — sends clipboard text + your prompt to the LLM (e.g., "Rewrite as email reply")
 - **URL** — opens a URL with clipboard text substituted via `%s` (e.g., `https://reddit.com/search/?q=%s`)
 
-Create them in Preferences → Custom Shortcuts.
+Create them in Preferences → Custom Actions.
 
 ## Output Destinations
 

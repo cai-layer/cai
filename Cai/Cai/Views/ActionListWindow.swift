@@ -31,6 +31,7 @@ struct ActionListWindow: View {
     @State private var followUpText: String = ""
     @State private var resultViewId: Int = 0
     @State private var isNewAction: Bool = false
+    @State private var shortcutDisplayName: String?
 
     // Extension install confirmation
     @State private var showExtensionConfirm: Bool = false
@@ -102,6 +103,7 @@ struct ActionListWindow: View {
                 switch sc.type {
                 case .prompt:
                     actionType = .llmAction(.custom(sc.value))
+                    shortcutDisplayName = sc.name
                     subtitle = sc.value
                 case .url:
                     actionType = .shortcutURL(sc.value)
@@ -1070,6 +1072,7 @@ struct ActionListWindow: View {
 
     private func handleCustomPromptSubmit(_ instruction: String) {
         showCustomPrompt = false
+        shortcutDisplayName = nil
 
         if isNewAction || text.isEmpty {
             // New action mode — no clipboard context, general assistant
@@ -1106,7 +1109,7 @@ struct ActionListWindow: View {
         case .explain: return "Explanation"
         case .reply: return "Reply"
         case .proofread: return "Fix Grammar"
-        case .custom(let prompt): return prompt
+        case .custom: return shortcutDisplayName ?? "Custom"
         }
     }
 
@@ -1365,7 +1368,7 @@ struct ActionListWindow: View {
     /// Runs a shell command template with clipboard text substituted for {{result}}.
     /// Text is also piped as stdin. Returns stdout on success, throws on failure/timeout.
     private static func runShellCommand(_ template: String, text: String) async throws -> String {
-        let escaped = "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let escaped = text.replacingOccurrences(of: "'", with: "'\\''")
         let resolved = template.replacingOccurrences(of: "{{result}}", with: escaped)
 
         let process = Process()

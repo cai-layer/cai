@@ -73,7 +73,7 @@ Cai/Cai/
     ├── AboutView.swift         # About window
     └── VisualEffectBackground.swift  # NSVisualEffectView wrapper
 ├── Resources/
-│   └── bin/                    # Bundled llama-server binary + dylibs (llama.cpp b8022, ARM64)
+│   └── bin/                    # Bundled llama-server binary + dylibs (llama.cpp b8390, ARM64)
 ```
 
 ## Feature Overview
@@ -82,7 +82,7 @@ Cai/Cai/
 - **[Custom actions](_docs/ARCHITECTURE.md#custom-shortcuts)**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView. (Code still uses `CaiShortcut` / `shortcuts` internally.)
 - **[Output destinations](_docs/ARCHITECTURE.md#output-destinations)**: Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type.
 - **[Community extensions](_docs/ARCHITECTURE.md#community-extensions)**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
-- **[Built-in LLM](_docs/ARCHITECTURE.md#built-in-llm)**: Bundled llama-server (llama.cpp b8022). Auto-download Ministral 3B. Crash recovery. See also [`_docs/BUILT-IN-LLM.md`](_docs/BUILT-IN-LLM.md). For updating, see [`_docs/LLAMA-UPDATE.md`](_docs/LLAMA-UPDATE.md).
+- **[Built-in LLM](_docs/ARCHITECTURE.md#built-in-llm)**: Bundled llama-server (llama.cpp b8390). Auto-download Ministral 3B. Crash recovery. See also [`_docs/BUILT-IN-LLM.md`](_docs/BUILT-IN-LLM.md). For updating, see [`_docs/LLAMA-UPDATE.md`](_docs/LLAMA-UPDATE.md).
 - **[Crash reporting](_docs/ARCHITECTURE.md#crash-reporting-sentry)**: Opt-in Sentry, disabled by default. No PII.
 - **[Architecture patterns](_docs/ARCHITECTURE.md#key-architecture-patterns)**: No Sandbox, CGEvent, CaiPanel, PassThrough, keyboard routing, actors.
 - **[Bundle IDs](_docs/ARCHITECTURE.md#bundle-ids)**: Debug `com.soyasis.cai.dev`, Release `com.soyasis.cai` (separate accessibility entries).
@@ -155,7 +155,7 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process.
 - **Sentry** (SPM): [getsentry/sentry-cocoa](https://github.com/getsentry/sentry-cocoa) v8.0.0+ — opt-in crash reporting
 - **Yams** (SPM): [jpsim/Yams](https://github.com/jpsim/Yams) v5.0.0+ — YAML parsing for community extensions
 - **Sparkle** (SPM): [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) — auto-update framework
-- **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8022 — local LLM inference engine (ARM64 macOS)
+- **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8390 — local LLM inference engine (ARM64 macOS)
 - **macOS 13.0+** (Ventura) deployment target
 
 ## Style Guide

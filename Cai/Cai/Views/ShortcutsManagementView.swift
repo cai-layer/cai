@@ -278,6 +278,21 @@ struct ShortcutsManagementView: View {
                         .font(.system(size: 10))
                         .foregroundColor(.caiTextSecondary.opacity(0.5))
                 }
+
+                // Code execution warning
+                if formType == .shell {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.orange)
+                        Text("This action will execute code on your machine. Only use commands you understand and trust.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.orange)
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.08))
+                    .cornerRadius(6)
+                }
             }
 
             // Save / Cancel buttons

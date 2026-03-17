@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/cai-logo.png" width="128" height="128" alt="Cai logo">
+  <img src="assets/cailogo-dark.png" width="128" height="128" alt="Cai logo">
 </p>
 
 <h1 align="center">Cai</h1>

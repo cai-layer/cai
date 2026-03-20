@@ -32,7 +32,8 @@ Cai/Cai/
 │   ├── CaiSettings.swift       # UserDefaults-backed settings (singleton), installedExtensions tracking
 │   ├── CaiShortcut.swift       # User-defined shortcut model (prompt, url, shell types)
 │   ├── OutputDestination.swift # Destination model, DestinationType, WebhookConfig, SetupField
-│   └── BuiltInDestinations.swift # Pre-defined destinations (Email, Notes, Reminders)
+│   ├── BuiltInDestinations.swift # Pre-defined destinations (Email, Notes, Reminders)
+│   └── MCPModels.swift         # MCP types: MCPServerConfig, MCPActionConfig, MCPFieldConfig, MCPError
 ├── Services/
 │   ├── WindowController.swift  # Floating panel, keyboard routing, event monitors
 │   ├── ClipboardService.swift  # CGEvent Cmd+C simulation + pasteboard read
@@ -50,6 +51,8 @@ Cai/Cai/
 │   ├── OCRService.swift        # On-device image OCR via Apple Vision framework
 │   ├── ExtensionParser.swift    # Parses community extension YAML into shortcuts/destinations
 │   ├── ExtensionService.swift   # Fetches extension index + YAML from curated GitHub repo
+│   ├── MCPClientService.swift  # Actor — MCP server connections, tool calls, metadata caching
+│   ├── MCPConfigManager.swift  # ObservableObject — server configs, action registry, persistence
 │   ├── UpdateChecker.swift     # GitHub release version check (24h interval)
 │   └── PermissionsManager.swift # Accessibility permission check/polling
 └── Views/
@@ -61,6 +64,8 @@ Cai/Cai/
     ├── ShortcutsManagementView.swift  # Create/edit custom actions
     ├── DestinationsManagementView.swift # Create/edit output destinations
     ├── ExtensionBrowserView.swift # Browse/search/install community extensions
+    ├── MCPFormView.swift       # Generic MCP action form (text, picker, multiselect, LLM generation)
+    ├── ConnectorsSettingsView.swift # MCP server management (API keys, test, toggles)
     ├── DestinationChip.swift   # Destination button for result/custom prompt views
     ├── ClipboardHistoryView.swift     # Last 9 entries view
     ├── OnboardingPermissionView.swift # First-launch accessibility permission guide
@@ -84,6 +89,7 @@ Cai/Cai/
 - **[Community extensions](_docs/ARCHITECTURE.md#community-extensions)**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
 - **[Built-in LLM](_docs/ARCHITECTURE.md#built-in-llm)**: Bundled llama-server (llama.cpp b8390). Auto-download Ministral 3B. Crash recovery. See also [`_docs/BUILT-IN-LLM.md`](_docs/BUILT-IN-LLM.md). For updating, see [`_docs/LLAMA-UPDATE.md`](_docs/LLAMA-UPDATE.md).
 - **[Crash reporting](_docs/ARCHITECTURE.md#crash-reporting-sentry)**: Opt-in Sentry, disabled by default. No PII.
+- **[MCP connectors](_docs/MCP.md)**: GitHub, Linear via MCP protocol. Declarative `MCPActionConfig` → generic `MCPFormView`. Config: `~/.config/cai/mcp-servers.json`. Provider docs: [`_docs/mcp-providers/`](_docs/mcp-providers/).
 - **[Architecture patterns](_docs/ARCHITECTURE.md#key-architecture-patterns)**: No Sandbox, CGEvent, CaiPanel, PassThrough, keyboard routing, actors.
 - **[Bundle IDs](_docs/ARCHITECTURE.md#bundle-ids)**: Debug `com.soyasis.cai.dev`, Release `com.soyasis.cai` (separate accessibility entries).
 
@@ -155,6 +161,7 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process.
 - **Sentry** (SPM): [getsentry/sentry-cocoa](https://github.com/getsentry/sentry-cocoa) v8.0.0+ — opt-in crash reporting
 - **Yams** (SPM): [jpsim/Yams](https://github.com/jpsim/Yams) v5.0.0+ — YAML parsing for community extensions
 - **Sparkle** (SPM): [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) — auto-update framework
+- **MCP** (SPM): [modelcontextprotocol/swift-sdk](https://github.com/modelcontextprotocol/swift-sdk) v0.11.0+ — MCP client (HTTPClientTransport)
 - **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8390 — local LLM inference engine (ARM64 macOS)
 - **macOS 13.0+** (Ventura) deployment target
 

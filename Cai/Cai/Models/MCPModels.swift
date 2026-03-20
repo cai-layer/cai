@@ -1,0 +1,236 @@
+import Foundation
+
+// MARK: - MCP Server Configuration
+
+/// Configuration for a remote MCP server connection.
+/// Stored in ~/.config/cai/mcp-servers.json. Secrets live in Keychain, never in this file.
+struct MCPServerConfig: Codable, Identifiable, Equatable {
+    let id: UUID
+    var name: String                    // "GitHub", "Linear"
+    var transport: MCPTransport
+    var authType: MCPAuthType
+    var authKeychainKey: String?        // Keychain key for token: "mcp_github_pat"
+    var isEnabled: Bool
+    var icon: String                    // SF Symbol name
+    var autoConnect: Bool               // Connect on app launch
+    var headers: [String: String]       // Extra headers: e.g. "X-MCP-Toolsets": "issues"
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        transport: MCPTransport,
+        authType: MCPAuthType = .none,
+        authKeychainKey: String? = nil,
+        isEnabled: Bool = true,
+        icon: String = "puzzlepiece.extension",
+        autoConnect: Bool = false,
+        headers: [String: String] = [:]
+    ) {
+        self.id = id
+        self.name = name
+        self.transport = transport
+        self.authType = authType
+        self.authKeychainKey = authKeychainKey
+        self.isEnabled = isEnabled
+        self.icon = icon
+        self.autoConnect = autoConnect
+        self.headers = headers
+    }
+}
+
+// MARK: - Transport
+
+enum MCPTransport: Codable, Equatable {
+    case remote(url: String)            // HTTP/SSE endpoint
+    // case stdio(command: String, args: [String], env: [String: String])  // future
+
+    var url: String? {
+        switch self {
+        case .remote(let url): return url
+        }
+    }
+}
+
+// MARK: - Auth
+
+enum MCPAuthType: String, Codable, Equatable {
+    case bearerToken                    // PAT / API key in Authorization header
+    case none
+}
+
+// MARK: - Server Status
+
+enum MCPServerStatus: Equatable {
+    case disconnected
+    case connecting
+    case connected(toolCount: Int)
+    case error(String)
+
+    var isConnected: Bool {
+        if case .connected = self { return true }
+        return false
+    }
+
+    var displayText: String {
+        switch self {
+        case .disconnected: return "Disconnected"
+        case .connecting: return "Connecting…"
+        case .connected(let count): return "Connected — \(count) tools"
+        case .error(let msg): return "Error: \(msg)"
+        }
+    }
+}
+
+// MARK: - MCP Action Configuration (Declarative)
+
+/// Describes a single MCP-powered action (e.g., "Create GitHub Issue", "Send to Slack").
+/// The MCPFormView renders these generically — no provider-specific UI code needed.
+struct MCPActionConfig: Identifiable {
+    let id: String                      // "github_create_issue"
+    let serverConfigId: UUID            // Which MCP server to use
+    let displayName: String             // "Create GitHub Issue"
+    let icon: String                    // SF Symbol: "plus.circle"
+    let confirmLabel: String            // "Create Issue" / "Send Message"
+    let llmPrompt: MCPLLMPrompt?        // Optional LLM generation for text fields
+    let fields: [MCPFieldConfig]        // Ordered list of form fields
+    let submitTool: String              // MCP tool to call on confirm: "create_issue"
+    let submitMapping: [String: String] // Maps field keys to tool params
+}
+
+/// LLM prompt configuration for auto-generating field values.
+struct MCPLLMPrompt {
+    let systemPrompt: String            // Instructions for the LLM
+    let titleField: String              // Which field to populate with generated title
+    let bodyField: String?              // Which field to populate with generated body
+}
+
+// MARK: - Field Configuration
+
+/// A single form field in an MCP action form.
+struct MCPFieldConfig: Identifiable {
+    let id: String                      // "repo", "labels", "team"
+    let label: String                   // "Repository", "Labels"
+    let type: MCPFieldType
+    let source: MCPFieldSource
+    let required: Bool
+
+    init(
+        id: String,
+        label: String,
+        type: MCPFieldType,
+        source: MCPFieldSource,
+        required: Bool = false
+    ) {
+        self.id = id
+        self.label = label
+        self.type = type
+        self.source = source
+        self.required = required
+    }
+}
+
+enum MCPFieldType: String {
+    case text                           // Single-line TextField
+    case textarea                       // Multi-line TextEditor
+    case picker                         // Dropdown (single select)
+    case multiselect                    // Toggleable chips (multi select)
+}
+
+enum MCPFieldSource {
+    case userInput                      // User types freely
+    case llm                           // LLM generates initial value, user can edit
+    case mcp(toolName: String)          // Options fetched via MCP tool call
+}
+
+// MARK: - Picker Option
+
+/// A single option in a picker or multiselect field, fetched from MCP.
+struct MCPPickerOption: Identifiable, Equatable {
+    let id: String                      // Unique value to submit
+    let label: String                   // Display text
+}
+
+// MARK: - Metadata Cache
+
+/// Caches MCP-fetched metadata (repos, labels, teams, etc.) to avoid re-fetching on every action.
+struct MCPMetadataCache {
+    var entries: [String: CacheEntry] = [:]  // Keyed by "serverConfigId_toolName"
+
+    struct CacheEntry {
+        let options: [MCPPickerOption]
+        let fetchedAt: Date
+        let ttl: TimeInterval
+
+        var isExpired: Bool {
+            Date().timeIntervalSince(fetchedAt) > ttl
+        }
+    }
+
+    /// Default TTL: 5 minutes.
+    static let defaultTTL: TimeInterval = 300
+
+    /// Returns cached options if valid, nil if expired or missing.
+    func get(serverConfigId: UUID, toolName: String) -> [MCPPickerOption]? {
+        let key = "\(serverConfigId.uuidString)_\(toolName)"
+        guard let entry = entries[key], !entry.isExpired else { return nil }
+        return entry.options
+    }
+
+    /// Stores options in cache.
+    mutating func set(serverConfigId: UUID, toolName: String, options: [MCPPickerOption], ttl: TimeInterval = MCPMetadataCache.defaultTTL) {
+        let key = "\(serverConfigId.uuidString)_\(toolName)"
+        entries[key] = CacheEntry(options: options, fetchedAt: Date(), ttl: ttl)
+    }
+
+    /// Clears all entries for a server.
+    mutating func clear(serverConfigId: UUID) {
+        entries = entries.filter { !$0.key.hasPrefix(serverConfigId.uuidString) }
+    }
+}
+
+// MARK: - Errors
+
+enum MCPError: LocalizedError {
+    case notConnected(String)
+    case connectionFailed(String)
+    case connectionTimeout
+    case toolCallFailed(String)
+    case toolNotFound(String)
+    case authMissing(String)
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .notConnected(let server): return "\(server) is not connected"
+        case .connectionFailed(let msg): return "Connection failed: \(msg)"
+        case .connectionTimeout: return "Connection timed out"
+        case .toolCallFailed(let msg): return "Tool call failed: \(msg)"
+        case .toolNotFound(let name): return "Tool '\(name)' not found"
+        case .authMissing(let server): return "No API key configured for \(server)"
+        case .invalidResponse: return "Invalid response from server"
+        }
+    }
+}
+
+// MARK: - Config File
+
+/// Container for the JSON config file at ~/.config/cai/mcp-servers.json
+struct MCPConfigFile: Codable {
+    var mcpServers: [String: MCPServerConfigJSON]
+
+    struct MCPServerConfigJSON: Codable {
+        var transport: TransportJSON
+        var auth: AuthJSON?
+        var headers: [String: String]?
+
+        struct TransportJSON: Codable {
+            var type: String            // "remote"
+            var url: String?
+        }
+
+        struct AuthJSON: Codable {
+            var type: String            // "bearerToken", "none"
+            var keychainKey: String?
+        }
+    }
+}

@@ -26,6 +26,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start crash reporting early if user has opted in
         CrashReportingService.shared.startIfEnabled()
 
+        // Auto-connect MCP servers that have autoConnect enabled
+        MCPConfigManager.shared.autoConnectServers()
+
         // Create the status item in the menu bar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -359,6 +362,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Stop the built-in server — terminate() sends SIGTERM immediately,
         // grace-period cleanup runs on background queues independently.
         Task { await BuiltInLLM.shared.stop() }
+
+        // Disconnect all MCP servers
+        Task { await MCPClientService.shared.disconnectAll() }
     }
 
     // MARK: - Model Setup Window

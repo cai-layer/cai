@@ -24,6 +24,7 @@ enum ActionType {
     case outputDestination(OutputDestination)  // Send text to external app/service
     case copyText  // Show extracted text in ResultView (used by "Show Extracted Text" from image OCR)
     case installExtension  // Install community extension from clipboard YAML
+    case mcpAction(configId: String)  // MCP-powered action (e.g., "Create GitHub Issue")
 }
 
 enum LLMAction {

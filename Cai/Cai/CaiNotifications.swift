@@ -23,4 +23,7 @@ extension NSNotification.Name {
     static let caiShowModelSetup = NSNotification.Name("CaiShowModelSetup")
     static let caiHotKeyChanged = NSNotification.Name("CaiHotKeyChanged")
     static let caiShowSettings = NSNotification.Name("CaiShowSettings")
+
+    // MCP
+    static let caiMCPStatusChanged = NSNotification.Name("CaiMCPStatusChanged")  // userInfo["configId": UUID]
 }

@@ -52,6 +52,7 @@ Cai/Cai/
 │   ├── ExtensionParser.swift    # Parses community extension YAML into shortcuts/destinations
 │   ├── ExtensionService.swift   # Fetches extension index + YAML from curated GitHub repo
 │   ├── MCPClientService.swift  # Actor — MCP server connections, tool calls, metadata caching
+│   ├── MCPTransportClient.swift # Thin MCP client — JSON-RPC 2.0 over HTTP, zero dependencies
 │   ├── MCPConfigManager.swift  # ObservableObject — server configs, action registry, persistence
 │   ├── UpdateChecker.swift     # GitHub release version check (24h interval)
 │   └── PermissionsManager.swift # Accessibility permission check/polling
@@ -161,7 +162,6 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process.
 - **Sentry** (SPM): [getsentry/sentry-cocoa](https://github.com/getsentry/sentry-cocoa) v8.0.0+ — opt-in crash reporting
 - **Yams** (SPM): [jpsim/Yams](https://github.com/jpsim/Yams) v5.0.0+ — YAML parsing for community extensions
 - **Sparkle** (SPM): [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) — auto-update framework
-- **MCP** (SPM): [modelcontextprotocol/swift-sdk](https://github.com/modelcontextprotocol/swift-sdk) v0.11.0+ — MCP client (HTTPClientTransport)
 - **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8390 — local LLM inference engine (ARM64 macOS)
 - **macOS 13.0+** (Ventura) deployment target
 

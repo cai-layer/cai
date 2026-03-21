@@ -35,6 +35,10 @@ class MCPConfigManager: ObservableObject {
         observeStatusChanges()
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     // MARK: - Status Observation
 
     private func observeStatusChanges() {
@@ -95,6 +99,27 @@ class MCPConfigManager: ObservableObject {
         }
     }
 
+    // MARK: - Shared Prompts
+
+    /// Shared LLM system prompt for ticket creation (used by GitHub + Linear).
+    private static let ticketCreationSystemPrompt = """
+        Create a ticket from the user's text. Classify as bug, feature, or task.
+        Output EXACTLY in this format — no markdown fences, no extra text:
+
+        TITLE: <specific, actionable title under 80 chars>
+
+        <2-4 sentence description. For bugs: what fails, where, and likely cause. \
+        For features: what and why. For tasks: scope and acceptance criteria.>
+
+        Example input: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
+        Example output:
+        TITLE: TypeError in Dashboard.jsx when data array is undefined
+
+        A TypeError occurs at Dashboard.jsx:156 when calling .map() on an undefined value. \
+        Likely caused by missing data initialization or a failed API response returning null \
+        instead of an empty array. Add a null check or default to [] before mapping.
+        """
+
     // MARK: - GitHub Action Configs
 
     static func githubCreateIssue(serverConfigId: UUID) -> MCPActionConfig {
@@ -105,23 +130,7 @@ class MCPConfigManager: ObservableObject {
             icon: "github.logo",
             confirmLabel: "Create Issue",
             llmPrompt: MCPLLMPrompt(
-                systemPrompt: """
-                Create a ticket from the user's text. Classify as bug, feature, or task.
-                Output EXACTLY in this format — no markdown fences, no extra text:
-
-                TITLE: <specific, actionable title under 80 chars>
-
-                <2-4 sentence description. For bugs: what fails, where, and likely cause. \
-                For features: what and why. For tasks: scope and acceptance criteria.>
-
-                Example input: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
-                Example output:
-                TITLE: TypeError in Dashboard.jsx when data array is undefined
-
-                A TypeError occurs at Dashboard.jsx:156 when calling .map() on an undefined value. \
-                Likely caused by missing data initialization or a failed API response returning null \
-                instead of an empty array. Add a null check or default to [] before mapping.
-                """,
+                systemPrompt: ticketCreationSystemPrompt,
                 titleField: "title",
                 bodyField: "body"
             ),
@@ -175,23 +184,7 @@ class MCPConfigManager: ObservableObject {
             icon: "linear.logo",
             confirmLabel: "Create Issue",
             llmPrompt: MCPLLMPrompt(
-                systemPrompt: """
-                Create a ticket from the user's text. Classify as bug, feature, or task.
-                Output EXACTLY in this format — no markdown fences, no extra text:
-
-                TITLE: <specific, actionable title under 80 chars>
-
-                <2-4 sentence description. For bugs: what fails, where, and likely cause. \
-                For features: what and why. For tasks: scope and acceptance criteria.>
-
-                Example input: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
-                Example output:
-                TITLE: TypeError in Dashboard.jsx when data array is undefined
-
-                A TypeError occurs at Dashboard.jsx:156 when calling .map() on an undefined value. \
-                Likely caused by missing data initialization or a failed API response returning null \
-                instead of an empty array. Add a null check or default to [] before mapping.
-                """,
+                systemPrompt: ticketCreationSystemPrompt,
                 titleField: "title",
                 bodyField: "body"
             ),

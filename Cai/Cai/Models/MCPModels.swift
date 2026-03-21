@@ -192,16 +192,19 @@ struct MCPFieldConfig: Identifiable {
     let type: MCPFieldType
     let source: MCPFieldSource
     let required: Bool
+    let pickerIdKey: String?            // Override which JSON key to use as picker option ID (e.g. "name" for GitHub labels)
 
     init(
         id: String,
         label: String,
         type: MCPFieldType,
         source: MCPFieldSource,
-        required: Bool = false
+        required: Bool = false,
+        pickerIdKey: String? = nil
     ) {
         self.id = id
         self.label = label
+        self.pickerIdKey = pickerIdKey
         self.type = type
         self.source = source
         self.required = required

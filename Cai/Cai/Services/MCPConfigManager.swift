@@ -130,7 +130,7 @@ class MCPConfigManager: ObservableObject {
                     parentField: "repo",
                     toolName: "list_label",
                     argumentMapping: ["owner": "{{parent:owner}}", "repo": "{{parent:name}}"]
-                )),
+                ), pickerIdKey: "name"),  // GitHub expects label names, not node IDs
             ],
             submitTool: "issue_write",
             submitMapping: [

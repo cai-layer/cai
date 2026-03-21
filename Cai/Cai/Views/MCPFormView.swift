@@ -819,7 +819,7 @@ struct MCPFormView: View {
                 toolName: toolName,
                 arguments: arguments
             )
-            let options = MCPClientService.shared.parsePickerOptions(from: response, toolName: toolName)
+            let options = MCPClientService.shared.parsePickerOptions(from: response, toolName: toolName, idKey: field.pickerIdKey)
             await MainActor.run {
                 pickerOptions[field.id] = options
                 fieldLoading[field.id] = false

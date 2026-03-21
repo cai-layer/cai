@@ -216,7 +216,7 @@ actor MCPClientService {
 
     /// Parses tool response JSON into picker options.
     /// Handles common patterns: arrays of objects with id/name, arrays of strings, etc.
-    nonisolated func parsePickerOptions(from jsonText: String, toolName: String) -> [MCPPickerOption] {
+    nonisolated func parsePickerOptions(from jsonText: String, toolName: String, idKey: String? = nil) -> [MCPPickerOption] {
         guard let data = jsonText.data(using: .utf8) else { return [] }
 
         // Try parsing as JSON
@@ -246,11 +246,14 @@ actor MCPClientService {
         if let array = rootArray {
             let options = array.compactMap { obj -> MCPPickerOption? in
                 // ID strategy:
+                // - If `idKey` override is set (e.g. "name" for GitHub labels), use that key
                 // - If `full_name` exists (e.g. GitHub "owner/repo"), use it (supports template splitting)
                 // - Otherwise prefer `id` (UUID) for APIs that expect IDs (e.g. Linear teamId)
                 // - Fallback to `name`
                 let id: String?
-                if let fullName = obj["full_name"] as? String {
+                if let idKey = idKey, let overrideValue = obj[idKey] as? String {
+                    id = overrideValue
+                } else if let fullName = obj["full_name"] as? String {
                     id = fullName
                 } else {
                     id = (obj["id"] as? String)

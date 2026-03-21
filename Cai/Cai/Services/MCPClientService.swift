@@ -1,9 +1,8 @@
 import Foundation
-import MCP
 
 // MARK: - MCP Client Service
 
-/// Manages connections to remote MCP servers (HTTP/SSE transport).
+/// Manages connections to remote MCP servers via the thin MCPTransportClient.
 /// Handles tool discovery, tool calls, and metadata caching.
 /// Follows the actor pattern used by LLMService, BuiltInLLM, OutputDestinationService.
 actor MCPClientService {
@@ -14,9 +13,8 @@ actor MCPClientService {
 
     private struct MCPConnection {
         let config: MCPServerConfig
-        let client: Client
-        let transport: any Transport
-        var tools: [Tool]
+        let client: MCPTransportClient
+        var tools: [MCPToolInfo]
     }
 
     /// Active connections keyed by server config ID.
@@ -28,37 +26,29 @@ actor MCPClientService {
     /// Metadata cache for picker options.
     private var metadataCache = MCPMetadataCache()
 
-    /// Connection timeout.
-    private let connectionTimeout: TimeInterval = 10
-
     // MARK: - Connect
 
-    /// Connects to an MCP server. Creates HTTP transport, initializes client, discovers tools.
+    /// Connects to an MCP server. Creates transport client, initializes, discovers tools.
     func connect(config: MCPServerConfig) async throws {
         // Don't reconnect if already connected
-        if let existing = connections[config.id], statuses[config.id]?.isConnected == true {
+        if connections[config.id] != nil, statuses[config.id]?.isConnected == true {
             return
         }
 
         setStatus(config.id, .connecting)
 
         do {
-            let transport = try createTransport(for: config)
-            let client = Client(name: "Cai", version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
+            let client = try createClient(for: config)
 
-            // Connect with timeout
-            try await withTimeout(seconds: connectionTimeout) {
-                _ = try await client.connect(transport: transport)
-            }
+            // Initialize (handshake + notifications/initialized)
+            try await client.initialize()
 
             // Discover available tools
-            let toolsResult = try await client.listTools()
-            let tools = toolsResult.tools
+            let tools = try await client.listTools()
 
             connections[config.id] = MCPConnection(
                 config: config,
                 client: client,
-                transport: transport,
                 tools: tools
             )
 
@@ -76,7 +66,7 @@ actor MCPClientService {
     /// Disconnects a single server.
     func disconnect(configId: UUID) async {
         if let connection = connections[configId] {
-            await connection.client.disconnect()
+            connection.client.disconnect()
             connections.removeValue(forKey: configId)
         }
         metadataCache.clear(serverConfigId: configId)
@@ -84,26 +74,10 @@ actor MCPClientService {
     }
 
     /// Disconnects all servers. Called from AppDelegate.applicationWillTerminate().
-    /// Uses a timeout to prevent blocking app quit if a server hangs.
     func disconnectAll() async {
-        await withTaskGroup(of: Void.self) { group in
-            for (id, connection) in connections {
-                let connId = id
-                let client = connection.client
-                group.addTask {
-                    // 2s timeout per disconnect — don't block app termination
-                    _ = try? await withThrowingTaskGroup(of: Void.self) { inner in
-                        inner.addTask { await client.disconnect() }
-                        inner.addTask {
-                            try await Task.sleep(nanoseconds: 2_000_000_000)
-                            throw CancellationError()
-                        }
-                        _ = try await inner.next()
-                        inner.cancelAll()
-                    }
-                }
-                setStatus(connId, .disconnected)
-            }
+        for (id, connection) in connections {
+            connection.client.disconnect()
+            setStatus(id, .disconnected)
         }
         connections.removeAll()
     }
@@ -123,7 +97,7 @@ actor MCPClientService {
     // MARK: - Tool Discovery
 
     /// Returns available tools for a connected server.
-    func availableTools(for configId: UUID) -> [Tool] {
+    func availableTools(for configId: UUID) -> [MCPToolInfo] {
         connections[configId]?.tools ?? []
     }
 
@@ -139,7 +113,7 @@ actor MCPClientService {
     func callTool(
         serverConfigId: UUID,
         toolName: String,
-        arguments: [String: Value]
+        arguments: [String: Any]
     ) async throws -> String {
         guard let connection = connections[serverConfigId] else {
             let name = statuses[serverConfigId] != nil ? "Server" : "Unknown server"
@@ -151,27 +125,7 @@ actor MCPClientService {
         }
 
         let result = try await connection.client.callTool(name: toolName, arguments: arguments)
-
-        // Extract text content from the response
-        let textParts = result.content.compactMap { content -> String? in
-            if case .text(let text) = content {
-                return text
-            }
-            return nil
-        }
-
-        if textParts.isEmpty {
-            throw MCPError.invalidResponse
-        }
-
-        let responseText = textParts.joined(separator: "\n")
-
-        // Check MCP isError flag — server explicitly marked this as a failed tool call
-        if result.isError == true {
-            throw MCPError.toolCallFailed(responseText)
-        }
-
-        return responseText
+        return result.text
     }
 
     // MARK: - Metadata (Cached)
@@ -180,7 +134,7 @@ actor MCPClientService {
     func fetchOptions(
         serverConfigId: UUID,
         toolName: String,
-        arguments: [String: Value] = [:]
+        arguments: [String: Any] = [:]
     ) async throws -> [MCPPickerOption] {
         // Check cache first
         if let cached = metadataCache.get(serverConfigId: serverConfigId, toolName: toolName) {
@@ -216,40 +170,40 @@ actor MCPClientService {
 
     // MARK: - Private Helpers
 
-    private func createTransport(for config: MCPServerConfig) throws -> any Transport {
+    private func createClient(for config: MCPServerConfig) throws -> MCPTransportClient {
+        let urlString: String
         switch config.transport {
-        case .remote(let urlString):
-            guard let url = URL(string: urlString) else {
-                throw MCPError.connectionFailed("Invalid URL: \(urlString)")
-            }
-
-            // Resolve auth token from Keychain
-            var authToken: String?
-            if config.authType == .bearerToken, let keychainKey = config.authKeychainKey {
-                authToken = KeychainHelper.get(forKey: keychainKey)
-                if authToken == nil || authToken?.isEmpty == true {
-                    throw MCPError.authMissing(config.name)
-                }
-            }
-
-            let extraHeaders = config.headers
-
-            return HTTPClientTransport(
-                endpoint: url,
-                requestModifier: { request in
-                    var req = request
-                    // Inject auth
-                    if let token = authToken {
-                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                    }
-                    // Inject extra headers (e.g., X-MCP-Toolsets)
-                    for (key, value) in extraHeaders {
-                        req.setValue(value, forHTTPHeaderField: key)
-                    }
-                    return req
-                }
-            )
+        case .remote(let url): urlString = url
         }
+
+        guard let url = URL(string: urlString) else {
+            throw MCPError.connectionFailed("Invalid URL: \(urlString)")
+        }
+
+        // Resolve auth token from Keychain
+        var authToken: String?
+        if config.authType == .bearerToken, let keychainKey = config.authKeychainKey {
+            authToken = KeychainHelper.get(forKey: keychainKey)
+            if authToken == nil || authToken?.isEmpty == true {
+                throw MCPError.authMissing(config.name)
+            }
+        }
+
+        let extraHeaders = config.headers
+
+        return MCPTransportClient(
+            endpoint: url,
+            requestModifier: { request in
+                var req = request
+                if let token = authToken {
+                    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                for (key, value) in extraHeaders {
+                    req.setValue(value, forHTTPHeaderField: key)
+                }
+                return req
+            }
+        )
     }
 
     private func setStatus(_ configId: UUID, _ status: MCPServerStatus) {
@@ -281,7 +235,6 @@ actor MCPClientService {
             rootArray = array
         } else if let dict = json as? [String: Any] {
             // Auto-unwrap: find the first value that is an array of objects
-            // Handles {"items": [...]}, {"labels": [...]}, {"teams": [...]}, etc.
             for (_, value) in dict {
                 if let nested = value as? [[String: Any]] {
                     rootArray = nested
@@ -292,14 +245,10 @@ actor MCPClientService {
 
         if let array = rootArray {
             let options = array.compactMap { obj -> MCPPickerOption? in
-                // ID: prefer human-readable names (used as submit values by most MCP tools)
-                // full_name first for repos ("owner/repo"), then name for labels/teams,
-                // then fall back to machine IDs
                 let id = (obj["full_name"] as? String)
                     ?? (obj["name"] as? String)
                     ?? (obj["id"] as? String)
                     ?? (obj["id"] as? Int).map(String.init)
-                // Display label: prefer full_name for repos ("owner/repo"), then name, title, label
                 let label = (obj["full_name"] as? String)
                     ?? (obj["name"] as? String)
                     ?? (obj["title"] as? String)
@@ -315,24 +264,7 @@ actor MCPClientService {
             return array.map { MCPPickerOption(id: $0, label: $0) }
         }
 
-        // Single object with a text description (MCP tools sometimes return plain text in JSON)
         print("⚠️ MCP parsePickerOptions: unrecognized format for \(toolName): \(String(jsonText.prefix(200)))")
         return []
-    }
-
-    /// Runs an async operation with a timeout.
-    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw MCPError.connectionTimeout
-            }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
-        }
     }
 }

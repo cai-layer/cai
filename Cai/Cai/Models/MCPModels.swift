@@ -108,6 +108,7 @@ struct MCPActionConfig: Identifiable {
     let submitTool: String              // MCP tool to call on confirm: "issue_write"
     let submitMapping: [String: String] // Maps field keys to tool params: "title": "{{title}}"
     var staticArguments: [String: String] // Always-sent params: "method": "create"
+    let triageConfig: MCPTriageConfig?  // Optional duplicate detection config
 
     init(
         id: String,
@@ -119,7 +120,8 @@ struct MCPActionConfig: Identifiable {
         fields: [MCPFieldConfig],
         submitTool: String,
         submitMapping: [String: String],
-        staticArguments: [String: String] = [:]
+        staticArguments: [String: String] = [:],
+        triageConfig: MCPTriageConfig? = nil
     ) {
         self.id = id
         self.serverConfigId = serverConfigId
@@ -131,6 +133,7 @@ struct MCPActionConfig: Identifiable {
         self.submitTool = submitTool
         self.submitMapping = submitMapping
         self.staticArguments = staticArguments
+        self.triageConfig = triageConfig
     }
 }
 
@@ -139,6 +142,39 @@ struct MCPLLMPrompt {
     let systemPrompt: String            // Instructions for the LLM
     let titleField: String              // Which field to populate with generated title
     let bodyField: String?              // Which field to populate with generated body
+}
+
+// MARK: - Triage Configuration
+
+/// Describes how to search for similar/duplicate issues before creating a new one.
+/// Used by MCPFormView to show an inline "N similar issues" hint below the title field.
+struct MCPTriageConfig {
+    let searchTool: String              // MCP tool to search: "search_issues"
+    let queryField: String              // Which form field to use as search query: "title"
+    let commentTool: String?            // Tool to add comment to existing issue (nil = info-only)
+    let commentMapping: [String: String] // Maps tool params for commenting: "issue_number": "{{issue_id}}"
+    let maxResults: Int                 // Cap displayed results (default: 3)
+
+    init(
+        searchTool: String,
+        queryField: String,
+        commentTool: String? = nil,
+        commentMapping: [String: String] = [:],
+        maxResults: Int = 3
+    ) {
+        self.searchTool = searchTool
+        self.queryField = queryField
+        self.commentTool = commentTool
+        self.commentMapping = commentMapping
+        self.maxResults = maxResults
+    }
+}
+
+/// A single triage result — a potentially duplicate issue found via search.
+struct MCPTriageResult: Identifiable {
+    let id: String                      // Issue number or ID
+    let title: String                   // Issue title
+    let url: String?                    // Link to the issue (for "View" action)
 }
 
 // MARK: - Field Configuration

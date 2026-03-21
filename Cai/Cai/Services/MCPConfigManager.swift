@@ -132,7 +132,18 @@ class MCPConfigManager: ObservableObject {
                 "body": "{{body}}",
                 "labels": "{{labels}}",
             ],
-            staticArguments: ["method": "create"]
+            staticArguments: ["method": "create"],
+            triageConfig: MCPTriageConfig(
+                searchTool: "search_issues",
+                queryField: "title",
+                commentTool: "add_issue_comment",
+                commentMapping: [
+                    "owner": "{{repo:owner}}",
+                    "repo": "{{repo:name}}",
+                    "issue_number": "{{issue_id}}"
+                ],
+                maxResults: 3
+            )
         )
     }
 
@@ -176,7 +187,13 @@ class MCPConfigManager: ObservableObject {
                 "priority": "{{priority}}",
                 "labelIds": "{{labels}}",
                 "assigneeId": "{{assignee}}",
-            ]
+            ],
+            triageConfig: MCPTriageConfig(
+                searchTool: "search_issues",
+                queryField: "title",
+                commentTool: nil,  // Linear MCP may not support adding comments
+                maxResults: 3
+            )
         )
     }
 

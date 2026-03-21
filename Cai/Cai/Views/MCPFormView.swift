@@ -1,5 +1,4 @@
 import SwiftUI
-import MCP
 
 /// Generic form renderer for MCP-powered actions.
 /// Renders any `MCPActionConfig` into a form — text fields, pickers, multiselects —
@@ -35,6 +34,14 @@ struct MCPFormView: View {
     @State private var allPickerOptions: [String: [MCPPickerOption]] = [:]
     /// Tracks last parent value used to fetch dependent fields (avoids redundant fetches)
     @State private var lastDependentParent: [String: String] = [:]
+
+    // MARK: - Triage State
+
+    @State private var triageResults: [MCPTriageResult] = []
+    @State private var showTriageExpanded: Bool = false
+    @State private var isSearchingDuplicates: Bool = false
+    @State private var commentOnIssue: MCPTriageResult?  // Set when user chooses "Add comment"
+    @State private var lastTriageKey: String = ""        // Tracks last title+repo combo to avoid redundant searches
 
     // MARK: - Overall State
 
@@ -95,6 +102,19 @@ struct MCPFormView: View {
                 if !parentValue.isEmpty && parentValue != lastParent {
                     lastDependentParent[field.id] = parentValue
                     Task { await fetchDependentOptions(for: field) }
+                }
+            }
+
+            // Triage: search for duplicates when title AND repo are both available
+            if let triageConfig = actionConfig.triageConfig {
+                let title = newValues[triageConfig.queryField] ?? ""
+                let repo = newValues["repo"] ?? ""
+                // Only search when we have both a title and a repo (scoped search)
+                // Re-trigger when either changes
+                let triageKey = "\(title)|\(repo)"
+                if !title.isEmpty && !repo.isEmpty && triageKey != lastTriageKey {
+                    lastTriageKey = triageKey
+                    Task { await searchForDuplicates(query: title, triageConfig: triageConfig) }
                 }
             }
         }
@@ -261,7 +281,123 @@ struct MCPFormView: View {
             case .searchablePicker:
                 searchablePickerField(for: field)
             }
+
+            // Triage hint — shown below the title field when similar issues are found
+            if field.id == actionConfig.triageConfig?.queryField {
+                triageHintView
+            }
         }
+    }
+
+    // MARK: - Triage Hint
+
+    @ViewBuilder
+    private var triageHintView: some View {
+        if isSearchingDuplicates {
+            HStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.4)
+                    .frame(width: 10, height: 10)
+                Text("Checking for similar issues…")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+            }
+        } else if !triageResults.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                // Collapsed hint row
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showTriageExpanded.toggle()
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 9))
+                            .foregroundColor(.orange)
+                        Text("\(triageResults.count) similar issue\(triageResults.count == 1 ? "" : "s")")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.orange)
+                        Image(systemName: showTriageExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                // Expanded results
+                if showTriageExpanded {
+                    VStack(spacing: 0) {
+                        ForEach(triageResults) { result in
+                            triageResultRow(result)
+                            if result.id != triageResults.last?.id {
+                                Divider().opacity(0.2).padding(.horizontal, 8)
+                            }
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.caiSurface.opacity(0.4))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.caiDivider.opacity(0.3), lineWidth: 0.5)
+                    )
+                }
+            }
+        }
+    }
+
+    private func triageResultRow(_ result: MCPTriageResult) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.title)
+                    .font(.system(size: 11))
+                    .foregroundColor(.caiTextPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let url = result.url {
+                    Text(url)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.caiTextSecondary.opacity(0.4))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Spacer()
+
+            // View in browser
+            if let url = result.url, let link = URL(string: url) {
+                Button(action: { NSWorkspace.shared.open(link) }) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiPrimary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Add comment (only if commentTool is configured)
+            if actionConfig.triageConfig?.commentTool != nil {
+                Button(action: {
+                    commentOnIssue = result
+                }) {
+                    Text("Comment")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(commentOnIssue?.id == result.id ? .white : .caiPrimary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(commentOnIssue?.id == result.id ? Color.caiPrimary : Color.caiPrimary.opacity(0.1))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     private func textField(for field: MCPFieldConfig) -> some View {
@@ -557,7 +693,7 @@ struct MCPFormView: View {
                                 let response = try await MCPClientService.shared.callTool(
                                     serverConfigId: serverId,
                                     toolName: searchTool,
-                                    arguments: [queryParam: .string(query)]
+                                    arguments: [queryParam: query]
                                 )
                                 let options = MCPClientService.shared.parsePickerOptions(from: response, toolName: searchTool)
                                 print("🔍 MCP prefetch returned \(options.count) repos for: \(query)")
@@ -651,7 +787,7 @@ struct MCPFormView: View {
         }
 
         // Resolve argument mapping — supports {{parent:owner}} and {{parent:name}} for "owner/repo" splitting
-        var arguments: [String: Value] = [:]
+        var arguments: [String: Any] = [:]
         for (param, template) in argumentMapping {
             let resolved: String
             if template.contains("{{parent:owner}}") {
@@ -665,7 +801,7 @@ struct MCPFormView: View {
             } else {
                 resolved = template
             }
-            arguments[param] = .string(resolved)
+            arguments[param] = resolved
         }
 
         do {
@@ -737,13 +873,24 @@ struct MCPFormView: View {
                 Text("Submitting…")
                     .font(.system(size: 11))
                     .foregroundColor(.caiTextSecondary)
+            } else if commentOnIssue != nil {
+                Button(action: { commentOnIssue = nil }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                        Text("Cancel comment mode")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(.caiTextSecondary)
+                }
+                .buttonStyle(.plain)
             }
 
             Spacer()
 
             HStack(spacing: 12) {
                 KeyboardHint(key: "Esc", label: "Back")
-                KeyboardHint(key: "⌘↩", label: actionConfig.confirmLabel)
+                KeyboardHint(key: "⌘↩", label: commentOnIssue != nil ? "Add Comment" : actionConfig.confirmLabel)
             }
         }
         .padding(.horizontal, 16)
@@ -833,6 +980,9 @@ struct MCPFormView: View {
                     fieldLoading[bodyField] = false
                 }
             }
+
+            // Triage search is triggered via onChange(of: fieldValues) once both
+            // title and repo are available — not here, to avoid searching across all repos.
         } catch {
             await MainActor.run {
                 isGeneratingLLM = false
@@ -940,6 +1090,89 @@ struct MCPFormView: View {
         return nil
     }
 
+    // MARK: - Triage Search
+
+    /// Searches for similar/duplicate issues using the triage config.
+    private func searchForDuplicates(query: String, triageConfig: MCPTriageConfig) async {
+        await MainActor.run { isSearchingDuplicates = true }
+
+        do {
+            // Build search arguments — use the title as the query, scoped to the selected repo
+            let searchQuery: String
+            if let config = MCPConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId }),
+               config.providerType == .github {
+                let repo = fieldValues["repo"] ?? ""
+                guard !repo.isEmpty else { return }  // Don't search without a repo — results would be noise
+                searchQuery = "\(query) repo:\(repo) is:issue"
+            } else {
+                searchQuery = query
+            }
+
+            let response = try await MCPClientService.shared.callTool(
+                serverConfigId: actionConfig.serverConfigId,
+                toolName: triageConfig.searchTool,
+                arguments: ["query": searchQuery]
+            )
+
+            // Parse results
+            let results = parseTriageResults(from: response, maxResults: triageConfig.maxResults)
+
+            await MainActor.run {
+                triageResults = results
+                isSearchingDuplicates = false
+            }
+        } catch {
+            print("⚠️ MCP triage search failed: \(error)")
+            await MainActor.run { isSearchingDuplicates = false }
+        }
+    }
+
+    /// Parses search results into triage results (title, URL, ID).
+    private func parseTriageResults(from response: String, maxResults: Int) -> [MCPTriageResult] {
+        guard let data = response.data(using: .utf8) else { return [] }
+
+        // Parse JSON — search results are typically an array or wrapped in an object
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+
+        var items: [[String: Any]] = []
+
+        if let array = json as? [[String: Any]] {
+            items = array
+        } else if let dict = json as? [String: Any] {
+            // Unwrap common wrappers: "items", "issues", "nodes"
+            for key in ["items", "issues", "nodes", "data"] {
+                if let nested = dict[key] as? [[String: Any]] {
+                    items = nested
+                    break
+                }
+            }
+            // Fallback: find first array value
+            if items.isEmpty {
+                for (_, value) in dict {
+                    if let nested = value as? [[String: Any]] {
+                        items = nested
+                        break
+                    }
+                }
+            }
+        }
+
+        return Array(items.prefix(maxResults).compactMap { obj -> MCPTriageResult? in
+            let title = (obj["title"] as? String) ?? ""
+            guard !title.isEmpty else { return nil }
+
+            let id = (obj["number"] as? Int).map(String.init)
+                ?? (obj["id"] as? String)
+                ?? (obj["id"] as? Int).map(String.init)
+                ?? title
+
+            let url = (obj["html_url"] as? String)
+                ?? (obj["url"] as? String)
+
+            return MCPTriageResult(id: id, title: title, url: url)
+        })
+    }
+
     // MARK: - Submit
 
     func submit() async {
@@ -968,12 +1201,12 @@ struct MCPFormView: View {
             errorMessage = nil
         }
 
-        // Build tool arguments from submitMapping, converting to MCP Value types
-        var arguments: [String: Value] = [:]
+        // Build tool arguments from submitMapping
+        var arguments: [String: Any] = [:]
 
         // Static arguments first (e.g., "method": "create")
         for (key, value) in actionConfig.staticArguments {
-            arguments[key] = .string(value)
+            arguments[key] = value
         }
 
         // Dynamic arguments from field values
@@ -981,13 +1214,59 @@ struct MCPFormView: View {
             let resolved = resolveTemplate(template)
             // Skip empty optional values
             guard !resolved.isEmpty else { continue }
-            // Arrays (comma-separated) → JSON array value
+            // Arrays (comma-separated) → JSON array
             if resolved.contains(",") && isArrayField(template) {
-                let items = resolved.components(separatedBy: ",").map { Value.string($0.trimmingCharacters(in: .whitespaces)) }
-                arguments[toolParam] = .array(items)
+                let items = resolved.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                arguments[toolParam] = items
             } else {
-                arguments[toolParam] = .string(resolved)
+                arguments[toolParam] = resolved
             }
+        }
+
+        // Comment flow — if user chose "Add comment" on a triage result
+        if let issue = commentOnIssue,
+           let triageConfig = actionConfig.triageConfig,
+           let commentTool = triageConfig.commentTool {
+            do {
+                var commentArgs: [String: Any] = [:]
+                // Resolve comment mapping (e.g., owner, repo, issue_number)
+                for (param, template) in triageConfig.commentMapping {
+                    if template == "{{issue_id}}" {
+                        commentArgs[param] = issue.id
+                    } else {
+                        commentArgs[param] = resolveTemplate(template)
+                    }
+                }
+                // Add the body — use the generated body field or clipboard text
+                let body = fieldValues[actionConfig.llmPrompt?.bodyField ?? "body"] ?? clipboardText
+                commentArgs["body"] = body
+
+                let result = try await MCPClientService.shared.callTool(
+                    serverConfigId: actionConfig.serverConfigId,
+                    toolName: commentTool,
+                    arguments: commentArgs
+                )
+
+                let extractedURL = issue.url ?? Self.extractURL(from: result)
+
+                await MainActor.run {
+                    isSubmitting = false
+                    resultURL = extractedURL
+                    successMessage = "Comment added to #\(issue.id)"
+                    WindowController.passThrough = false
+                }
+
+                if let url = extractedURL {
+                    SystemActions.copyToClipboard(url)
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    hasSubmitted = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+            return
         }
 
         do {

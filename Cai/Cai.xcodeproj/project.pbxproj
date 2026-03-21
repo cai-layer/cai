@@ -10,8 +10,8 @@
 		CAI00180 /* MCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00181 /* MCPModels.swift */; };
 		CAI00182 /* MCPClientService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00183 /* MCPClientService.swift */; };
 		CAI00184 /* MCPConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00185 /* MCPConfigManager.swift */; };
-		CAI00186 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00171 /* MCP */; };
 		CAI00188 /* MCPFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00189 /* MCPFormView.swift */; };
+		CAI00194 /* MCPTransportClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00192 /* MCPTransportClient.swift */; };
 		CAI00190 /* ConnectorsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00191 /* ConnectorsSettingsView.swift */; };
 		CAI00001 /* CaiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00002 /* CaiApp.swift */; };
 		CAI00003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00004 /* AppDelegate.swift */; };
@@ -82,6 +82,7 @@
 		CAI00181 /* MCPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPModels.swift; sourceTree = "<group>"; };
 		CAI00183 /* MCPClientService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClientService.swift; sourceTree = "<group>"; };
 		CAI00185 /* MCPConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigManager.swift; sourceTree = "<group>"; };
+		CAI00192 /* MCPTransportClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTransportClient.swift; sourceTree = "<group>"; };
 		CAI00189 /* MCPFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPFormView.swift; sourceTree = "<group>"; };
 		CAI00191 /* ConnectorsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorsSettingsView.swift; sourceTree = "<group>"; };
 		CAI00002 /* CaiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiApp.swift; sourceTree = "<group>"; };
@@ -148,7 +149,6 @@
 				CAI00140 /* Sentry in Frameworks */,
 				CAI00150 /* Sparkle in Frameworks */,
 				CAI00160 /* Yams in Frameworks */,
-				CAI00186 /* MCP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -253,6 +253,7 @@
 				CAI00168 /* ExtensionService.swift */,
 				CAI00183 /* MCPClientService.swift */,
 				CAI00185 /* MCPConfigManager.swift */,
+				CAI00192 /* MCPTransportClient.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -295,7 +296,6 @@
 				CAI00141 /* Sentry */,
 				CAI00151 /* Sparkle */,
 				CAI00161 /* Yams */,
-				CAI00171 /* MCP */,
 			);
 			productName = Cai;
 			productReference = CAI00009 /* Cai.app */;
@@ -352,7 +352,6 @@
 				CAI00142 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				CAI00152 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				CAI00162 /* XCRemoteSwiftPackageReference "Yams" */,
-				CAI00172 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 			);
 			productRefGroup = CAI00015 /* Products */;
 			projectDirPath = "";
@@ -439,6 +438,7 @@
 				CAI00184 /* MCPConfigManager.swift in Sources */,
 				CAI00188 /* MCPFormView.swift in Sources */,
 				CAI00190 /* ConnectorsSettingsView.swift in Sources */,
+				CAI00194 /* MCPTransportClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -744,14 +744,6 @@
 				minimumVersion = 5.0.0;
 			};
 		};
-		CAI00172 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.11.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -774,11 +766,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CAI00162 /* XCRemoteSwiftPackageReference "Yams" */;
 			productName = Yams;
-		};
-		CAI00171 /* MCP */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CAI00172 /* XCRemoteSwiftPackageReference "swift-sdk" */;
-			productName = MCP;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

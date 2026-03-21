@@ -21,8 +21,7 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
     var authType: MCPAuthType
     var authKeychainKey: String?        // Keychain key for token: "mcp_github_pat"
     var isEnabled: Bool
-    var icon: String                    // SF Symbol name
-    var autoConnect: Bool               // Connect on app launch
+    var icon: String                    // SF Symbol name or custom logo identifier
     var headers: [String: String]       // Extra headers: e.g. "X-MCP-Toolsets": "issues"
 
     init(
@@ -34,7 +33,6 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
         authKeychainKey: String? = nil,
         isEnabled: Bool = true,
         icon: String = "puzzlepiece.extension",
-        autoConnect: Bool = false,
         headers: [String: String] = [:]
     ) {
         self.id = id
@@ -45,7 +43,6 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
         self.authKeychainKey = authKeychainKey
         self.isEnabled = isEnabled
         self.icon = icon
-        self.autoConnect = autoConnect
         self.headers = headers
     }
 }

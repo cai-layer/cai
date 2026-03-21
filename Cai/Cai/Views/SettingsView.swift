@@ -216,9 +216,13 @@ struct SettingsView: View {
                         }
                     }
 
-                    // MARK: Shortcuts & Extensions Group
-                    settingsGroup(title: "Custom Actions & Extensions") {
+                    // MARK: Extensions Group
+                    settingsGroup(title: "Extensions") {
                         navRow(label: "Custom Actions", count: settings.shortcuts.count, action: onShowShortcuts)
+
+                        settingsDivider
+
+                        connectorsNavRow
 
                         settingsDivider
 
@@ -226,12 +230,27 @@ struct SettingsView: View {
 
                         settingsDivider
 
-                        navRow(label: "Community Extensions", count: settings.installedExtensions.count, action: onShowExtensions)
-                    }
-
-                    // MARK: Connectors Group
-                    settingsGroup(title: "Connectors") {
-                        connectorsNavRow
+                        Button(action: onShowExtensions ?? {}) {
+                            HStack {
+                                Text("Browse community extensions")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiPrimary)
+                                if settings.installedExtensions.count > 0 {
+                                    Text("·")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.caiTextSecondary)
+                                    Text("\(settings.installedExtensions.count) installed")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.caiTextSecondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.caiPrimary.opacity(0.6))
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     // MARK: General Group
@@ -484,13 +503,17 @@ struct SettingsView: View {
 
     private var connectorsNavRow: some View {
         let configs = mcpConfigManager.serverConfigs
-        let connected = configs.filter { mcpConfigManager.serverStatuses[$0.id]?.isConnected == true }.count
-        let enabled = configs.filter(\.isEnabled).count
+        let configured = configs.filter { config in
+            guard config.isEnabled else { return false }
+            guard let key = config.authKeychainKey else { return config.authType == .none }
+            return KeychainHelper.get(forKey: key) != nil
+        }.count
+        let total = configs.count
 
         return navRow(
-            label: "MCP Servers",
-            count: connected,
-            total: enabled,
+            label: "Connectors",
+            count: configured,
+            total: total,
             action: onShowConnectors
         )
     }

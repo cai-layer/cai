@@ -62,8 +62,12 @@ class MCPConfigManager: ObservableObject {
     var availableActions: [MCPActionConfig] {
         var actions: [MCPActionConfig] = []
         for config in serverConfigs where config.isEnabled {
-            let status = serverStatuses[config.id]
-            // Show actions when server is configured (even if disconnected — auto-connect on click)
+            // Only show actions if auth is configured (API key in Keychain)
+            if config.authType == .bearerToken,
+               let key = config.authKeychainKey,
+               KeychainHelper.get(forKey: key) == nil {
+                continue
+            }
             let configs = actionConfigs(for: config)
             actions.append(contentsOf: configs)
         }
@@ -93,7 +97,7 @@ class MCPConfigManager: ObservableObject {
             id: "github_create_issue_\(serverConfigId.uuidString)",
             serverConfigId: serverConfigId,
             displayName: "Create GitHub Issue",
-            icon: "plus.circle",
+            icon: "github.logo",
             confirmLabel: "Create Issue",
             llmPrompt: MCPLLMPrompt(
                 systemPrompt: """
@@ -163,7 +167,7 @@ class MCPConfigManager: ObservableObject {
             id: "linear_create_issue_\(serverConfigId.uuidString)",
             serverConfigId: serverConfigId,
             displayName: "Create Linear Issue",
-            icon: "diamond",
+            icon: "linear.logo",
             confirmLabel: "Create Issue",
             llmPrompt: MCPLLMPrompt(
                 systemPrompt: """
@@ -281,7 +285,6 @@ class MCPConfigManager: ObservableObject {
                 authKeychainKey: json.auth?.keychainKey,
                 isEnabled: true,
                 icon: iconForServer(providerType),
-                autoConnect: false,
                 headers: json.headers ?? [:]
             )
         }
@@ -350,23 +353,6 @@ class MCPConfigManager: ObservableObject {
         }
     }
 
-    // MARK: - Auto-Connect
-
-    /// Connects all servers that have autoConnect enabled. Called from AppDelegate on launch.
-    func autoConnectServers() {
-        for config in serverConfigs where config.autoConnect && config.isEnabled {
-            // Only auto-connect if auth is configured
-            if config.authType == .bearerToken,
-               let key = config.authKeychainKey,
-               KeychainHelper.get(forKey: key) == nil {
-                continue
-            }
-            Task {
-                try? await MCPClientService.shared.connect(config: config)
-            }
-        }
-    }
-
     // MARK: - Private Helpers
 
     private func createDefaultConfig() {
@@ -382,8 +368,7 @@ class MCPConfigManager: ObservableObject {
                 authType: .bearerToken,
                 authKeychainKey: "mcp_github_pat",
                 isEnabled: true,
-                icon: "plus.circle",
-                autoConnect: false,
+                icon: "github.logo",
                 headers: ["X-MCP-Toolsets": "issues,repos,labels,context"]
             ),
             MCPServerConfig(
@@ -394,8 +379,7 @@ class MCPConfigManager: ObservableObject {
                 authType: .bearerToken,
                 authKeychainKey: "mcp_linear_apikey",
                 isEnabled: true,
-                icon: "diamond",
-                autoConnect: false
+                icon: "linear.logo"
             ),
         ]
 
@@ -412,8 +396,8 @@ class MCPConfigManager: ObservableObject {
 
     private func iconForServer(_ providerType: MCPProviderType) -> String {
         switch providerType {
-        case .github: return "plus.circle"
-        case .linear: return "diamond"
+        case .github: return "github.logo"
+        case .linear: return "linear.logo"
         case .custom: return "puzzlepiece.extension"
         }
     }

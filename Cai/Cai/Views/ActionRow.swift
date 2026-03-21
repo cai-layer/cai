@@ -12,9 +12,7 @@ struct ActionRow: View {
                     .fill(isSelected ? Color.caiPrimary.opacity(0.15) : Color.caiSurface.opacity(0.6))
                     .frame(width: 28, height: 28)
 
-                Image(systemName: action.icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(isSelected ? .caiPrimary : .caiTextSecondary)
+                actionIcon(name: action.icon, isSelected: isSelected)
             }
 
             // Title + subtitle
@@ -61,5 +59,22 @@ struct ActionRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(action.title)\(action.subtitle.map { ", \($0)" } ?? ""), Command \(action.shortcut)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func actionIcon(name: String, isSelected: Bool) -> some View {
+        let color: Color = isSelected ? .caiPrimary : .caiTextSecondary
+        switch name {
+        case "github.logo":
+            GitHubIcon(color: color)
+                .frame(width: 14, height: 14)
+        case "linear.logo":
+            LinearIcon(color: color)
+                .frame(width: 14, height: 14)
+        default:
+            Image(systemName: name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(color)
+        }
     }
 }

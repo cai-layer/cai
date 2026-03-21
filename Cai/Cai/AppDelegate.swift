@@ -26,9 +26,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start crash reporting early if user has opted in
         CrashReportingService.shared.startIfEnabled()
 
-        // Auto-connect MCP servers that have autoConnect enabled
-        MCPConfigManager.shared.autoConnectServers()
-
         // Create the status item in the menu bar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -179,7 +176,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Custom Shortcuts"
+        window.title = "Custom Actions"
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 320, height: 300)

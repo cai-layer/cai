@@ -126,9 +126,7 @@ struct ConnectorsSettingsView: View {
                 }
             }) {
                 HStack(spacing: 10) {
-                    Image(systemName: config.icon)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(status.isConnected ? .caiPrimary : .caiTextSecondary)
+                    connectorIcon(for: config.providerType, isConnected: status.isConnected)
                         .frame(width: 20)
 
                     VStack(alignment: .leading, spacing: 1) {
@@ -207,25 +205,7 @@ struct ConnectorsSettingsView: View {
                 apiKeySection(config)
             }
 
-            // Auto-connect toggle
-            HStack {
-                Text("Auto-connect on launch")
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextPrimary)
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { config.autoConnect },
-                    set: { newValue in
-                        var updated = config
-                        updated.autoConnect = newValue
-                        configManager.updateServer(updated)
-                    }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .tint(.caiPrimary)
-                .labelsHidden()
-            }
+
 
             // Test connection button
             HStack(spacing: 8) {
@@ -329,10 +309,44 @@ struct ConnectorsSettingsView: View {
                         .foregroundColor(.caiTextSecondary.opacity(0.5))
                 }
             }
+
+            Button(action: {
+                if let url = URL(string: tokenHelpURL(for: config)) {
+                    NSWorkspace.shared.open(url)
+                }
+            }) {
+                HStack(spacing: 3) {
+                    Text("Get token")
+                        .font(.system(size: 9))
+                        .foregroundColor(.caiPrimary)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 7, weight: .medium))
+                        .foregroundColor(.caiPrimary.opacity(0.6))
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
         }
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private func connectorIcon(for providerType: MCPProviderType, isConnected: Bool) -> some View {
+        let color: Color = isConnected ? .caiPrimary : .caiTextSecondary
+        switch providerType {
+        case .github:
+            GitHubIcon(color: color)
+                .frame(width: 14, height: 14)
+        case .linear:
+            LinearIcon(color: color)
+                .frame(width: 14, height: 14)
+        case .custom:
+            Image(systemName: "puzzlepiece.extension")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(color)
+        }
+    }
 
     private func statusColor(_ status: MCPServerStatus) -> Color {
         switch status {
@@ -340,6 +354,14 @@ struct ConnectorsSettingsView: View {
         case .connecting: return .orange
         case .error: return .red
         case .disconnected: return .caiTextSecondary.opacity(0.5)
+        }
+    }
+
+    private func tokenHelpURL(for config: MCPServerConfig) -> String {
+        switch config.providerType {
+        case .github: return "https://getcai.app/docs/usage/connectors/#github"
+        case .linear: return "https://getcai.app/docs/usage/connectors/#linear"
+        case .custom: return "https://getcai.app/docs/"
         }
     }
 

@@ -64,6 +64,7 @@
 		CAI00140 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00141 /* Sentry */; };
 		CAI00150 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00151 /* Sparkle */; };
 		CAI00166 /* GitHubIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00165 /* GitHubIcon.swift */; };
+		CAI00196 /* LinearIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00195 /* LinearIcon.swift */; };
 		CAI00167 /* ExtensionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00168 /* ExtensionService.swift */; };
 		CAI00169 /* ExtensionBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00170 /* ExtensionBrowserView.swift */; };
 /* End PBXBuildFile section */
@@ -136,6 +137,7 @@
 		CAI00146 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		CAI00164 /* ExtensionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionParser.swift; sourceTree = "<group>"; };
 		CAI00165 /* GitHubIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubIcon.swift; sourceTree = "<group>"; };
+		CAI00195 /* LinearIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinearIcon.swift; sourceTree = "<group>"; };
 		CAI00168 /* ExtensionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionService.swift; sourceTree = "<group>"; };
 		CAI00170 /* ExtensionBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionBrowserView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -223,6 +225,7 @@
 				CAI00129 /* DestinationChip.swift */,
 				CAI00135 /* ModelSetupView.swift */,
 				CAI00165 /* GitHubIcon.swift */,
+				CAI00195 /* LinearIcon.swift */,
 				CAI00170 /* ExtensionBrowserView.swift */,
 				CAI00189 /* MCPFormView.swift */,
 				CAI00191 /* ConnectorsSettingsView.swift */,
@@ -431,6 +434,7 @@
 				CAI00147 /* OCRService.swift in Sources */,
 				CAI00163 /* ExtensionParser.swift in Sources */,
 				CAI00166 /* GitHubIcon.swift in Sources */,
+				CAI00196 /* LinearIcon.swift in Sources */,
 				CAI00167 /* ExtensionService.swift in Sources */,
 				CAI00169 /* ExtensionBrowserView.swift in Sources */,
 				CAI00180 /* MCPModels.swift in Sources */,

@@ -90,7 +90,7 @@ Cai/Cai/
 - **[Community extensions](_docs/ARCHITECTURE.md#community-extensions)**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
 - **[Built-in LLM](_docs/ARCHITECTURE.md#built-in-llm)**: Bundled llama-server (llama.cpp b8390). Auto-download Ministral 3B. Crash recovery. See also [`_docs/BUILT-IN-LLM.md`](_docs/BUILT-IN-LLM.md). For updating, see [`_docs/LLAMA-UPDATE.md`](_docs/LLAMA-UPDATE.md).
 - **[Crash reporting](_docs/ARCHITECTURE.md#crash-reporting-sentry)**: Opt-in Sentry, disabled by default. No PII.
-- **[MCP connectors](_docs/MCP.md)**: GitHub, Linear via MCP protocol. Declarative `MCPActionConfig` → generic `MCPFormView`. Config: `~/.config/cai/mcp-servers.json`. Provider docs: [`_docs/mcp-providers/`](_docs/mcp-providers/).
+- **[MCP connectors](_docs/MCP.md)**: GitHub, Linear via MCP protocol. Declarative `MCPActionConfig` → generic `MCPFormView`. Config: `~/.config/cai/mcp-servers.json`. Actions always visible for enabled connectors; clicking without API key redirects to Connectors setup. Provider docs: [`_docs/mcp-providers/`](_docs/mcp-providers/).
 - **[Architecture patterns](_docs/ARCHITECTURE.md#key-architecture-patterns)**: No Sandbox, CGEvent, CaiPanel, PassThrough, keyboard routing, actors.
 - **[Bundle IDs](_docs/ARCHITECTURE.md#bundle-ids)**: Debug `com.soyasis.cai.dev`, Release `com.soyasis.cai` (separate accessibility entries).
 
@@ -155,6 +155,7 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process.
 - **Clipboard text clamped to 50K chars** — `ClipboardHistory.maxTextLength`. Silent truncation.
 - **OCR uses Apple Vision framework** — on-device, ~50-200ms. Image entries use `photo` SF Symbol (macOS 13+, NOT `doc.text.image`).
 - **Extension detection uses `# cai-extension` header** — priority 0 (before URL). Shell/AppleScript blocked from clipboard install.
+- **`github.logo` and `linear.logo` are NOT SF Symbols** — they're custom identifiers mapped to `GitHubIcon()` and `LinearIcon()` SwiftUI shapes. Use `connectorIcon()` helper, never `Image(systemName:)`.
 
 ## Dependencies
 

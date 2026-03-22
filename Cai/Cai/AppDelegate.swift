@@ -247,8 +247,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Reads clipboard content and shows the action window, or shows a toast if empty.
     /// Priority: image file (Finder) → text → image data → empty.
     private func openWithClipboard(sourceApp: String? = nil) {
-        // 1. Text found — fast path (most common case, avoids OCR/image checks)
-        if let content = clipboardService.readClipboard() {
+        // 1. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
+        //    Must come before text check: Finder puts both file URL and path text on the pasteboard,
+        //    so readClipboard() would match the path string and skip OCR.
+        if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
+            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
+
+        // 2. Text found
+        } else if let content = clipboardService.readClipboard() {
             clipboardHistory.recordCurrentClipboard()
 
             // Clamp text to prevent oversized LLM requests and UI slowdown
@@ -265,10 +271,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 detection: detection,
                 sourceApp: sourceApp
             )
-
-        // 2. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
-        } else if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
-            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
 
         // 3. Image data on clipboard (e.g. Preview copy, screenshot to clipboard) — OCR it
         } else if let ocrText = OCRService.shared.extractTextFromClipboardImage() {

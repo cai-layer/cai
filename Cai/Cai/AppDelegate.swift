@@ -247,12 +247,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Reads clipboard content and shows the action window, or shows a toast if empty.
     /// Priority: image file (Finder) → text → image data → empty.
     private func openWithClipboard(sourceApp: String? = nil) {
-        // 1. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
-        if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
-            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
-
-        // 2. Text found — existing flow
-        } else if let content = clipboardService.readClipboard() {
+        // 1. Text found — fast path (most common case, avoids OCR/image checks)
+        if let content = clipboardService.readClipboard() {
             clipboardHistory.recordCurrentClipboard()
 
             // Clamp text to prevent oversized LLM requests and UI slowdown
@@ -269,6 +265,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 detection: detection,
                 sourceApp: sourceApp
             )
+
+        // 2. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
+        } else if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
+            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
 
         // 3. Image data on clipboard (e.g. Preview copy, screenshot to clipboard) — OCR it
         } else if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
@@ -403,6 +403,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let settings = await MainActor.run { CaiSettings.shared }
             let provider = await MainActor.run { settings.modelProvider }
             let modelPath = await MainActor.run { settings.builtInModelPath }
+            let setupDone = await MainActor.run { settings.builtInSetupDone }
+
+            // First launch — always show onboarding so user can choose
+            // (Apple Intelligence, Built-in, or "I have my own setup")
+            if !setupDone {
+                await MainActor.run { [weak self] in
+                    self?.showModelSetupWindow()
+                }
+                return
+            }
 
             // Apple Intelligence — no server to start, just verify it's still available
             if provider == .apple {
@@ -447,15 +457,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         print("Built-in LLM server started after auto-detect")
                     } catch {
                         print("Failed to start built-in LLM after auto-detect: \(error.localizedDescription)")
-                    }
-                }
-
-                // If still nothing and setup was never done, show the setup screen
-                let available = await LLMService.shared.checkStatus()
-                let setupDone = await MainActor.run { settings.builtInSetupDone }
-                if !available.available && !setupDone {
-                    await MainActor.run { [weak self] in
-                        self?.showModelSetupWindow()
                     }
                 }
             }

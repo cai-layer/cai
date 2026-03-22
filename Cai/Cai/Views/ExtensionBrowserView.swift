@@ -17,6 +17,8 @@ struct ExtensionBrowserView: View {
     @State private var shellConfirmCommand: String = ""
     @State private var shellConfirmName: String = ""
 
+    @FocusState private var isSearchFocused: Bool
+
     private var displayedEntries: [ExtensionService.ExtensionEntry] {
         guard !searchText.isEmpty else { return entries }
         let query = searchText.lowercased()
@@ -61,6 +63,7 @@ struct ExtensionBrowserView: View {
                 TextField("Search extensions...", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
+                    .focused($isSearchFocused)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -68,6 +71,11 @@ struct ExtensionBrowserView: View {
             .cornerRadius(6)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isSearchFocused = true
+                }
+            }
 
             // Content
             ScrollView {

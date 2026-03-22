@@ -131,7 +131,7 @@ class WindowController: NSObject, ObservableObject {
             NSApp.activate(ignoringOtherApps: true)
             cached.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.15
+                context.duration = 0.08
                 cached.animator().alphaValue = 1
             }
 
@@ -230,9 +230,9 @@ class WindowController: NSObject, ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
 
-        // Fade in
+        // Fade in — 80ms feels instant while still preventing a harsh pop-in
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
+            context.duration = 0.08
             panel.animator().alphaValue = 1
         }
 

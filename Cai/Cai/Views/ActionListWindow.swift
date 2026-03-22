@@ -728,7 +728,8 @@ struct ActionListWindow: View {
                 },
                 onShowModelSetup: {
                     NotificationCenter.default.post(name: .caiShowModelSetup, object: nil)
-                }
+                },
+                onDismiss: onDismiss
             )
             Spacer(minLength: 0)
             Divider()

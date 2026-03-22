@@ -242,15 +242,15 @@ struct ConnectorsSettingsView: View {
 
                 Spacer()
 
-                // Test result
-                if let result = testResult, result.0 == config.id {
+                // Test result (only show success — errors already shown in header status)
+                if let result = testResult, result.0 == config.id, result.1 {
                     HStack(spacing: 4) {
-                        Image(systemName: result.1 ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 10))
-                            .foregroundColor(result.1 ? .green : .red)
+                            .foregroundColor(.green)
                         Text(result.2)
                             .font(.system(size: 10))
-                            .foregroundColor(result.1 ? .green : .red)
+                            .foregroundColor(.green)
                     }
                 }
             }

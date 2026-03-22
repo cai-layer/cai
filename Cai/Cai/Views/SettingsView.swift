@@ -11,6 +11,7 @@ struct SettingsView: View {
     var onShowExtensions: (() -> Void)? = nil
     var onShowConnectors: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
+    var onDismiss: (() -> Void)? = nil
 
     /// LLM connection status — checked each time settings opens.
     @State private var llmConnected: Bool? = nil  // nil = checking
@@ -227,31 +228,26 @@ struct SettingsView: View {
                         settingsDivider
 
                         navRow(label: "Destinations", count: settings.enabledDestinations.count, total: settings.outputDestinations.count, action: onShowDestinations)
-
-                        settingsDivider
-
-                        Button(action: onShowExtensions ?? {}) {
-                            HStack {
-                                Text("Browse community extensions")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiPrimary)
-                                if settings.installedExtensions.count > 0 {
-                                    Text("·")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.caiTextSecondary)
-                                    Text("\(settings.installedExtensions.count) installed")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.caiTextSecondary)
-                                }
-                                Spacer()
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundColor(.caiPrimary.opacity(0.6))
-                            }
-                            .padding(.vertical, 2)
-                        }
-                        .buttonStyle(.plain)
                     }
+
+                    Button(action: onShowExtensions ?? {}) {
+                        HStack(spacing: 4) {
+                            Text("Community extensions")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiPrimary)
+                            if settings.installedExtensions.count > 0 {
+                                Text("· \(settings.installedExtensions.count) installed")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
+                            }
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundColor(.caiPrimary.opacity(0.6))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 4)
+                    .padding(.top, -8)
 
                     // MARK: General Group
                     settingsGroup(title: "General") {
@@ -334,6 +330,7 @@ struct SettingsView: View {
                         Button(action: {
                             if let url = URL(string: "https://github.com/clipboard-ai/cai/discussions") {
                                 NSWorkspace.shared.open(url)
+                                onDismiss?()
                             }
                         }) {
                             HStack(spacing: 4) {
@@ -349,6 +346,7 @@ struct SettingsView: View {
                         Button(action: {
                             if let url = URL(string: "https://github.com/clipboard-ai/cai/issues") {
                                 NSWorkspace.shared.open(url)
+                                onDismiss?()
                             }
                         }) {
                             HStack(spacing: 4) {

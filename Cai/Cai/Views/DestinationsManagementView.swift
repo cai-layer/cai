@@ -74,9 +74,9 @@ struct DestinationsManagementView: View {
 
                     // Permission hint for built-in AppleScript destinations
                     if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled }) {
-                        Text("First use will ask for permission to control each app.")
-                            .font(.system(size: 9))
-                            .foregroundColor(.caiTextSecondary.opacity(0.4))
+                        Text("macOS will ask for Automation permission on first use. If denied, re-enable in System Settings → Automation.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
                             .padding(.horizontal, 16)
                             .padding(.top, 2)
                     }

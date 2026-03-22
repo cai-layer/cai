@@ -221,20 +221,38 @@ struct MCPFormView: View {
                         .onTapGesture { closeAnyOpenDropdown() }
                 }
 
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(actionConfig.fields) { field in
-                            fieldView(for: field)
-                        }
-
-                        if let error = errorMessage {
-                            Text(error)
-                                .font(.system(size: 11))
-                                .foregroundColor(.red)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            if let error = errorMessage {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.red)
+                                    Text(error)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.red)
+                                }
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .background(Color.red.opacity(0.08))
+                                .cornerRadius(6)
+                                .id("formError")
+                            }
+
+                            ForEach(actionConfig.fields) { field in
+                                fieldView(for: field)
+                            }
+                        }
+                        .padding(16)
+                    }
+                    .onChange(of: errorMessage) { newError in
+                        if newError != nil {
+                            withAnimation {
+                                proxy.scrollTo("formError", anchor: .top)
+                            }
                         }
                     }
-                    .padding(16)
                 }
             }
 

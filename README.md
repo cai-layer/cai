@@ -4,11 +4,11 @@
 
 <h1 align="center">Cai</h1>
 
-<h3 align="center">Select any text or image. Get smart actions.</h3>
+<h3 align="center">Select anything, press ⌥C, and transform with AI.</h3>
 
 <p align="center">
-  A privacy-first clipboard assistant powered by local AI.<br>
-  Your data never leaves your machine.
+  A privacy-first clipboard assistant for macOS.<br>
+  All local. Zero app switching.
 </p>
 
 <p align="center">
@@ -52,10 +52,11 @@ No cloud. No telemetry. No accounts.
 
 - **Smart detection** of content types (word, text, image, meeting, address, URL, JSON) with context-aware actions
 - **Image to Text** — copy a screenshot or image and Cai extracts the text via on-device OCR (Apple Vision), then run any action on it
-- **Built-in AI** — ships with [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF), downloaded on first launch. Also compatible with [Apple Intelligence](#apple-intelligence) (macOS 26+), LM Studio, Ollama, or any OpenAI-compatible server
+- **Built-in AI** — uses [Apple Intelligence](#apple-intelligence) on macOS 26+ (recommended, zero setup), or ships with [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) as fallback. Also compatible with LM Studio, Ollama, or any OpenAI-compatible server. Drag and drop your own `.gguf` model too
 - **Built-in chat** — ask follow-up questions with **Tab**, or press **⌘N** to start a new chat without clipboard content
 - **Ask AI** (⌘1) — free-form prompt to do anything: improve writing, create email replies, translate, count words
-- **Custom actions** — save reusable prompts and URL templates, access them by typing to filter
+- **Custom actions** — save reusable prompts, URL templates, and shell commands, access them by typing to filter
+- **Connectors** — create GitHub Issues and Linear tickets directly from your clipboard with AI-generated titles and descriptions
 - **Output destinations** — send results to Mail, Notes, Reminders, or custom webhooks, URL schemes, AppleScript, and shell commands
 - **Clipboard history** — search, pin, and reuse your last 100 clipboard items with **⌘0**
 - **App-aware** — Cai knows which app you're in (Mail, Slack, Safari…) and adapts AI responses to match the context
@@ -118,17 +119,17 @@ In Xcode:
 
 ## LLM Setup
 
-### Built-in (zero config)
+### Apple Intelligence (recommended)
 
-Cai ships with a bundled AI engine ([llama.cpp](https://github.com/ggml-org/llama.cpp)). On first launch it downloads [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) (~2 GB) and runs everything locally — no external server needed.
+On Macs with an M1 chip or later running **macOS 26+**, Cai uses Apple Intelligence as the default model provider — no download needed, no setup required. If available, Cai will offer it during first launch setup.
+
+### Built-in Model (fallback)
+
+On older macOS versions, Cai ships with a bundled AI engine ([llama.cpp](https://github.com/ggml-org/llama.cpp)). On first launch it downloads [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) (~2 GB) and runs everything locally — no external server needed.
 
 Models are stored in `~/Library/Application Support/Cai/models/`. The engine starts automatically on launch and stops when you quit Cai.
 
 **Custom models:** Drop any `.gguf` file into the models folder and select it from the model picker in Settings or the action window footer. Cai will restart the engine with your chosen model.
-
-### Apple Intelligence
-
-On Macs with an M1 chip or later running **macOS 26+**, Cai can use Apple Intelligence as a built-in model provider — no download needed. If available, Cai will offer it during first launch setup.
 
 ### External providers
 

@@ -152,7 +152,7 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process.
 - **ExtensionParser `allowShell`** — `true` for curated repo installs, `false` (default) for clipboard installs
 - **Webhook URLs must use HTTPS** — enforced in both `ExtensionParser` and GitHub Actions validator
 - **ExtensionService uses `reloadIgnoringLocalCacheData`** — prevents stale cached responses from GitHub CDN
-- **Clipboard text clamped to 50K chars** — `ClipboardHistory.maxTextLength`. Silent truncation.
+- **Clipboard text clamped to 10K chars** — `ClipboardHistory.maxTextLength`. Silent truncation.
 - **OCR uses Apple Vision framework** — on-device, ~50-200ms. Image entries use `photo` SF Symbol (macOS 13+, NOT `doc.text.image`).
 - **Extension detection uses `# cai-extension` header** — priority 0 (before URL). Shell/AppleScript blocked from clipboard install.
 - **`github.logo` and `linear.logo` are NOT SF Symbols** — they're custom identifiers mapped to `GitHubIcon()` and `LinearIcon()` SwiftUI shapes. Use `connectorIcon()` helper, never `Image(systemName:)`.

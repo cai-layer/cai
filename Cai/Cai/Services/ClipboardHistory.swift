@@ -13,7 +13,7 @@ class ClipboardHistory: ObservableObject {
     static let maxPinnedEntries = 9
 
     /// Maximum text length stored per entry (prevents memory bloat from huge clipboard content)
-    static let maxTextLength = 50_000
+    static let maxTextLength = 10_000
 
     /// Each history entry stores the full text, timestamp, and pin state
     struct Entry: Identifiable {

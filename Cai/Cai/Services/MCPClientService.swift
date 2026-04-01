@@ -55,9 +55,13 @@ actor MCPClientService {
             print("🔌 MCP \(config.name) connected — \(tools.count) tools: \(tools.map { $0.name }.joined(separator: ", "))")
             setStatus(config.id, .connected(toolCount: tools.count))
 
+        } catch let mcpError as MCPError {
+            setStatus(config.id, .error(mcpError.localizedDescription))
+            throw mcpError
         } catch {
+            let wrapped = MCPError.connectionFailed(error.localizedDescription)
             setStatus(config.id, .error(error.localizedDescription))
-            throw MCPError.connectionFailed(error.localizedDescription)
+            throw wrapped
         }
     }
 

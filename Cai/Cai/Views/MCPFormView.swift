@@ -52,6 +52,7 @@ struct MCPFormView: View {
     @State private var hasSubmitted: Bool = false
     @State private var isGeneratingLLM: Bool = false
     @State private var errorMessage: String?
+    @State private var isConnectionError: Bool = false
     @State private var successMessage: String?
     @State private var resultURL: String?
 
@@ -242,6 +243,16 @@ struct MCPFormView: View {
                                     Text(error)
                                         .font(.system(size: 11))
                                         .foregroundColor(.red)
+                                    if isConnectionError {
+                                        Spacer()
+                                        Button("Retry") {
+                                            errorMessage = nil
+                                            isConnectionError = false
+                                            Task { await initialize() }
+                                        }
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.caiPrimary)
+                                    }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(8)
@@ -947,7 +958,8 @@ struct MCPFormView: View {
             } catch {
                 await MainActor.run {
                     isConnecting = false
-                    errorMessage = "Failed to connect: \(error.localizedDescription)"
+                    errorMessage = error.localizedDescription
+                    isConnectionError = true
                 }
                 return
             }

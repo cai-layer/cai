@@ -32,6 +32,13 @@ class MCPTransportClient {
         self.session = URLSession(configuration: config)
     }
 
+    /// Test-only initializer that accepts a custom URLSession (for mock URLProtocol injection).
+    init(endpoint: URL, session: URLSession, requestModifier: ((URLRequest) -> URLRequest)? = nil) {
+        self.endpoint = endpoint
+        self.requestModifier = requestModifier
+        self.session = session
+    }
+
     // MARK: - MCP Protocol
 
     /// Sends `initialize` handshake. Must be called before `listTools` or `callTool`.
@@ -167,12 +174,18 @@ class MCPTransportClient {
             let urlResponse: URLResponse
             do {
                 (data, urlResponse) = try await session.data(for: request)
-            } catch let error as URLError where error.code == .timedOut {
-                lastError = .connectionTimeout
-                continue // retry on timeout
             } catch let urlError as URLError {
-                lastError = .connectionFailed(urlError.localizedDescription)
-                continue // retry on network errors
+                // Don't retry when the OS reports no network — retrying won't help
+                if urlError.code == .notConnectedToInternet ||
+                   urlError.code == .networkConnectionLost ||
+                   urlError.code == .dataNotAllowed {
+                    throw MCPError.connectionFailed(urlError.localizedDescription)
+                }
+                // Retry on transient errors (timeout, DNS, connection refused, etc.)
+                lastError = urlError.code == .timedOut
+                    ? .connectionTimeout
+                    : .connectionFailed(urlError.localizedDescription)
+                continue
             } catch {
                 throw MCPError.connectionFailed(error.localizedDescription)
             }

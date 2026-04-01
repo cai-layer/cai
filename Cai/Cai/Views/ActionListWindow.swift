@@ -113,7 +113,6 @@ struct ActionListWindow: View {
                 switch sc.type {
                 case .prompt:
                     actionType = .llmAction(.custom(sc.value))
-                    shortcutDisplayName = sc.name
                     subtitle = sc.value
                 case .url:
                     actionType = .shortcutURL(sc.value)
@@ -1093,6 +1092,10 @@ struct ActionListWindow: View {
             }
 
         case .llmAction(let llmAction):
+            // Set shortcutDisplayName for custom shortcuts (action.title has the shortcut name)
+            if case .custom = llmAction {
+                shortcutDisplayName = action.title
+            }
             let title = llmActionTitle(llmAction)
             let clipboardText = self.text
             let app = self.sourceApp

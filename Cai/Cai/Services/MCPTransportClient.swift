@@ -150,61 +150,102 @@ class MCPTransportClient {
             request = modifier(request)
         }
 
-        let (data, urlResponse): (Data, URLResponse)
-        do {
-            (data, urlResponse) = try await session.data(for: request)
-        } catch let error as URLError where error.code == .timedOut {
-            throw MCPError.connectionTimeout
-        } catch {
-            throw MCPError.connectionFailed(error.localizedDescription)
-        }
+        // Retry loop: 2 base retries (3 total attempts) for transient failures.
+        // 429 gets one dedicated retry outside the base budget.
+        let maxRetries = 2
+        let retryDelays: [UInt64] = [1_000_000_000, 3_000_000_000] // 1s, 3s
+        var lastError: MCPError = .connectionFailed("Request failed")
+        var did429Retry = false
 
-        // Check HTTP status + capture session ID from response header
-        if let httpResponse = urlResponse as? HTTPURLResponse {
-            if let sid = httpResponse.value(forHTTPHeaderField: "Mcp-Session-Id"), sessionId == nil {
-                sessionId = sid
+        for attempt in 0...maxRetries {
+            // Wait before retrying (not on first attempt)
+            if attempt > 0 {
+                try await Task.sleep(nanoseconds: retryDelays[attempt - 1])
             }
-            switch httpResponse.statusCode {
-            case 200...299:
-                break
-            case 429:
-                throw MCPError.connectionFailed("Rate limited — try again shortly")
-            case 401, 403:
-                throw MCPError.authMissing("Server returned \(httpResponse.statusCode)")
-            default:
-                let bodyText = String(data: data, encoding: .utf8) ?? ""
-                throw MCPError.connectionFailed("HTTP \(httpResponse.statusCode): \(bodyText.prefix(200))")
+
+            let data: Data
+            let urlResponse: URLResponse
+            do {
+                (data, urlResponse) = try await session.data(for: request)
+            } catch let error as URLError where error.code == .timedOut {
+                lastError = .connectionTimeout
+                continue // retry on timeout
+            } catch let urlError as URLError {
+                lastError = .connectionFailed(urlError.localizedDescription)
+                continue // retry on network errors
+            } catch {
+                throw MCPError.connectionFailed(error.localizedDescription)
             }
-        }
 
-        if !expectResponse { return [:] }
+            // Capture session ID from response header
+            if let httpResponse = urlResponse as? HTTPURLResponse {
+                if let sid = httpResponse.value(forHTTPHeaderField: "Mcp-Session-Id"), sessionId == nil {
+                    sessionId = sid
+                }
 
-        // Parse response — handle both plain JSON and SSE (text/event-stream) formats.
-        // GitHub MCP may respond with SSE: "event: message\ndata: {...}\n\n"
-        let responseData: Data
-        if let contentType = (urlResponse as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"),
-           contentType.contains("text/event-stream"),
-           let bodyText = String(data: data, encoding: .utf8) {
-            responseData = extractJSONFromSSE(bodyText)
-        } else {
-            responseData = data
-        }
+                switch httpResponse.statusCode {
+                case 200...299:
+                    break // success — fall through to response parsing
 
-        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
-            throw MCPError.invalidResponse
-        }
+                case 429:
+                    // Rate limit: one dedicated retry with Retry-After header
+                    if !did429Retry {
+                        did429Retry = true
+                        let retryAfterStr = httpResponse.value(forHTTPHeaderField: "Retry-After")
+                        let retryAfterSecs = UInt64(retryAfterStr.flatMap { Int($0) } ?? 5)
+                        try await Task.sleep(nanoseconds: retryAfterSecs * 1_000_000_000)
+                        continue
+                    }
+                    throw MCPError.connectionFailed("Rate limited — try again shortly")
 
-        // Check for JSON-RPC error
-        if let error = json["error"] as? [String: Any] {
-            let message = error["message"] as? String ?? "Unknown error"
-            let code = error["code"] as? Int
-            if code == -32600 || code == -32601 {
-                throw MCPError.toolNotFound(message)
+                case 401, 403:
+                    throw MCPError.authMissing("Server returned \(httpResponse.statusCode)")
+
+                case 502, 503, 504:
+                    let bodyText = String(data: data, encoding: .utf8) ?? ""
+                    lastError = .connectionFailed("HTTP \(httpResponse.statusCode): \(bodyText.prefix(200))")
+                    continue // retry on server errors
+
+                default:
+                    let bodyText = String(data: data, encoding: .utf8) ?? ""
+                    throw MCPError.connectionFailed("HTTP \(httpResponse.statusCode): \(bodyText.prefix(200))")
+                }
             }
-            throw MCPError.toolCallFailed(message)
+
+            // Success path — parse response
+
+            if !expectResponse { return [:] }
+
+            // Handle both plain JSON and SSE (text/event-stream) formats.
+            // GitHub MCP may respond with SSE: "event: message\ndata: {...}\n\n"
+            let responseData: Data
+            if let contentType = (urlResponse as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"),
+               contentType.contains("text/event-stream"),
+               let bodyText = String(data: data, encoding: .utf8) {
+                responseData = extractJSONFromSSE(bodyText)
+            } else {
+                responseData = data
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+                throw MCPError.invalidResponse
+            }
+
+            // Check for JSON-RPC error
+            if let error = json["error"] as? [String: Any] {
+                let message = error["message"] as? String ?? "Unknown error"
+                let code = error["code"] as? Int
+                if code == -32600 || code == -32601 {
+                    throw MCPError.toolNotFound(message)
+                }
+                throw MCPError.toolCallFailed(message)
+            }
+
+            return json
         }
 
-        return json
+        // All retries exhausted
+        throw lastError
     }
 
     /// Extracts JSON-RPC response from SSE (Server-Sent Events) body.

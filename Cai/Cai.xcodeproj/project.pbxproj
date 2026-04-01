@@ -22,6 +22,8 @@
 		CAI00039 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00040 /* ClipboardService.swift */; };
 		CAI00042 /* ContentDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00043 /* ContentDetector.swift */; };
 		CAI00050 /* ContentDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00051 /* ContentDetectorTests.swift */; };
+		CAI00300 /* MCPTransportClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00301 /* MCPTransportClientTests.swift */; };
+		CAI00302 /* MCPTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00303 /* MCPTemplateTests.swift */; };
 		CAI00062 /* ActionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00063 /* ActionItem.swift */; };
 		CAI00064 /* VisualEffectBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00065 /* VisualEffectBackground.swift */; };
 		CAI00066 /* CaiColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00067 /* CaiColors.swift */; };
@@ -98,6 +100,8 @@
 		CAI00043 /* ContentDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentDetector.swift; sourceTree = "<group>"; };
 		CAI00049 /* CaiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CaiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CAI00051 /* ContentDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentDetectorTests.swift; sourceTree = "<group>"; };
+		CAI00301 /* MCPTransportClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTransportClientTests.swift; sourceTree = "<group>"; };
+		CAI00303 /* MCPTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTemplateTests.swift; sourceTree = "<group>"; };
 		CAI00063 /* ActionItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItem.swift; sourceTree = "<group>"; };
 		CAI00065 /* VisualEffectBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectBackground.swift; sourceTree = "<group>"; };
 		CAI00067 /* CaiColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiColors.swift; sourceTree = "<group>"; };
@@ -274,6 +278,8 @@
 			isa = PBXGroup;
 			children = (
 				CAI00051 /* ContentDetectorTests.swift */,
+				CAI00301 /* MCPTransportClientTests.swift */,
+				CAI00303 /* MCPTemplateTests.swift */,
 			);
 			path = CaiTests;
 			sourceTree = "<group>";
@@ -451,6 +457,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				CAI00050 /* ContentDetectorTests.swift in Sources */,
+				CAI00300 /* MCPTransportClientTests.swift in Sources */,
+				CAI00302 /* MCPTemplateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -9,6 +9,7 @@ struct MCPFormView: View {
     let actionConfig: MCPActionConfig
     let clipboardText: String
     let sourceApp: String?
+    let contentType: ContentType?
     let onBack: () -> Void
     let onDismiss: () -> Void
 
@@ -700,7 +701,7 @@ struct MCPFormView: View {
                         orgNames = Self.extractOrgNames(from: teamsResponse)
 
                     } catch {
-                        print("⚠️ MCP get_teams failed (may need read:org scope): \(error)")
+                        // Silently continue — orgs won't appear in repo search but user repos still work
                     }
                 }
 
@@ -728,7 +729,6 @@ struct MCPFormView: View {
                                 let options = MCPClientService.shared.parsePickerOptions(from: response, toolName: searchTool)
                                 return options
                             } catch {
-                                print("⚠️ MCP prefetch query failed (\(query)): \(error)")
                                 return []
                             }
                         }
@@ -750,7 +750,6 @@ struct MCPFormView: View {
                     fieldLoading[field.id] = false
                 }
             } catch {
-                print("⚠️ MCP prefetch failed: \(error)")
                 await MainActor.run { fieldLoading[field.id] = false }
             }
         }
@@ -852,7 +851,6 @@ struct MCPFormView: View {
                 fieldLoading[field.id] = false
             }
         } catch {
-            print("⚠️ MCP dependent fetch failed (\(toolName)): \(error)")
             await MainActor.run { fieldLoading[field.id] = false }
         }
     }
@@ -985,6 +983,25 @@ struct MCPFormView: View {
         }
     }
 
+    /// Content-type hint prepended to LLM system prompt for smarter ticket generation.
+    private var contentTypeHint: String {
+        guard let type = contentType else { return "" }
+        switch type {
+        case .url:
+            return "The clipboard contains a URL. Reference it in the description.\n\n"
+        case .json:
+            return "The clipboard contains JSON/API data. Pretty-print relevant parts in the description.\n\n"
+        case .address:
+            return "The clipboard contains a physical address.\n\n"
+        case .meeting:
+            return "The clipboard contains meeting/calendar details.\n\n"
+        case .image:
+            return "The clipboard contains OCR text extracted from an image.\n\n"
+        case .caiExtension, .word, .shortText, .longText, .empty:
+            return ""
+        }
+    }
+
     private func generateLLMFields(prompt: MCPLLMPrompt) async {
         await MainActor.run {
             isGeneratingLLM = true
@@ -995,8 +1012,9 @@ struct MCPFormView: View {
         }
 
         do {
+            let systemPrompt = contentTypeHint + prompt.systemPrompt
             let messages = [
-                ChatMessage(role: "system", content: prompt.systemPrompt),
+                ChatMessage(role: "system", content: systemPrompt),
                 ChatMessage(role: "user", content: clipboardText)
             ]
             let response = try await LLMService.shared.generateWithMessages(messages)
@@ -1172,7 +1190,6 @@ struct MCPFormView: View {
                 isSearchingDuplicates = false
             }
         } catch {
-            print("⚠️ MCP triage search failed: \(error)")
             await MainActor.run { isSearchingDuplicates = false }
         }
     }

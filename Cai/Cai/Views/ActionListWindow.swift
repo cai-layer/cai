@@ -152,6 +152,7 @@ struct ActionListWindow: View {
                     actionConfig: config,
                     clipboardText: text,
                     sourceApp: sourceApp,
+                    contentType: detection.type,
                     onBack: {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             showMCPForm = false

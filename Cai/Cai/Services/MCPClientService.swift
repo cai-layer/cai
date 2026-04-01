@@ -212,7 +212,7 @@ actor MCPClientService {
 
     private func setStatus(_ configId: UUID, _ status: MCPServerStatus) {
         statuses[configId] = status
-        // Post notification for UI updates (MCPConfigManager observes this)
+        // Post notification for UI updates (MCPServerConfigManager observes this)
         Task { @MainActor in
             NotificationCenter.default.post(name: .caiMCPStatusChanged, object: nil, userInfo: ["configId": configId])
         }

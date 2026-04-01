@@ -236,7 +236,7 @@ class MCPServerConfigManager: ObservableObject {
         return .custom
     }
 
-    func iconForServer(_ providerType: MCPProviderType) -> String {
+    private func iconForServer(_ providerType: MCPProviderType) -> String {
         switch providerType {
         case .github: return "github.logo"
         case .linear: return "linear.logo"

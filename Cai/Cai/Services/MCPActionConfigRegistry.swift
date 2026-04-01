@@ -43,7 +43,7 @@ class MCPActionConfigRegistry {
     // MARK: - Shared Prompts
 
     /// Shared LLM system prompt for ticket creation (used by GitHub + Linear).
-    static let ticketCreationSystemPrompt = """
+    private static let ticketCreationSystemPrompt = """
         Create a ticket from the user's text. Classify as bug, feature, or task.
         Output EXACTLY in this format — no markdown fences, no extra text:
 

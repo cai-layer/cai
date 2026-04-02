@@ -179,7 +179,7 @@ struct MCPFormView: View {
             Spacer()
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 32))
-                .foregroundColor(.green)
+                .foregroundColor(.caiSuccess)
             Text(message)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.caiTextPrimary)
@@ -269,7 +269,7 @@ struct MCPFormView: View {
                     }
                     .onChange(of: errorMessage) { newError in
                         if newError != nil {
-                            withAnimation {
+                            withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo("formError", anchor: .top)
                             }
                         }
@@ -351,10 +351,10 @@ struct MCPFormView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 9))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.caiError)
                         Text("\(triageResults.count) similar issue\(triageResults.count == 1 ? "" : "s")")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.caiError)
                         Image(systemName: showTriageExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 8, weight: .medium))
                             .foregroundColor(.caiTextSecondary.opacity(0.5))

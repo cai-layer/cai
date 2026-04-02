@@ -193,10 +193,10 @@ struct DestinationsManagementView: View {
             if !dest.isConfigured {
                 Text("Setup needed")
                     .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.orange)
+                    .foregroundColor(.caiError)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.1))
+                    .background(Color.caiError.opacity(0.1))
                     .cornerRadius(4)
             }
 
@@ -265,13 +265,13 @@ struct DestinationsManagementView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
-                        .foregroundColor(.orange)
+                        .foregroundColor(.caiError)
                     Text("This destination will execute code on your machine. Only use commands you understand and trust.")
                         .font(.system(size: 10))
-                        .foregroundColor(.orange)
+                        .foregroundColor(.caiError)
                 }
                 .padding(8)
-                .background(Color.orange.opacity(0.08))
+                .background(Color.caiError.opacity(0.08))
                 .cornerRadius(6)
             }
 

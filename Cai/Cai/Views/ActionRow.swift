@@ -39,6 +39,7 @@ struct ActionRow: View {
                         .font(.system(size: 10, weight: .medium))
                     Text("\(action.shortcut)")
                         .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .monospacedDigit()
                 }
                 .foregroundColor(.caiTextSecondary.opacity(0.7))
                 .padding(.horizontal, 5)
@@ -53,7 +54,7 @@ struct ActionRow: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.caiSelection : Color.clear)
+                .fill(isSelected ? Color.caiPrimarySubtle : Color.clear)
         )
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

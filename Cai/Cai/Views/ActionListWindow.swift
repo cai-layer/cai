@@ -144,6 +144,10 @@ struct ActionListWindow: View {
         ZStack(alignment: .top) {
             VisualEffectBackground()
 
+            // Faint indigo tint — brand presence without competing with content
+            Color.caiPrimary.opacity(0.05)
+                .allowsHitTesting(false)
+
             if showExtensionConfirm, let ext = pendingExtension {
                 extensionConfirmView(ext)
             } else if showMCPForm, let config = activeMCPActionConfig {
@@ -1296,7 +1300,7 @@ struct ActionListWindow: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
-                        .foregroundColor(.orange)
+                        .foregroundColor(.caiError)
                     Text("Extensions can modify your clipboard text and send data to external services.")
                         .font(.system(size: 10))
                         .foregroundColor(.caiTextSecondary)

@@ -245,7 +245,7 @@ struct ModelSetupView: View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 32))
-                .foregroundColor(.green)
+                .foregroundColor(.caiSuccess)
 
             Text("Ready!")
                 .font(.system(size: 15, weight: .semibold))
@@ -276,7 +276,7 @@ struct ModelSetupView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 28))
-                .foregroundColor(.orange)
+                .foregroundColor(.caiError)
 
             Text("Setup Failed")
                 .font(.system(size: 14, weight: .semibold))

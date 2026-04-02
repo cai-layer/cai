@@ -284,13 +284,13 @@ struct ShortcutsManagementView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 10))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.caiError)
                         Text("This action will execute code on your machine. Only use commands you understand and trust.")
                             .font(.system(size: 10))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.caiError)
                     }
                     .padding(8)
-                    .background(Color.orange.opacity(0.08))
+                    .background(Color.caiError.opacity(0.08))
                     .cornerRadius(6)
                 }
             }

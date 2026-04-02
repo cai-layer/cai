@@ -417,7 +417,7 @@ struct SettingsView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.circle")
                         .font(.system(size: 12))
-                        .foregroundColor(.orange)
+                        .foregroundColor(.caiError)
                     Text("No model downloaded")
                         .font(.system(size: 12))
                         .foregroundColor(.caiTextSecondary)

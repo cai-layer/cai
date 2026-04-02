@@ -8,7 +8,7 @@ struct KeyboardHint: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(key)
-                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .font(.system(size: 10, weight: .medium, design: .rounded))
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(
@@ -16,7 +16,7 @@ struct KeyboardHint: View {
                         .fill(Color.caiSurface.opacity(0.5))
                 )
             Text(label)
-                .font(.system(size: 10))
+                .font(.system(size: 10, weight: .medium))
         }
         .foregroundColor(.caiTextSecondary.opacity(0.6))
     }

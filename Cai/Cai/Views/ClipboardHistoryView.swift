@@ -242,7 +242,7 @@ struct ClipboardHistoryView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.caiSelection : Color.clear)
+                .fill(isSelected ? Color.caiPrimarySubtle : Color.clear)
         )
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

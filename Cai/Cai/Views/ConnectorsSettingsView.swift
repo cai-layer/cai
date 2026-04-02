@@ -247,10 +247,10 @@ struct ConnectorsSettingsView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 10))
-                            .foregroundColor(.green)
+                            .foregroundColor(.caiSuccess)
                         Text(result.2)
                             .font(.system(size: 10))
-                            .foregroundColor(.green)
+                            .foregroundColor(.caiSuccess)
                     }
                 }
             }
@@ -305,7 +305,7 @@ struct ConnectorsSettingsView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 9))
-                        .foregroundColor(.green)
+                        .foregroundColor(.caiSuccess)
                     Text("Key saved in Keychain")
                         .font(.system(size: 9))
                         .foregroundColor(.caiTextSecondary.opacity(0.5))

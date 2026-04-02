@@ -67,7 +67,7 @@ struct ResultView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 24))
-                            .foregroundColor(.orange)
+                            .foregroundColor(.caiError)
                         Text(error)
                             .font(.system(size: 12))
                             .foregroundColor(.caiTextSecondary)
@@ -187,7 +187,7 @@ struct ResultView: View {
                 }
                 onResult?(output)
             } catch {
-                withAnimation {
+                withAnimation(.easeOut(duration: 0.2)) {
                     self.error = error.localizedDescription
                     isLoading = false
                 }

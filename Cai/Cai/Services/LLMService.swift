@@ -42,8 +42,19 @@ actor LLMService {
 
     /// Checks if the LLM server is reachable and has a loaded model.
     func checkStatus() async -> Status {
-        // Apple Intelligence — check on-device model availability
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+
+        // Built-in MLX — check if model is loaded in-process
+        if provider == .builtIn {
+            let loaded = await MLXInference.shared.isLoaded
+            return Status(
+                available: loaded,
+                modelName: loaded ? "MLX Built-in" : nil,
+                error: loaded ? nil : "No model loaded"
+            )
+        }
+
+        // Apple Intelligence — check on-device model availability
         if provider == .apple {
             return checkAppleFMStatus()
         }
@@ -85,6 +96,10 @@ actor LLMService {
     /// Fetches the list of all available model names from the server.
     func availableModels() async -> [String] {
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+        if provider == .builtIn {
+            let loaded = await MLXInference.shared.isLoaded
+            return loaded ? ["MLX Built-in"] : []
+        }
         if provider == .apple {
             return ["Apple Intelligence"]
         }
@@ -168,8 +183,14 @@ actor LLMService {
     /// Sends a pre-built messages array to the chat completions endpoint.
     /// Used by follow-up conversations where the caller manages message history.
     func generateWithMessages(_ messages: [ChatMessage]) async throws -> String {
-        // Apple Intelligence — route to on-device FoundationModels
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+
+        // Built-in MLX — route to in-process MLX inference
+        if provider == .builtIn {
+            return try await generateWithMLX(messages)
+        }
+
+        // Apple Intelligence — route to on-device FoundationModels
         if provider == .apple {
             return try await generateWithAppleFM(messages)
         }
@@ -302,6 +323,39 @@ actor LLMService {
         let p = Self.prompts(for: .custom(instruction), text: text, appContext: appContext)
         return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
+    // MARK: - Built-in MLX Inference
+
+    /// Generates a response using the built-in MLX model (in-process, no subprocess).
+    private func generateWithMLX(_ messages: [ChatMessage]) async throws -> String {
+        guard await MLXInference.shared.isLoaded else {
+            throw LLMError.connectionFailed
+        }
+
+        let tuples = messages.map { (role: $0.role, content: $0.content) }
+        return try await MLXInference.shared.generate(messages: tuples)
+    }
+
+    /// Returns a streaming response from the built-in MLX model.
+    /// Used by ResultView for progressive token display.
+    func generateStreamingWithMessages(_ messages: [ChatMessage]) async throws -> AsyncThrowingStream<String, Error> {
+        let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+        guard provider == .builtIn else {
+            // Non-MLX providers: wrap full response as a single-element stream
+            let fullResponse = try await generateWithMessages(messages)
+            return AsyncThrowingStream { continuation in
+                continuation.yield(fullResponse)
+                continuation.finish()
+            }
+        }
+
+        guard await MLXInference.shared.isLoaded else {
+            throw LLMError.connectionFailed
+        }
+
+        let tuples = messages.map { (role: $0.role, content: $0.content) }
+        return try await MLXInference.shared.generateStream(messages: tuples)
+    }
+
     // MARK: - Apple Intelligence (FoundationModels)
 
     /// Checks Apple Intelligence on-device model availability.

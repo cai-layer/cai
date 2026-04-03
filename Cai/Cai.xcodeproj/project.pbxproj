@@ -7,14 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		CAI00180 /* MCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00181 /* MCPModels.swift */; };
-		CAI00182 /* MCPClientService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00183 /* MCPClientService.swift */; };
-		CAI00184 /* MCPConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00185 /* MCPConfigManager.swift */; };
-		CAI00304 /* MCPServerConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00305 /* MCPServerConfigManager.swift */; };
-		CAI00306 /* MCPActionConfigRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00307 /* MCPActionConfigRegistry.swift */; };
-		CAI00188 /* MCPFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00189 /* MCPFormView.swift */; };
-		CAI00194 /* MCPTransportClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00192 /* MCPTransportClient.swift */; };
-		CAI00190 /* ConnectorsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00191 /* ConnectorsSettingsView.swift */; };
+		702858722F7FFE22002527EC /* MLXInference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702858712F7FFE22002527EC /* MLXInference.swift */; };
+		702858752F800433002527EC /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 702858742F800433002527EC /* MLXLLM */; };
+		702858772F800433002527EC /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 702858762F800433002527EC /* MLXLMCommon */; };
 		CAI00001 /* CaiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00002 /* CaiApp.swift */; };
 		CAI00003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00004 /* AppDelegate.swift */; };
 		CAI00007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CAI00008 /* Assets.xcassets */; };
@@ -24,8 +19,6 @@
 		CAI00039 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00040 /* ClipboardService.swift */; };
 		CAI00042 /* ContentDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00043 /* ContentDetector.swift */; };
 		CAI00050 /* ContentDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00051 /* ContentDetectorTests.swift */; };
-		CAI00300 /* MCPTransportClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00301 /* MCPTransportClientTests.swift */; };
-		CAI00302 /* MCPTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00303 /* MCPTemplateTests.swift */; };
 		CAI00062 /* ActionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00063 /* ActionItem.swift */; };
 		CAI00064 /* VisualEffectBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00065 /* VisualEffectBackground.swift */; };
 		CAI00066 /* CaiColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00067 /* CaiColors.swift */; };
@@ -40,8 +33,6 @@
 		CAI00088 /* ClipboardHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00089 /* ClipboardHistoryView.swift */; };
 		CAI00090 /* CustomPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00091 /* CustomPromptView.swift */; };
 		CAI00092 /* ToastWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00093 /* ToastWindow.swift */; };
-		CAI00143 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00144 /* ShortcutRecorderView.swift */; };
-		CAI00145 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00146 /* KeychainHelper.swift */; };
 		CAI00100 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00101 /* LLMService.swift */; };
 		CAI00102 /* SystemActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00103 /* SystemActions.swift */; };
 		CAI00104 /* ActionGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00105 /* ActionGenerator.swift */; };
@@ -52,25 +43,37 @@
 		CAI00114 /* ShortcutsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00115 /* ShortcutsManagementView.swift */; };
 		CAI00116 /* OnboardingPermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00117 /* OnboardingPermissionView.swift */; };
 		CAI00118 /* SparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00119 /* SparkleUpdater.swift */; };
-		CAI00147 /* OCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00148 /* OCRService.swift */; };
 		CAI00120 /* OutputDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00121 /* OutputDestination.swift */; };
 		CAI00122 /* BuiltInDestinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00123 /* BuiltInDestinations.swift */; };
 		CAI00124 /* OutputDestinationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00125 /* OutputDestinationService.swift */; };
 		CAI00126 /* DestinationsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00127 /* DestinationsManagementView.swift */; };
 		CAI00128 /* DestinationChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00129 /* DestinationChip.swift */; };
-		CAI00160 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00161 /* Yams */; };
-		CAI00163 /* ExtensionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00164 /* ExtensionParser.swift */; };
 		CAI00130 /* BuiltInLLM.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00131 /* BuiltInLLM.swift */; };
 		CAI00132 /* ModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00133 /* ModelDownloader.swift */; };
 		CAI00134 /* ModelSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00135 /* ModelSetupView.swift */; };
 		CAI00136 /* bin in Resources */ = {isa = PBXBuildFile; fileRef = CAI00137 /* bin */; };
 		CAI00138 /* CrashReportingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00139 /* CrashReportingService.swift */; };
 		CAI00140 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00141 /* Sentry */; };
+		CAI00143 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00144 /* ShortcutRecorderView.swift */; };
+		CAI00145 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00146 /* KeychainHelper.swift */; };
+		CAI00147 /* OCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00148 /* OCRService.swift */; };
 		CAI00150 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00151 /* Sparkle */; };
+		CAI00160 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00161 /* Yams */; };
+		CAI00163 /* ExtensionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00164 /* ExtensionParser.swift */; };
 		CAI00166 /* GitHubIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00165 /* GitHubIcon.swift */; };
-		CAI00196 /* LinearIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00195 /* LinearIcon.swift */; };
 		CAI00167 /* ExtensionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00168 /* ExtensionService.swift */; };
 		CAI00169 /* ExtensionBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00170 /* ExtensionBrowserView.swift */; };
+		CAI00180 /* MCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00181 /* MCPModels.swift */; };
+		CAI00182 /* MCPClientService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00183 /* MCPClientService.swift */; };
+		CAI00184 /* MCPConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00185 /* MCPConfigManager.swift */; };
+		CAI00188 /* MCPFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00189 /* MCPFormView.swift */; };
+		CAI00190 /* ConnectorsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00191 /* ConnectorsSettingsView.swift */; };
+		CAI00194 /* MCPTransportClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00192 /* MCPTransportClient.swift */; };
+		CAI00196 /* LinearIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00195 /* LinearIcon.swift */; };
+		CAI00300 /* MCPTransportClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00301 /* MCPTransportClientTests.swift */; };
+		CAI00302 /* MCPTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00303 /* MCPTemplateTests.swift */; };
+		CAI00304 /* MCPServerConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00305 /* MCPServerConfigManager.swift */; };
+		CAI00306 /* MCPActionConfigRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00307 /* MCPActionConfigRegistry.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,14 +87,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		CAI00181 /* MCPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPModels.swift; sourceTree = "<group>"; };
-		CAI00183 /* MCPClientService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClientService.swift; sourceTree = "<group>"; };
-		CAI00185 /* MCPConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigManager.swift; sourceTree = "<group>"; };
-		CAI00305 /* MCPServerConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServerConfigManager.swift; sourceTree = "<group>"; };
-		CAI00307 /* MCPActionConfigRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPActionConfigRegistry.swift; sourceTree = "<group>"; };
-		CAI00192 /* MCPTransportClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTransportClient.swift; sourceTree = "<group>"; };
-		CAI00189 /* MCPFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPFormView.swift; sourceTree = "<group>"; };
-		CAI00191 /* ConnectorsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorsSettingsView.swift; sourceTree = "<group>"; };
+		702858712F7FFE22002527EC /* MLXInference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXInference.swift; sourceTree = "<group>"; };
 		CAI00002 /* CaiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiApp.swift; sourceTree = "<group>"; };
 		CAI00004 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CAI00008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -104,8 +100,6 @@
 		CAI00043 /* ContentDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentDetector.swift; sourceTree = "<group>"; };
 		CAI00049 /* CaiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CaiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CAI00051 /* ContentDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentDetectorTests.swift; sourceTree = "<group>"; };
-		CAI00301 /* MCPTransportClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTransportClientTests.swift; sourceTree = "<group>"; };
-		CAI00303 /* MCPTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTemplateTests.swift; sourceTree = "<group>"; };
 		CAI00063 /* ActionItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionItem.swift; sourceTree = "<group>"; };
 		CAI00065 /* VisualEffectBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEffectBackground.swift; sourceTree = "<group>"; };
 		CAI00067 /* CaiColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiColors.swift; sourceTree = "<group>"; };
@@ -120,7 +114,6 @@
 		CAI00089 /* ClipboardHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryView.swift; sourceTree = "<group>"; };
 		CAI00091 /* CustomPromptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomPromptView.swift; sourceTree = "<group>"; };
 		CAI00093 /* ToastWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastWindow.swift; sourceTree = "<group>"; };
-		CAI00144 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
 		CAI00101 /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
 		CAI00103 /* SystemActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemActions.swift; sourceTree = "<group>"; };
 		CAI00105 /* ActionGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionGenerator.swift; sourceTree = "<group>"; };
@@ -131,7 +124,6 @@
 		CAI00115 /* ShortcutsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsManagementView.swift; sourceTree = "<group>"; };
 		CAI00117 /* OnboardingPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPermissionView.swift; sourceTree = "<group>"; };
 		CAI00119 /* SparkleUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdater.swift; sourceTree = "<group>"; };
-		CAI00148 /* OCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRService.swift; sourceTree = "<group>"; };
 		CAI00121 /* OutputDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDestination.swift; sourceTree = "<group>"; };
 		CAI00123 /* BuiltInDestinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInDestinations.swift; sourceTree = "<group>"; };
 		CAI00125 /* OutputDestinationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDestinationService.swift; sourceTree = "<group>"; };
@@ -142,12 +134,24 @@
 		CAI00135 /* ModelSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupView.swift; sourceTree = "<group>"; };
 		CAI00137 /* bin */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bin; path = Resources/bin; sourceTree = "<group>"; };
 		CAI00139 /* CrashReportingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportingService.swift; sourceTree = "<group>"; };
+		CAI00144 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
 		CAI00146 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		CAI00148 /* OCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRService.swift; sourceTree = "<group>"; };
 		CAI00164 /* ExtensionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionParser.swift; sourceTree = "<group>"; };
 		CAI00165 /* GitHubIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubIcon.swift; sourceTree = "<group>"; };
-		CAI00195 /* LinearIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinearIcon.swift; sourceTree = "<group>"; };
 		CAI00168 /* ExtensionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionService.swift; sourceTree = "<group>"; };
 		CAI00170 /* ExtensionBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionBrowserView.swift; sourceTree = "<group>"; };
+		CAI00181 /* MCPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPModels.swift; sourceTree = "<group>"; };
+		CAI00183 /* MCPClientService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClientService.swift; sourceTree = "<group>"; };
+		CAI00185 /* MCPConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigManager.swift; sourceTree = "<group>"; };
+		CAI00189 /* MCPFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPFormView.swift; sourceTree = "<group>"; };
+		CAI00191 /* ConnectorsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorsSettingsView.swift; sourceTree = "<group>"; };
+		CAI00192 /* MCPTransportClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTransportClient.swift; sourceTree = "<group>"; };
+		CAI00195 /* LinearIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinearIcon.swift; sourceTree = "<group>"; };
+		CAI00301 /* MCPTransportClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTransportClientTests.swift; sourceTree = "<group>"; };
+		CAI00303 /* MCPTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTemplateTests.swift; sourceTree = "<group>"; };
+		CAI00305 /* MCPServerConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServerConfigManager.swift; sourceTree = "<group>"; };
+		CAI00307 /* MCPActionConfigRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPActionConfigRegistry.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -155,9 +159,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				702858752F800433002527EC /* MLXLLM in Frameworks */,
 				CAI00026 /* HotKey in Frameworks */,
 				CAI00140 /* Sentry in Frameworks */,
 				CAI00150 /* Sparkle in Frameworks */,
+				702858772F800433002527EC /* MLXLMCommon in Frameworks */,
 				CAI00160 /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -196,6 +202,56 @@
 				CAI00011 /* Cai.entitlements */,
 			);
 			path = Cai;
+			sourceTree = "<group>";
+		};
+		CAI00015 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				CAI00009 /* Cai.app */,
+				CAI00049 /* CaiTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CAI00041 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				702858712F7FFE22002527EC /* MLXInference.swift */,
+				CAI00036 /* PermissionsManager.swift */,
+				CAI00038 /* HotKeyManager.swift */,
+				CAI00040 /* ClipboardService.swift */,
+				CAI00043 /* ContentDetector.swift */,
+				CAI00075 /* WindowController.swift */,
+				CAI00087 /* ClipboardHistory.swift */,
+				CAI00101 /* LLMService.swift */,
+				CAI00103 /* SystemActions.swift */,
+				CAI00105 /* ActionGenerator.swift */,
+				CAI00119 /* SparkleUpdater.swift */,
+				CAI00125 /* OutputDestinationService.swift */,
+				CAI00131 /* BuiltInLLM.swift */,
+				CAI00133 /* ModelDownloader.swift */,
+				CAI00139 /* CrashReportingService.swift */,
+				CAI00146 /* KeychainHelper.swift */,
+				CAI00148 /* OCRService.swift */,
+				CAI00164 /* ExtensionParser.swift */,
+				CAI00168 /* ExtensionService.swift */,
+				CAI00183 /* MCPClientService.swift */,
+				CAI00185 /* MCPConfigManager.swift */,
+				CAI00305 /* MCPServerConfigManager.swift */,
+				CAI00307 /* MCPActionConfigRegistry.swift */,
+				CAI00192 /* MCPTransportClient.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		CAI00054 /* CaiTests */ = {
+			isa = PBXGroup;
+			children = (
+				CAI00051 /* ContentDetectorTests.swift */,
+				CAI00301 /* MCPTransportClientTests.swift */,
+				CAI00303 /* MCPTemplateTests.swift */,
+			);
+			path = CaiTests;
 			sourceTree = "<group>";
 		};
 		CAI00076 /* Models */ = {
@@ -241,55 +297,6 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
-		CAI00041 /* Services */ = {
-			isa = PBXGroup;
-			children = (
-				CAI00036 /* PermissionsManager.swift */,
-				CAI00038 /* HotKeyManager.swift */,
-				CAI00040 /* ClipboardService.swift */,
-				CAI00043 /* ContentDetector.swift */,
-				CAI00075 /* WindowController.swift */,
-				CAI00087 /* ClipboardHistory.swift */,
-				CAI00101 /* LLMService.swift */,
-				CAI00103 /* SystemActions.swift */,
-				CAI00105 /* ActionGenerator.swift */,
-				CAI00119 /* SparkleUpdater.swift */,
-				CAI00125 /* OutputDestinationService.swift */,
-				CAI00131 /* BuiltInLLM.swift */,
-				CAI00133 /* ModelDownloader.swift */,
-				CAI00139 /* CrashReportingService.swift */,
-				CAI00146 /* KeychainHelper.swift */,
-				CAI00148 /* OCRService.swift */,
-				CAI00164 /* ExtensionParser.swift */,
-				CAI00168 /* ExtensionService.swift */,
-				CAI00183 /* MCPClientService.swift */,
-				CAI00185 /* MCPConfigManager.swift */,
-				CAI00305 /* MCPServerConfigManager.swift */,
-				CAI00307 /* MCPActionConfigRegistry.swift */,
-				CAI00192 /* MCPTransportClient.swift */,
-			);
-			path = Services;
-			sourceTree = "<group>";
-		};
-		CAI00015 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				CAI00009 /* Cai.app */,
-				CAI00049 /* CaiTests.xctest */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		CAI00054 /* CaiTests */ = {
-			isa = PBXGroup;
-			children = (
-				CAI00051 /* ContentDetectorTests.swift */,
-				CAI00301 /* MCPTransportClientTests.swift */,
-				CAI00303 /* MCPTemplateTests.swift */,
-			);
-			path = CaiTests;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -311,6 +318,8 @@
 				CAI00141 /* Sentry */,
 				CAI00151 /* Sparkle */,
 				CAI00161 /* Yams */,
+				702858742F800433002527EC /* MLXLLM */,
+				702858762F800433002527EC /* MLXLMCommon */,
 			);
 			productName = Cai;
 			productReference = CAI00009 /* Cai.app */;
@@ -367,6 +376,7 @@
 				CAI00142 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				CAI00152 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				CAI00162 /* XCRemoteSwiftPackageReference "Yams" */,
+				702858732F800433002527EC /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 			);
 			productRefGroup = CAI00015 /* Products */;
 			projectDirPath = "";
@@ -415,6 +425,7 @@
 				CAI00070 /* ActionListWindow.swift in Sources */,
 				CAI00072 /* ResultView.swift in Sources */,
 				CAI00074 /* WindowController.swift in Sources */,
+				702858722F7FFE22002527EC /* MLXInference.swift in Sources */,
 				CAI00080 /* CaiSettings.swift in Sources */,
 				CAI00082 /* SettingsView.swift in Sources */,
 				CAI00084 /* CaiLogo.swift in Sources */,
@@ -626,6 +637,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.soyasis.cai.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -655,6 +667,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.soyasis.cai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -732,6 +745,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		702858732F800433002527EC /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.31.3;
+			};
+		};
 		CAI00028 /* XCRemoteSwiftPackageReference "HotKey" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/soffes/HotKey";
@@ -767,6 +788,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		702858742F800433002527EC /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 702858732F800433002527EC /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		702858762F800433002527EC /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 702858732F800433002527EC /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
 		CAI00027 /* HotKey */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CAI00028 /* XCRemoteSwiftPackageReference "HotKey" */;

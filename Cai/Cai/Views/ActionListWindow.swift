@@ -4,7 +4,6 @@ struct ActionListWindow: View {
     let text: String
     let detection: ContentResult
     let actions: [ActionItem]
-    let allActions: [ActionItem]  // Full set for filter-to-reveal search
     @ObservedObject var selectionState: SelectionState
     let sourceApp: String?
     let onDismiss: () -> Void
@@ -84,13 +83,18 @@ struct ActionListWindow: View {
 
     private var displayedActions: [ActionItem] {
         guard !selectionState.filterText.isEmpty else { return actions }
+        return filteredActions(query: selectionState.filterText.lowercased())
+    }
 
-        let query = selectionState.filterText.lowercased()
+    private func filteredActions(query: String) -> [ActionItem] {
         var items: [ActionItem] = []
         var shortcut = 1
 
         // Filter-to-reveal: search ALL actions (including those hidden for this content type)
-        for action in allActions {
+        let searchableActions = ActionGenerator.generateAllActions(
+            for: text, detection: detection, settings: settings
+        )
+        for action in searchableActions {
             if anyWordHasPrefix(action.title, query: query) {
                 items.append(ActionItem(
                     id: action.id,
@@ -105,7 +109,6 @@ struct ActionListWindow: View {
         }
 
         // Add matching user shortcuts — any word prefix match on name.
-        // (Shortcuts aren't in ActionGenerator output; they only appear via search.)
         let clipboardText = text
         for sc in settings.shortcuts {
             if anyWordHasPrefix(sc.name, query: query) {
@@ -117,7 +120,9 @@ struct ActionListWindow: View {
                     subtitle = sc.value
                 case .url:
                     actionType = .shortcutURL(sc.value)
-                    subtitle = sc.value.replacingOccurrences(of: "%s", with: clipboardText.prefix(20) + (clipboardText.count > 20 ? "…" : ""))
+                    let preview = String(clipboardText.prefix(20))
+                    let suffix = clipboardText.count > 20 ? "…" : ""
+                    subtitle = sc.value.replacingOccurrences(of: "%s", with: preview + suffix)
                 case .shell:
                     actionType = .shortcutShell(sc.value)
                     subtitle = sc.value
@@ -135,121 +140,103 @@ struct ActionListWindow: View {
             }
         }
 
-        // Note: output destinations are already in `actions` (appended by ActionGenerator),
-        // so they're included in the filter loop above — no separate loop needed.
-
         return items
     }
 
     var body: some View {
+        bodyWithKeyboardHandlers
+            .onChange(of: showSettings) { _ in updateFilterInputFlag() }
+            .onChange(of: showHistory) { _ in updateFilterInputFlag() }
+            .onChange(of: showResult) { _ in updateFilterInputFlag() }
+            .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
+            .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
+            .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
+            .onChange(of: showMCPForm) { _ in updateFilterInputFlag() }
+            .onChange(of: showConnectors) { _ in updateFilterInputFlag() }
+            .onChange(of: showExtensionConfirm) { _ in updateFilterInputFlag() }
+            .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
+            .onAppear {
+                updateFilterInputFlag()
+                if showSettingsOnAppear {
+                    showSettings = true
+                }
+            }
+    }
+
+    /// Keyboard and notification handlers — split from body to help Swift type-checker.
+    private var bodyWithKeyboardHandlers: some View {
+        bodyContent
+            .onReceive(NotificationCenter.default.publisher(for: .caiExecuteAction)) { notification in
+                if let actionId = notification.userInfo?["actionId"] as? String,
+                   let action = actions.first(where: { $0.id == actionId }) {
+                    executeAction(action)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiEscPressed)) { _ in
+                handleEsc()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiShowClipboardHistory)) { _ in
+                handleShowHistory()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiCmdNumber)) { notification in
+                if let number = notification.userInfo?["number"] as? Int {
+                    handleCmdNumber(number)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiArrowUp)) { _ in
+                handleArrowUp()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiArrowDown)) { _ in
+                handleArrowDown()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiEnterPressed)) { _ in
+                handleEnter()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiTabPressed)) { _ in
+                handleTab()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiCmdEnterPressed)) { _ in
+                handleCmdEnter()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiCmdNPressed)) { _ in
+                handleNewAction()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiFilterCharacter)) { notification in
+                if let char = notification.userInfo?["char"] as? String {
+                    handleFilterCharacter(char)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiFilterBackspace)) { _ in
+                handleFilterBackspace()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiShowSettings)) { _ in
+                if showSettings {
+                    onDismiss()
+                } else {
+                    showResult = false
+                    showHistory = false
+                    showCustomPrompt = false
+                    showShortcutsManagement = false
+                    showDestinationsManagement = false
+                    showExtensionConfirm = false
+                    showMCPForm = false
+                    showConnectors = false
+                    activeMCPActionConfig = nil
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = true
+                    }
+                }
+            }
+    }
+
+    private var bodyContent: some View {
         ZStack(alignment: .top) {
             VisualEffectBackground()
 
-            // Faint indigo tint — brand presence without competing with content
             Color.caiPrimary.opacity(0.05)
                 .allowsHitTesting(false)
 
-            if showExtensionConfirm, let ext = pendingExtension {
-                extensionConfirmView(ext)
-            } else if showMCPForm, let config = activeMCPActionConfig {
-                MCPFormView(
-                    actionConfig: config,
-                    clipboardText: text,
-                    sourceApp: sourceApp,
-                    contentType: detection.type,
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showMCPForm = false
-                            activeMCPActionConfig = nil
-                        }
-                    },
-                    onDismiss: onDismiss
-                )
-                .id(mcpFormInstanceId) // Unique per open — forces fresh @State so .task re-fires
-            } else if showDestinationsManagement {
-                DestinationsManagementView(
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showDestinationsManagement = false
-                            showSettings = true
-                        }
-                    }
-                )
-            } else if showExtensionBrowser {
-                ExtensionBrowserView(
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showExtensionBrowser = false
-                            showSettings = true
-                        }
-                    }
-                )
-            } else if showConnectors {
-                ConnectorsSettingsView(
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showConnectors = false
-                            showSettings = true
-                        }
-                    }
-                )
-            } else if showShortcutsManagement {
-                ShortcutsManagementView(
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showShortcutsManagement = false
-                            showSettings = true
-                        }
-                    }
-                )
-            } else if showCustomPrompt {
-                CustomPromptView(
-                    clipboardText: isNewAction ? "" : text,
-                    sourceApp: isNewAction ? nil : sourceApp,
-                    state: customPromptState,
-                    onSubmit: { instruction in
-                        handleCustomPromptSubmit(instruction)
-                    }
-                )
-            } else if showSettings {
-                settingsContent
-            } else if showHistory {
-                ClipboardHistoryView(
-                    selectionState: historySelectionState,
-                    onSelect: { entry in
-                        ClipboardHistory.shared.copyEntry(entry)
-                        copyAndDismissWithToast()
-                    },
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            showHistory = false
-                        }
-                    }
-                )
-            } else if showResult, let generator = resultGenerator {
-                ResultView(
-                    title: resultTitle,
-                    onBack: { goBackToActions() },
-                    onResult: { text in
-                        pendingResultText = text
-                        if isFollowUpEnabled {
-                            conversationHistory.append(
-                                ChatMessage(role: "assistant", content: text))
-                        }
-                    },
-                    destinations: settings.enabledDestinations,
-                    onSelectDestination: { dest, resultText in
-                        executeDestination(dest, with: resultText)
-                    },
-                    isFollowUpEnabled: isFollowUpEnabled,
-                    showFollowUpInput: $showFollowUpInput,
-                    followUpText: $followUpText,
-                    generator: generator
-                )
-                .id(resultViewId)
-            } else {
-                actionListContent
-            }
+            routedContent
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(
@@ -258,85 +245,6 @@ struct ActionListWindow: View {
         )
         .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
         .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
-        .onReceive(NotificationCenter.default.publisher(for: .caiExecuteAction)) { notification in
-            if let actionId = notification.userInfo?["actionId"] as? String,
-               let action = actions.first(where: { $0.id == actionId }) {
-                executeAction(action)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiEscPressed)) { _ in
-            handleEsc()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiShowClipboardHistory)) { _ in
-            handleShowHistory()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiCmdNumber)) { notification in
-            if let number = notification.userInfo?["number"] as? Int {
-                handleCmdNumber(number)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiArrowUp)) { _ in
-            handleArrowUp()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiArrowDown)) { _ in
-            handleArrowDown()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiEnterPressed)) { _ in
-            handleEnter()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiTabPressed)) { _ in
-            handleTab()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiCmdEnterPressed)) { _ in
-            handleCmdEnter()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiCmdNPressed)) { _ in
-            handleNewAction()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiFilterCharacter)) { notification in
-            if let char = notification.userInfo?["char"] as? String {
-                handleFilterCharacter(char)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiFilterBackspace)) { _ in
-            handleFilterBackspace()
-        }
-        .onChange(of: showSettings) { _ in updateFilterInputFlag() }
-        .onChange(of: showHistory) { _ in updateFilterInputFlag() }
-        .onChange(of: showResult) { _ in updateFilterInputFlag() }
-        .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
-        .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
-        .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
-        .onChange(of: showMCPForm) { _ in updateFilterInputFlag() }
-        .onChange(of: showConnectors) { _ in updateFilterInputFlag() }
-        .onChange(of: showExtensionConfirm) { _ in updateFilterInputFlag() }
-        .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
-        .onReceive(NotificationCenter.default.publisher(for: .caiShowSettings)) { _ in
-            if showSettings {
-                // Already showing settings — toggle off (dismiss)
-                onDismiss()
-            } else {
-                // Navigate to settings from current screen
-                showResult = false
-                showHistory = false
-                showCustomPrompt = false
-                showShortcutsManagement = false
-                showDestinationsManagement = false
-                showExtensionConfirm = false
-                showMCPForm = false
-                showConnectors = false
-                activeMCPActionConfig = nil
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    showSettings = true
-                }
-            }
-        }
-        .onAppear {
-            updateFilterInputFlag()
-            if showSettingsOnAppear {
-                showSettings = true
-            }
-        }
     }
 
     /// Accept type-to-filter input on both the action list and history screens.
@@ -1234,6 +1142,118 @@ struct ActionListWindow: View {
     }
 
     // MARK: - Extension Confirm View
+
+    // MARK: - Routed Content (extracted to help Swift type-checker)
+
+    @ViewBuilder
+    private var routedContent: some View {
+        if showExtensionConfirm, let ext = pendingExtension {
+            extensionConfirmView(ext)
+        } else if showMCPForm, let config = activeMCPActionConfig {
+            mcpFormContent(config: config)
+        } else if showDestinationsManagement {
+            DestinationsManagementView(
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showDestinationsManagement = false
+                        showSettings = true
+                    }
+                }
+            )
+        } else if showExtensionBrowser {
+            ExtensionBrowserView(
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showExtensionBrowser = false
+                        showSettings = true
+                    }
+                }
+            )
+        } else if showConnectors {
+            ConnectorsSettingsView(
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showConnectors = false
+                        showSettings = true
+                    }
+                }
+            )
+        } else if showShortcutsManagement {
+            ShortcutsManagementView(
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showShortcutsManagement = false
+                        showSettings = true
+                    }
+                }
+            )
+        } else if showCustomPrompt {
+            CustomPromptView(
+                clipboardText: isNewAction ? "" : text,
+                sourceApp: isNewAction ? nil : sourceApp,
+                state: customPromptState,
+                onSubmit: { instruction in
+                    handleCustomPromptSubmit(instruction)
+                }
+            )
+        } else if showSettings {
+            settingsContent
+        } else if showHistory {
+            ClipboardHistoryView(
+                selectionState: historySelectionState,
+                onSelect: { entry in
+                    ClipboardHistory.shared.copyEntry(entry)
+                    copyAndDismissWithToast()
+                },
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showHistory = false
+                    }
+                }
+            )
+        } else if showResult, let generator = resultGenerator {
+            ResultView(
+                title: resultTitle,
+                onBack: { goBackToActions() },
+                onResult: { text in
+                    pendingResultText = text
+                    if isFollowUpEnabled {
+                        conversationHistory.append(
+                            ChatMessage(role: "assistant", content: text))
+                    }
+                },
+                destinations: settings.enabledDestinations,
+                onSelectDestination: { dest, resultText in
+                    executeDestination(dest, with: resultText)
+                },
+                isFollowUpEnabled: isFollowUpEnabled,
+                showFollowUpInput: $showFollowUpInput,
+                followUpText: $followUpText,
+                generator: generator
+            )
+            .id(resultViewId)
+        } else {
+            actionListContent
+        }
+    }
+
+    @ViewBuilder
+    private func mcpFormContent(config: MCPActionConfig) -> some View {
+        MCPFormView(
+            actionConfig: config,
+            clipboardText: text,
+            sourceApp: sourceApp,
+            contentType: detection.type,
+            onBack: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showMCPForm = false
+                    activeMCPActionConfig = nil
+                }
+            },
+            onDismiss: onDismiss
+        )
+        .id(mcpFormInstanceId)
+    }
 
     private func extensionConfirmView(_ ext: ExtensionParser.ParsedExtension) -> some View {
         VStack(spacing: 0) {

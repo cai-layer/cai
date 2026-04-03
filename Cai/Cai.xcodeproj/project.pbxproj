@@ -48,10 +48,8 @@
 		CAI00124 /* OutputDestinationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00125 /* OutputDestinationService.swift */; };
 		CAI00126 /* DestinationsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00127 /* DestinationsManagementView.swift */; };
 		CAI00128 /* DestinationChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00129 /* DestinationChip.swift */; };
-		CAI00130 /* BuiltInLLM.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00131 /* BuiltInLLM.swift */; };
 		CAI00132 /* ModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00133 /* ModelDownloader.swift */; };
 		CAI00134 /* ModelSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00135 /* ModelSetupView.swift */; };
-		CAI00136 /* bin in Resources */ = {isa = PBXBuildFile; fileRef = CAI00137 /* bin */; };
 		CAI00138 /* CrashReportingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00139 /* CrashReportingService.swift */; };
 		CAI00140 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00141 /* Sentry */; };
 		CAI00143 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00144 /* ShortcutRecorderView.swift */; };
@@ -129,10 +127,8 @@
 		CAI00125 /* OutputDestinationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDestinationService.swift; sourceTree = "<group>"; };
 		CAI00127 /* DestinationsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationsManagementView.swift; sourceTree = "<group>"; };
 		CAI00129 /* DestinationChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationChip.swift; sourceTree = "<group>"; };
-		CAI00131 /* BuiltInLLM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInLLM.swift; sourceTree = "<group>"; };
 		CAI00133 /* ModelDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloader.swift; sourceTree = "<group>"; };
 		CAI00135 /* ModelSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupView.swift; sourceTree = "<group>"; };
-		CAI00137 /* bin */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bin; path = Resources/bin; sourceTree = "<group>"; };
 		CAI00139 /* CrashReportingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportingService.swift; sourceTree = "<group>"; };
 		CAI00144 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
 		CAI00146 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
@@ -196,7 +192,6 @@
 				CAI00076 /* Models */,
 				CAI00077 /* Views */,
 				CAI00041 /* Services */,
-				CAI00137 /* bin */,
 				CAI00008 /* Assets.xcassets */,
 				CAI00010 /* Info.plist */,
 				CAI00011 /* Cai.entitlements */,
@@ -228,7 +223,6 @@
 				CAI00105 /* ActionGenerator.swift */,
 				CAI00119 /* SparkleUpdater.swift */,
 				CAI00125 /* OutputDestinationService.swift */,
-				CAI00131 /* BuiltInLLM.swift */,
 				CAI00133 /* ModelDownloader.swift */,
 				CAI00139 /* CrashReportingService.swift */,
 				CAI00146 /* KeychainHelper.swift */,
@@ -394,7 +388,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				CAI00007 /* Assets.xcassets in Resources */,
-				CAI00136 /* bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -449,7 +442,6 @@
 				CAI00124 /* OutputDestinationService.swift in Sources */,
 				CAI00126 /* DestinationsManagementView.swift in Sources */,
 				CAI00128 /* DestinationChip.swift in Sources */,
-				CAI00130 /* BuiltInLLM.swift in Sources */,
 				CAI00132 /* ModelDownloader.swift in Sources */,
 				CAI00134 /* ModelSetupView.swift in Sources */,
 				CAI00138 /* CrashReportingService.swift in Sources */,

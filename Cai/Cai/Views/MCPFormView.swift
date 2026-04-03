@@ -945,7 +945,7 @@ struct MCPFormView: View {
 
     private func initialize() async {
         // Step 1: Ensure MCP server is connected
-        guard let serverConfig = MCPConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId }) else {
+        guard let serverConfig = MCPServerConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId }) else {
             errorMessage = "Server configuration not found"
             return
         }
@@ -1168,7 +1168,7 @@ struct MCPFormView: View {
         do {
             // Build search arguments — provider-aware via config
             var arguments: [String: Any] = [:]
-            let config = MCPConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId })
+            let config = MCPServerConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId })
 
             if config?.providerType == .github {
                 // GitHub: search syntax with repo: and is:issue qualifiers

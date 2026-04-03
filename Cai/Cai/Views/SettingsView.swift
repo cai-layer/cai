@@ -514,7 +514,7 @@ struct SettingsView: View {
 
     // MARK: - Connectors Row
 
-    @ObservedObject private var mcpConfigManager = MCPConfigManager.shared
+    @ObservedObject private var mcpConfigManager = MCPServerConfigManager.shared
 
     private var connectorsNavRow: some View {
         let configs = mcpConfigManager.serverConfigs

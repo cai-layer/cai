@@ -283,7 +283,7 @@ struct ActionGenerator {
         // Append MCP-powered actions (e.g., "Create GitHub Issue", "Create Linear Issue")
         // One action per connected server with matching tools. Appears after built-in actions, before destinations.
         shortcut = items.last?.shortcut ?? 0
-        for actionConfig in MCPConfigManager.shared.availableActions {
+        for actionConfig in MCPActionConfigRegistry.shared.availableActions {
             shortcut += 1
             items.append(ActionItem(
                 id: "mcp_\(actionConfig.id)",

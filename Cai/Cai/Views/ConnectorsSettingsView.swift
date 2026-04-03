@@ -4,7 +4,7 @@ import SwiftUI
 /// Shows configured servers with status indicators, API key entry, and test connection.
 /// Follows the same push-navigation pattern as DestinationsManagementView.
 struct ConnectorsSettingsView: View {
-    @ObservedObject var configManager = MCPConfigManager.shared
+    @ObservedObject var configManager = MCPServerConfigManager.shared
     let onBack: () -> Void
 
     @State private var editingServerId: UUID?

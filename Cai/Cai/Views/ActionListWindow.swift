@@ -1151,9 +1151,9 @@ struct ActionListWindow: View {
             installExtension()
 
         case .mcpAction(let configId):
-            if let config = MCPConfigManager.shared.availableActions.first(where: { $0.id == configId }) {
+            if let config = MCPActionConfigRegistry.shared.availableActions.first(where: { $0.id == configId }) {
                 // If API key not configured, redirect to Connectors setup
-                if !MCPConfigManager.shared.isServerConfigured(config.serverConfigId) {
+                if !MCPServerConfigManager.shared.isServerConfigured(config.serverConfigId) {
                     selectionState.filterText = ""
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showConnectors = true

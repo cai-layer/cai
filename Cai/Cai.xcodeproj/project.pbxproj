@@ -10,6 +10,8 @@
 		CAI00180 /* MCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00181 /* MCPModels.swift */; };
 		CAI00182 /* MCPClientService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00183 /* MCPClientService.swift */; };
 		CAI00184 /* MCPConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00185 /* MCPConfigManager.swift */; };
+		CAI00304 /* MCPServerConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00305 /* MCPServerConfigManager.swift */; };
+		CAI00306 /* MCPActionConfigRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00307 /* MCPActionConfigRegistry.swift */; };
 		CAI00188 /* MCPFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00189 /* MCPFormView.swift */; };
 		CAI00194 /* MCPTransportClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00192 /* MCPTransportClient.swift */; };
 		CAI00190 /* ConnectorsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00191 /* ConnectorsSettingsView.swift */; };
@@ -85,6 +87,8 @@
 		CAI00181 /* MCPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPModels.swift; sourceTree = "<group>"; };
 		CAI00183 /* MCPClientService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClientService.swift; sourceTree = "<group>"; };
 		CAI00185 /* MCPConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigManager.swift; sourceTree = "<group>"; };
+		CAI00305 /* MCPServerConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServerConfigManager.swift; sourceTree = "<group>"; };
+		CAI00307 /* MCPActionConfigRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPActionConfigRegistry.swift; sourceTree = "<group>"; };
 		CAI00192 /* MCPTransportClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTransportClient.swift; sourceTree = "<group>"; };
 		CAI00189 /* MCPFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPFormView.swift; sourceTree = "<group>"; };
 		CAI00191 /* ConnectorsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorsSettingsView.swift; sourceTree = "<group>"; };
@@ -260,6 +264,8 @@
 				CAI00168 /* ExtensionService.swift */,
 				CAI00183 /* MCPClientService.swift */,
 				CAI00185 /* MCPConfigManager.swift */,
+				CAI00305 /* MCPServerConfigManager.swift */,
+				CAI00307 /* MCPActionConfigRegistry.swift */,
 				CAI00192 /* MCPTransportClient.swift */,
 			);
 			path = Services;
@@ -446,6 +452,8 @@
 				CAI00180 /* MCPModels.swift in Sources */,
 				CAI00182 /* MCPClientService.swift in Sources */,
 				CAI00184 /* MCPConfigManager.swift in Sources */,
+				CAI00304 /* MCPServerConfigManager.swift in Sources */,
+				CAI00306 /* MCPActionConfigRegistry.swift in Sources */,
 				CAI00188 /* MCPFormView.swift in Sources */,
 				CAI00190 /* ConnectorsSettingsView.swift in Sources */,
 				CAI00194 /* MCPTransportClient.swift in Sources */,

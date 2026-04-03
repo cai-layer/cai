@@ -158,7 +158,7 @@ class MCPTransportClient {
         }
 
         // Retry loop: 2 base retries (3 total attempts) for transient failures.
-        // 429 gets one dedicated retry outside the base budget.
+        // 429 gets one dedicated retry (uses Retry-After header), but still advances the attempt counter.
         let maxRetries = 2
         let retryDelays: [UInt64] = [1_000_000_000, 3_000_000_000] // 1s, 3s
         var lastError: MCPError = .connectionFailed("Request failed")
@@ -191,38 +191,41 @@ class MCPTransportClient {
             }
 
             // Capture session ID from response header
-            if let httpResponse = urlResponse as? HTTPURLResponse {
-                if let sid = httpResponse.value(forHTTPHeaderField: "Mcp-Session-Id"), sessionId == nil {
-                    sessionId = sid
+            guard let httpResponse = urlResponse as? HTTPURLResponse else {
+                throw MCPError.connectionFailed("Unexpected non-HTTP response")
+            }
+
+            if let sid = httpResponse.value(forHTTPHeaderField: "Mcp-Session-Id"), sessionId == nil {
+                sessionId = sid
+            }
+
+            switch httpResponse.statusCode {
+            case 200...299:
+                break // success — fall through to response parsing
+
+            case 429:
+                // Rate limit: one dedicated retry with Retry-After header
+                if !did429Retry {
+                    did429Retry = true
+                    let retryAfterStr = httpResponse.value(forHTTPHeaderField: "Retry-After")
+                    let rawSecs = retryAfterStr.flatMap { Int($0) } ?? 5
+                    let retryAfterSecs = UInt64(max(0, min(rawSecs, 30))) // clamp to 0–30s
+                    try await Task.sleep(nanoseconds: retryAfterSecs * 1_000_000_000)
+                    continue
                 }
+                throw MCPError.connectionFailed("Rate limited — try again shortly")
 
-                switch httpResponse.statusCode {
-                case 200...299:
-                    break // success — fall through to response parsing
+            case 401, 403:
+                throw MCPError.authMissing("Server returned \(httpResponse.statusCode)")
 
-                case 429:
-                    // Rate limit: one dedicated retry with Retry-After header
-                    if !did429Retry {
-                        did429Retry = true
-                        let retryAfterStr = httpResponse.value(forHTTPHeaderField: "Retry-After")
-                        let retryAfterSecs = UInt64(retryAfterStr.flatMap { Int($0) } ?? 5)
-                        try await Task.sleep(nanoseconds: retryAfterSecs * 1_000_000_000)
-                        continue
-                    }
-                    throw MCPError.connectionFailed("Rate limited — try again shortly")
+            case 502, 503, 504:
+                let bodyText = String(data: data, encoding: .utf8) ?? ""
+                lastError = .connectionFailed("HTTP \(httpResponse.statusCode): \(bodyText.prefix(200))")
+                continue // retry on server errors
 
-                case 401, 403:
-                    throw MCPError.authMissing("Server returned \(httpResponse.statusCode)")
-
-                case 502, 503, 504:
-                    let bodyText = String(data: data, encoding: .utf8) ?? ""
-                    lastError = .connectionFailed("HTTP \(httpResponse.statusCode): \(bodyText.prefix(200))")
-                    continue // retry on server errors
-
-                default:
-                    let bodyText = String(data: data, encoding: .utf8) ?? ""
-                    throw MCPError.connectionFailed("HTTP \(httpResponse.statusCode): \(bodyText.prefix(200))")
-                }
+            default:
+                let bodyText = String(data: data, encoding: .utf8) ?? ""
+                throw MCPError.connectionFailed("HTTP \(httpResponse.statusCode): \(bodyText.prefix(200))")
             }
 
             // Success path — parse response

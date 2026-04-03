@@ -383,7 +383,7 @@ struct SettingsView: View {
                 Picker("", selection: Binding(
                     get: { settings.builtInModelFileName },
                     set: { newFileName in
-                        let newPath = BuiltInLLM.modelsDirectory
+                        let newPath = MLXInference.modelsDirectory
                             .appendingPathComponent(newFileName).path
                         guard newPath != settings.builtInModelPath else { return }
                         switchBuiltInModel(to: newPath)
@@ -397,7 +397,7 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .accessibilityLabel("Built-in model selection")
 
-                Text("Runs on your Mac · drop .gguf files into ~/Library/Application Support/Cai/models/")
+                Text("Runs on your Mac · Powered by MLX on Apple Silicon")
                     .font(.system(size: 10))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
 
@@ -444,7 +444,7 @@ struct SettingsView: View {
     private func switchBuiltInModel(to newPath: String) {
         Task {
             settings.builtInModelPath = newPath
-            try? await BuiltInLLM.shared.restart(modelPath: newPath)
+            try? await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
             forceCheckLLMStatus()
         }
     }
@@ -452,7 +452,7 @@ struct SettingsView: View {
     private func deleteBuiltInModel() {
         // Stop the server first
         Task {
-            await BuiltInLLM.shared.stop()
+            await MLXInference.shared.unload()
         }
 
         // Delete the currently selected model file
@@ -464,10 +464,10 @@ struct SettingsView: View {
         // Try to fall back to another model in the folder
         let remaining = CaiSettings.scanBuiltInModels()
         if let next = remaining.first {
-            let nextPath = BuiltInLLM.modelsDirectory.appendingPathComponent(next).path
+            let nextPath = MLXInference.modelsDirectory.appendingPathComponent(next).path
             settings.builtInModelPath = nextPath
             Task {
-                try? await BuiltInLLM.shared.start(modelPath: nextPath)
+                try? await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
             }
         } else {
             settings.builtInModelPath = ""
@@ -592,10 +592,10 @@ struct SettingsView: View {
               FileManager.default.fileExists(atPath: modelPath) else { return }
 
         Task {
-            let isRunning = await BuiltInLLM.shared.isRunning
+            let isRunning = await MLXInference.shared.isLoaded
             if !isRunning {
                 do {
-                    try await BuiltInLLM.shared.start(modelPath: modelPath)
+                    try await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
                     print("Built-in LLM started from Settings")
                 } catch {
                     print("Failed to start built-in LLM from Settings: \(error.localizedDescription)")

@@ -55,7 +55,7 @@ struct ModelSetupView: View {
 
             // If setup was already completed (download finished in background),
             // show the ready state.
-            if settings.builtInSetupDone && !settings.builtInModelPath.isEmpty {
+            if settings.builtInSetupDone && settings.modelProvider == .builtIn {
                 phase = .ready
             } else if settings.builtInSetupDone && settings.modelProvider == .apple {
                 phase = .ready

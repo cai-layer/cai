@@ -4,7 +4,7 @@ import Foundation
 
 /// Manages connections to remote MCP servers via the thin MCPTransportClient.
 /// Handles tool discovery, tool calls, and metadata caching.
-/// Follows the actor pattern used by LLMService, BuiltInLLM, OutputDestinationService.
+/// Follows the actor pattern used by LLMService, MLXInference, OutputDestinationService.
 actor MCPClientService {
 
     static let shared = MCPClientService()

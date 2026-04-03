@@ -87,7 +87,7 @@ class ClipboardHistory: ObservableObject {
     // MARK: - Pin Persistence
 
     private static var pinnedFilePath: URL {
-        BuiltInLLM.supportDirectory.appendingPathComponent("pinned-history.json")
+        MLXInference.supportDirectory.appendingPathComponent("pinned-history.json")
     }
 
     private init() {
@@ -240,7 +240,7 @@ class ClipboardHistory: ObservableObject {
         let codable = pinnedEntries.map { PinnedEntry(text: $0.text, timestamp: $0.timestamp, isImage: $0.isImage) }
         guard let data = try? JSONEncoder().encode(codable) else { return }
         try? FileManager.default.createDirectory(
-            at: BuiltInLLM.supportDirectory,
+            at: MLXInference.supportDirectory,
             withIntermediateDirectories: true
         )
         try? data.write(to: Self.pinnedFilePath, options: .atomic)

@@ -784,7 +784,7 @@ struct ActionListWindow: View {
                 } else {
                     ForEach(localModels, id: \.self) { fileName in
                         Button(action: {
-                            let newPath = BuiltInLLM.modelsDirectory
+                            let newPath = MLXInference.modelsDirectory
                                 .appendingPathComponent(fileName).path
                             guard newPath != settings.builtInModelPath else { return }
                             switchBuiltInModel(to: newPath, fileName: fileName)
@@ -861,7 +861,7 @@ struct ActionListWindow: View {
         currentModelName = shortenModelName(fileName)
         Task {
             settings.builtInModelPath = newPath
-            try? await BuiltInLLM.shared.restart(modelPath: newPath)
+            try? await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
             await MainActor.run {
                 isSwitchingModel = false
             }

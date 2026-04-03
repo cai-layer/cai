@@ -364,7 +364,7 @@ class CaiSettings: ObservableObject {
            !FileManager.default.fileExists(atPath: builtInModelPath) {
             let models = CaiSettings.scanBuiltInModels()
             if let first = models.first {
-                let recoveredPath = BuiltInLLM.modelsDirectory
+                let recoveredPath = MLXInference.modelsDirectory
                     .appendingPathComponent(first).path
                 self.builtInModelPath = recoveredPath
                 self.builtInSetupDone = true
@@ -461,7 +461,7 @@ class CaiSettings: ObservableObject {
         let models = CaiSettings.scanBuiltInModels()
         if let firstModel = models.first {
             let modelPath = builtInModelPath.isEmpty || !FileManager.default.fileExists(atPath: builtInModelPath)
-                ? BuiltInLLM.modelsDirectory.appendingPathComponent(firstModel).path
+                ? MLXInference.modelsDirectory.appendingPathComponent(firstModel).path
                 : builtInModelPath
             await MainActor.run {
                 if !builtInSetupDone || builtInModelPath.isEmpty || builtInModelPath != modelPath {

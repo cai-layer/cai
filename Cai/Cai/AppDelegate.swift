@@ -71,7 +71,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Clean up any orphaned llama-server from a previous crash (legacy, safe to call)
-        Task { await BuiltInLLM.shared.cleanupOrphan() }
+        // Legacy llama-server cleanup (will be removed with BuiltInLLM.swift)
 
         // Start built-in LLM and/or show setup — but only after accessibility is resolved.
         // If accessibility is already granted, run immediately.
@@ -354,14 +354,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func quitApp() {
         // Unload the MLX model and stop legacy server before quitting
         Task { await MLXInference.shared.unload() }
-        Task { await BuiltInLLM.shared.stop() }  // Legacy cleanup
+        // Legacy cleanup removed — MLX unload handles memory
         NSApplication.shared.terminate(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // Unload MLX model to free memory
         Task { await MLXInference.shared.unload() }
-        Task { await BuiltInLLM.shared.stop() }  // Legacy cleanup
+        // Legacy cleanup removed — MLX unload handles memory
 
         // Disconnect all MCP servers
         Task { await MCPClientService.shared.disconnectAll() }

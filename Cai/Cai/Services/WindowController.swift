@@ -153,6 +153,11 @@ class WindowController: NSObject, ObservableObject {
             detection: detection,
             settings: settings
         )
+        let allActions = ActionGenerator.generateAllActions(
+            for: text,
+            detection: detection,
+            settings: settings
+        )
         self.actions = actions
         self.currentText = text
 
@@ -174,6 +179,7 @@ class WindowController: NSObject, ObservableObject {
             text: text,
             detection: detection,
             actions: actions,
+            allActions: allActions,
             selectionState: selectionState,
             sourceApp: sourceApp,
             onDismiss: dismissAction,

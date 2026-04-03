@@ -297,11 +297,55 @@ enum MCPError: LocalizedError {
         case .notConnected(let server): return "\(server) is not connected"
         case .connectionFailed(let msg): return "Connection failed: \(msg)"
         case .connectionTimeout: return "Connection timed out"
-        case .toolCallFailed(let msg): return "Tool call failed: \(msg)"
+        case .toolCallFailed(let msg): return Self.cleanErrorMessage(msg) ?? "Action failed: \(msg)"
         case .toolNotFound(let name): return "Tool '\(name)' not found"
         case .authMissing(let server): return "No API key configured for \(server)"
         case .invalidResponse: return "Invalid response from server"
         }
+    }
+
+    /// Attempts to extract a clean, human-readable message from a raw MCP error string.
+    /// Handles JSON error formats from GitHub, Linear, and generic APIs, plus plain text.
+    private static func cleanErrorMessage(_ raw: String) -> String? {
+        // Plain text: extract the human-readable part after HTTP status codes
+        // e.g., "failed to create issue: POST https://...issues: 403 Resource not accessible by personal access token"
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // Not JSON — try to extract the meaningful suffix after HTTP status code
+            if let statusRange = raw.range(of: #"\b(4\d{2}|5\d{2})\s+"#, options: .regularExpression) {
+                let afterStatus = String(raw[statusRange.lowerBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                // Strip trailing [] or {} artifacts
+                let cleaned = afterStatus.replacingOccurrences(of: #"\s*\[\]$"#, with: "", options: .regularExpression)
+                return cleaned.isEmpty ? nil : cleaned
+            }
+            return nil
+        }
+
+        // GitHub: {"message": "Not Found", "status": "404"}
+        if let message = json["message"] as? String {
+            let status = (json["status"] as? String) ?? (json["status"] as? Int).map(String.init)
+            return status != nil ? "\(message) (\(status!))" : message
+        }
+
+        // Linear/GraphQL: {"errors": [{"message": "..."}]}
+        if let errors = json["errors"] as? [[String: Any]],
+           let first = errors.first,
+           let message = first["message"] as? String {
+            return message
+        }
+
+        // Nested: {"error": {"message": "..."}}
+        if let errorObj = json["error"] as? [String: Any],
+           let message = errorObj["message"] as? String {
+            return message
+        }
+
+        // Simple: {"error": "some error"}
+        if let error = json["error"] as? String {
+            return error
+        }
+
+        return nil
     }
 }
 

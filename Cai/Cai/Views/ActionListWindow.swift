@@ -4,6 +4,7 @@ struct ActionListWindow: View {
     let text: String
     let detection: ContentResult
     let actions: [ActionItem]
+    let allActions: [ActionItem]  // Full set for filter-to-reveal search
     @ObservedObject var selectionState: SelectionState
     let sourceApp: String?
     let onDismiss: () -> Void
@@ -88,8 +89,8 @@ struct ActionListWindow: View {
         var items: [ActionItem] = []
         var shortcut = 1
 
-        // Filter built-in actions — any word in title must start with query
-        for action in actions {
+        // Filter-to-reveal: search ALL actions (including those hidden for this content type)
+        for action in allActions {
             if anyWordHasPrefix(action.title, query: query) {
                 items.append(ActionItem(
                     id: action.id,

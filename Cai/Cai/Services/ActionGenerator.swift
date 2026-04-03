@@ -186,10 +186,13 @@ struct ActionGenerator {
         }
 
         // --- Universal text actions ---
-        // Appended for all types except JSON and bare URLs.
-        // Some actions are skipped for specific types where they don't make sense.
+        // Shown for types where they make sense. Other actions are discoverable via search.
+        // Reply/Fix Grammar: only for prose (shortText, longText, image)
+        // Summarize: only for longer text (≥100 chars)
+        // Explain/Translate: for all text types
+        // Search: skip for long text
 
-        let isWord = detection.type == .word
+        let isProse = [.shortText, .longText, .image].contains(detection.type)
         let isLong = detection.type == .longText
 
         if appendTextActions {
@@ -218,8 +221,8 @@ struct ActionGenerator {
             ))
             shortcut += 1
 
-            // Reply / Proofread — skip for single words
-            if !isWord {
+            // Reply / Proofread — only for prose content (not meetings, addresses, or single words)
+            if isProse {
                 items.append(ActionItem(
                     id: "reply",
                     title: "Reply",
@@ -313,5 +316,155 @@ struct ActionGenerator {
         }
 
         return items
+    }
+
+    /// Generates ALL possible actions regardless of content type.
+    /// Used for filter-to-reveal: default view shows type-specific actions,
+    /// but typing to search reveals everything.
+    static func generateAllActions(
+        for text: String,
+        detection: ContentResult,
+        settings: CaiSettings
+    ) -> [ActionItem] {
+        // Start with the primary (type-filtered) actions
+        let primary = generateActions(for: text, detection: detection, settings: settings)
+        var seenIDs = Set(primary.map(\.id))
+        var extras: [ActionItem] = []
+
+        // Add universal text actions that may have been excluded (JSON, bare URL)
+        let textActions = universalTextActions(for: text, settings: settings)
+        for action in textActions where !seenIDs.contains(action.id) {
+            seenIDs.insert(action.id)
+            extras.append(action)
+        }
+
+        // Add type-specific actions from other types (only if entity-independent)
+        if detection.type != .json {
+            let jsonAction = ActionItem(
+                id: "pretty_print",
+                title: "Pretty Print JSON",
+                subtitle: "Format and copy to clipboard",
+                icon: "curlybraces",
+                shortcut: 0,
+                type: .jsonPrettyPrint(text)
+            )
+            if !seenIDs.contains(jsonAction.id) {
+                seenIDs.insert(jsonAction.id)
+                extras.append(jsonAction)
+            }
+        }
+
+        if detection.type != .word {
+            let defineAction = ActionItem(
+                id: "define_word",
+                title: "Define Word",
+                subtitle: "Look up definition",
+                icon: "character.book.closed",
+                shortcut: 0,
+                type: .llmAction(.define)
+            )
+            if !seenIDs.contains(defineAction.id) {
+                seenIDs.insert(defineAction.id)
+                extras.append(defineAction)
+            }
+        }
+
+        // Open in Browser — if text contains a URL but wasn't detected as URL type
+        if detection.type != .url, let urlString = extractFirstURL(from: text), let url = URL(string: urlString) {
+            let browserAction = ActionItem(
+                id: "open_url",
+                title: "Open in Browser",
+                subtitle: urlString,
+                icon: "safari",
+                shortcut: 0,
+                type: .openURL(url)
+            )
+            if !seenIDs.contains(browserAction.id) {
+                seenIDs.insert(browserAction.id)
+                extras.append(browserAction)
+            }
+        }
+
+        // Search Web — if not already included
+        if !seenIDs.contains("search_web") && text.count <= 500 {
+            extras.append(ActionItem(
+                id: "search_web",
+                title: "Search Web",
+                subtitle: nil,
+                icon: "magnifyingglass",
+                shortcut: 0,
+                type: .search(text)
+            ))
+        }
+
+        // Extras have shortcut 0 (no number) — they only appear when filtering
+        return primary + extras
+    }
+
+    // MARK: - Helpers
+
+    /// Returns ALL universal text actions without content guards.
+    /// Used by generateAllActions() for filter-to-reveal — the user explicitly searched,
+    /// so we show everything and let them decide.
+    private static func universalTextActions(
+        for text: String,
+        settings: CaiSettings
+    ) -> [ActionItem] {
+        var items: [ActionItem] = []
+
+        items.append(ActionItem(
+            id: "summarize",
+            title: "Summarize",
+            subtitle: "Create a concise summary",
+            icon: "text.redaction",
+            shortcut: 0,
+            type: .llmAction(.summarize)
+        ))
+
+        items.append(ActionItem(
+            id: "explain",
+            title: "Explain",
+            subtitle: "Get an explanation",
+            icon: "lightbulb",
+            shortcut: 0,
+            type: .llmAction(.explain)
+        ))
+
+        items.append(ActionItem(
+            id: "reply",
+            title: "Reply",
+            subtitle: "Draft a reply",
+            icon: "arrowshape.turn.up.left",
+            shortcut: 0,
+            type: .llmAction(.reply)
+        ))
+
+        items.append(ActionItem(
+            id: "proofread",
+            title: "Fix Grammar",
+            subtitle: "Fix grammar, spelling, and punctuation",
+            icon: "pencil.and.outline",
+            shortcut: 0,
+            type: .llmAction(.proofread)
+        ))
+
+        let lang = settings.translationLanguage
+        items.append(ActionItem(
+            id: "translate",
+            title: "Translate to \(lang)",
+            subtitle: nil,
+            icon: "globe",
+            shortcut: 0,
+            type: .llmAction(.translate(lang))
+        ))
+
+        return items
+    }
+
+    /// Extracts the first URL from text using NSDataDetector.
+    private static func extractFirstURL(from text: String) -> String? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+        let match = detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+        return match?.url?.absoluteString
     }
 }

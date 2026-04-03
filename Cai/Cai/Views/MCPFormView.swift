@@ -96,6 +96,11 @@ struct MCPFormView: View {
             Self.pickerDropdownOpen = newValue.values.contains(true)
         }
         .onChange(of: fieldValues) { newValues in
+            // Clear error when user edits a field (they're about to retry)
+            if errorMessage != nil && !isSubmitting {
+                errorMessage = nil
+            }
+
             // Fetch options for fields that depend on a parent field value
             for field in actionConfig.fields {
                 guard case .mcpDependentOn(let parentField, _, _) = field.source else { continue }
@@ -1445,26 +1450,46 @@ struct MCPFormView: View {
         return result
     }
 
-    /// Checks MCP response for error indicators (e.g., GitHub returns {"message": "Not Found"}).
+    /// Checks MCP response for error indicators (GitHub, Linear, generic APIs).
     /// Returns a user-friendly error message if detected, nil if the response looks successful.
     static func extractErrorMessage(from text: String) -> String? {
+        // Try JSON parsing
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            // Non-JSON: check for HTTP error patterns in plain text
+            let lower = text.lowercased()
+            if (lower.hasPrefix("4") || lower.hasPrefix("5")) &&
+               (lower.contains("error") || lower.contains("not found") || lower.contains("forbidden")) {
+                return String(text.prefix(200)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             return nil
         }
 
-        // GitHub API error pattern: {"message": "Not Found", "status": "404"}
+        // GitHub: {"message": "Not Found", "status": "404"}
         if let message = json["message"] as? String {
-            let status: String? = (json["status"] as? String) ?? (json["status"] as? Int).map { "\($0)" }
+            let status = (json["status"] as? String) ?? (json["status"] as? Int).map(String.init)
             let lowerMsg = message.lowercased()
-            if lowerMsg.contains("not found") || lowerMsg.contains("forbidden") ||
-               lowerMsg.contains("unauthorized") || lowerMsg.contains("error") ||
-               lowerMsg.contains("denied") || lowerMsg.contains("permission") {
+            let errorKeywords = ["not found", "forbidden", "unauthorized", "error", "denied",
+                                "permission", "failed", "invalid", "expired", "rate limit"]
+            if errorKeywords.contains(where: { lowerMsg.contains($0) }) {
                 return status != nil ? "\(message) (\(status!))" : message
             }
         }
 
-        // Generic error field
+        // Linear/GraphQL: {"errors": [{"message": "..."}]}
+        if let errors = json["errors"] as? [[String: Any]],
+           let first = errors.first,
+           let message = first["message"] as? String {
+            return message
+        }
+
+        // Nested: {"error": {"message": "..."}}
+        if let errorObj = json["error"] as? [String: Any],
+           let message = errorObj["message"] as? String {
+            return message
+        }
+
+        // Simple: {"error": "some error"}
         if let error = json["error"] as? String {
             return error
         }

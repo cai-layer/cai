@@ -70,7 +70,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Clean up any orphaned llama-server from a previous crash
+        // Clean up any orphaned llama-server from a previous crash (legacy, safe to call)
         Task { await BuiltInLLM.shared.cleanupOrphan() }
 
         // Start built-in LLM and/or show setup — but only after accessibility is resolved.
@@ -352,15 +352,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func quitApp() {
-        // Stop the built-in LLM server before quitting
-        Task { await BuiltInLLM.shared.stop() }
+        // Unload the MLX model and stop legacy server before quitting
+        Task { await MLXInference.shared.unload() }
+        Task { await BuiltInLLM.shared.stop() }  // Legacy cleanup
         NSApplication.shared.terminate(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Stop the built-in server — terminate() sends SIGTERM immediately,
-        // grace-period cleanup runs on background queues independently.
-        Task { await BuiltInLLM.shared.stop() }
+        // Unload MLX model to free memory
+        Task { await MLXInference.shared.unload() }
+        Task { await BuiltInLLM.shared.stop() }  // Legacy cleanup
 
         // Disconnect all MCP servers
         Task { await MCPClientService.shared.disconnectAll() }
@@ -404,11 +405,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             let settings = await MainActor.run { CaiSettings.shared }
             let provider = await MainActor.run { settings.modelProvider }
-            let modelPath = await MainActor.run { settings.builtInModelPath }
             let setupDone = await MainActor.run { settings.builtInSetupDone }
 
-            // First launch — always show onboarding so user can choose
-            // (Apple Intelligence, Built-in, or "I have my own setup")
+            // First launch — show onboarding so user can choose
             if !setupDone {
                 await MainActor.run { [weak self] in
                     self?.showModelSetupWindow()
@@ -416,49 +415,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            // Apple Intelligence — no server to start, just verify it's still available
+            // Apple Intelligence — no model to load, just verify availability
             if provider == .apple {
                 let status = await LLMService.shared.checkStatus()
                 if status.available {
                     print("Apple Intelligence ready — no setup needed")
                     return
                 }
-                // Apple Intelligence was selected but is no longer available — fall through to auto-detect
             }
 
-            // Start built-in server if that's the configured provider
-            if provider == .builtIn && !modelPath.isEmpty &&
-               FileManager.default.fileExists(atPath: modelPath) {
+            // Built-in MLX — load the model in-process
+            if provider == .builtIn {
                 do {
-                    try await BuiltInLLM.shared.start(modelPath: modelPath)
-                    print("Built-in LLM server started successfully")
+                    // Load the default model (HubApi caches it, so second launch is instant)
+                    try await MLXInference.shared.loadModel(
+                        id: ModelDownloader.defaultModel.id
+                    )
+                    print("🧠 Built-in MLX model loaded successfully")
                 } catch {
-                    print("Failed to start built-in LLM: \(error.localizedDescription)")
+                    print("⚠️ Failed to load built-in MLX model: \(error.localizedDescription)")
                 }
+                return
             }
 
-            // Auto-detect: probe known ports, fall back to built-in if available
+            // External provider — check if it's available, otherwise auto-detect
             let status = await LLMService.shared.checkStatus()
             if !status.available {
                 await settings.autoDetectProvider()
 
-                // If auto-detect landed on Apple Intelligence (only happens when setupDone),
-                // we're done — no server needed
                 let newProvider = await MainActor.run { settings.modelProvider }
                 if newProvider == .apple {
                     print("Auto-detected Apple Intelligence — no setup needed")
                     return
                 }
 
-                // If auto-detect landed on built-in, start the server now
-                let newModelPath = await MainActor.run { settings.builtInModelPath }
-                if newProvider == .builtIn && !newModelPath.isEmpty &&
-                   FileManager.default.fileExists(atPath: newModelPath) {
+                // If auto-detect landed on built-in, load the MLX model
+                if newProvider == .builtIn {
                     do {
-                        try await BuiltInLLM.shared.start(modelPath: newModelPath)
-                        print("Built-in LLM server started after auto-detect")
+                        try await MLXInference.shared.loadModel(
+                            id: ModelDownloader.defaultModel.id
+                        )
+                        print("🧠 Built-in MLX model loaded after auto-detect")
                     } catch {
-                        print("Failed to start built-in LLM after auto-detect: \(error.localizedDescription)")
+                        print("⚠️ Failed to load MLX model after auto-detect: \(error.localizedDescription)")
                     }
                 }
             }

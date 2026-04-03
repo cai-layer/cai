@@ -377,20 +377,17 @@ class CaiSettings: ObservableObject {
 
     // MARK: - Built-In Model Scanning
 
-    /// Scans the models directory for .gguf files (excluding partial downloads).
-    /// Returns filenames sorted with the default model first, then alphabetically.
+    /// Returns available built-in models.
+    /// With MLX, models are managed by HubApi cache — the default model ID is all we need.
     static func scanBuiltInModels() -> [String] {
-        let modelsDir = BuiltInLLM.modelsDirectory
-        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: modelsDir.path) else {
-            return []
+        // Legacy GGUF scan (for migration detection)
+        let modelsDir = MLXInference.modelsDirectory
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: modelsDir.path) {
+            let ggufFiles = contents.filter { $0.hasSuffix(".gguf") && !$0.hasSuffix(".part") }
+            if !ggufFiles.isEmpty { return ggufFiles }
         }
-        let ggufFiles = contents.filter { $0.hasSuffix(".gguf") && !$0.hasSuffix(".part") }
-        // Sort: default model first, then alphabetical
-        return ggufFiles.sorted { a, b in
-            if a == ModelDownloader.defaultModel.fileName { return true }
-            if b == ModelDownloader.defaultModel.fileName { return false }
-            return a.localizedStandardCompare(b) == .orderedAscending
-        }
+        // MLX: return default model ID if setup is done
+        return [ModelDownloader.defaultModel.id]
     }
 
     /// Returns the filename component of the current built-in model path.

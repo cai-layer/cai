@@ -329,18 +329,11 @@ struct ModelSetupView: View {
 
         Task {
             do {
-                let modelURL = try await downloader.download(model: ModelDownloader.defaultModel)
-
-                await MainActor.run {
-                    phase = .starting
-                }
-
-                // Start the built-in server
-                try await BuiltInLLM.shared.start(modelPath: modelURL.path)
+                // Download and load the MLX model (MLXInference handles both)
+                try await downloader.download(model: ModelDownloader.defaultModel)
 
                 // Configure settings
                 await MainActor.run {
-                    settings.builtInModelPath = modelURL.path
                     settings.builtInSetupDone = true
                     settings.modelProvider = .builtIn
                     phase = .ready

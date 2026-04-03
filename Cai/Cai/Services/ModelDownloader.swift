@@ -1,8 +1,9 @@
 import Foundation
 
-/// Downloads GGUF model files from Hugging Face with progress tracking,
-/// resume support, and cancellation.
-class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
+/// Downloads MLX model files from Hugging Face with progress tracking and cancellation.
+/// Delegates to MLXInference which uses HubApi internally to download model repositories
+/// (*.safetensors, *.json, tokenizer files) to the HuggingFace cache directory.
+class ModelDownloader: NSObject, ObservableObject {
     /// Shared instance — survives window close so downloads continue in background.
     static let shared = ModelDownloader()
 
@@ -12,52 +13,31 @@ class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var isDownloading: Bool = false
     @Published var error: String?
 
-    private var downloadTask: URLSessionDownloadTask?
-    private var session: URLSession?
-    private var destinationURL: URL?
-    private var continuation: CheckedContinuation<URL, Error>?
+    private var downloadTask: Task<Void, Error>?
 
     // MARK: - Default Model
 
     /// The recommended model shipped with Cai's built-in LLM
     static let defaultModel = ModelInfo(
+        id: "mlx-community/Ministral-3-3B-Instruct-2512-4bit",
         name: "Ministral 3B",
-        fileName: "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf",
-        downloadURL: URL(string: "https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF/resolve/main/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf")!,
-        sizeBytes: 2_310_000_000, // ~2.15 GB
+        sizeBytes: 1_930_000_000, // ~1.8 GB
         description: "Fast, concise output. Recommended for clipboard actions."
     )
 
+    // MARK: - Models Directory (legacy, for GGUF migration detection)
+
+    static var modelsDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Cai")
+            .appendingPathComponent("models")
+    }
+
     // MARK: - Download
 
-    /// Downloads a model file to the Cai models directory.
-    /// Returns the local file path on success.
-    func download(model: ModelInfo) async throws -> URL {
-        // Create models directory
-        let modelsDir = BuiltInLLM.modelsDirectory
-        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
-
-        let destination = modelsDir.appendingPathComponent(model.fileName)
-        let partFile = modelsDir.appendingPathComponent(model.fileName + ".part")
-
-        // If the file already exists and is roughly the right size, skip download
-        if FileManager.default.fileExists(atPath: destination.path) {
-            let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
-            let fileSize = attrs?[.size] as? Int64 ?? 0
-            if fileSize > model.sizeBytes / 2 { // sanity check — at least half expected size
-                return destination
-            }
-        }
-
-        // Check available disk space (need model size + 500MB buffer)
-        let requiredSpace = model.sizeBytes + 500_000_000
-        if let availableSpace = availableDiskSpace(), availableSpace < requiredSpace {
-            throw ModelDownloadError.insufficientDiskSpace(
-                needed: model.sizeBytes,
-                available: availableSpace
-            )
-        }
-
+    /// Downloads an MLX model from HuggingFace and loads it into MLXInference.
+    /// Progress is tracked via @Published properties for the UI.
+    func download(model: ModelInfo) async throws {
         await MainActor.run {
             self.isDownloading = true
             self.progress = 0
@@ -66,138 +46,88 @@ class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDelegate {
             self.error = nil
         }
 
-        self.destinationURL = destination
-
-        return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForResource = 3600 // 1 hour max
-            self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
-
-            var request = URLRequest(url: model.downloadURL)
-
-            // Resume support — check for partial download
-            if FileManager.default.fileExists(atPath: partFile.path),
-               let attrs = try? FileManager.default.attributesOfItem(atPath: partFile.path),
-               let existingSize = attrs[.size] as? Int64, existingSize > 0 {
-                request.setValue("bytes=\(existingSize)-", forHTTPHeaderField: "Range")
+        do {
+            try await MLXInference.shared.loadModel(id: model.id) { [weak self] progress in
+                guard let self else { return }
+                let completed = progress.completedUnitCount
+                let total = progress.totalUnitCount
                 Task { @MainActor in
-                    self.downloadedBytes = existingSize
-                    self.progress = Double(existingSize) / Double(model.sizeBytes)
+                    self.downloadedBytes = completed
+                    if total > 0 {
+                        self.totalBytes = total
+                        self.progress = Double(completed) / Double(total)
+                    }
                 }
-                print("⬇️ Resuming download from byte \(existingSize)")
             }
 
-            self.downloadTask = session?.downloadTask(with: request)
-            self.downloadTask?.resume()
+            await MainActor.run {
+                self.isDownloading = false
+                self.progress = 1.0
+            }
+
+            print("⬇️ MLX model downloaded and loaded: \(model.id)")
+        } catch {
+            await MainActor.run {
+                self.isDownloading = false
+                self.error = error.localizedDescription
+            }
+            throw error
         }
     }
 
-    /// Cancels the active download and cleans up the partial file.
+    /// Cancels the active download.
     func cancel() {
         downloadTask?.cancel()
         downloadTask = nil
-        session?.invalidateAndCancel()
-        session = nil
 
         Task { @MainActor in
             self.isDownloading = false
             self.progress = 0
         }
-
-        continuation?.resume(throwing: ModelDownloadError.cancelled)
-        continuation = nil
     }
 
-    // MARK: - URLSessionDownloadDelegate
+    // MARK: - GGUF Migration
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didWriteData bytesWritten: Int64,
-                    totalBytesWritten: Int64,
-                    totalBytesExpectedToWrite: Int64) {
-        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : self.totalBytes
-        Task { @MainActor in
-            self.downloadedBytes = totalBytesWritten
-            if total > 0 {
-                self.totalBytes = total
-                self.progress = Double(totalBytesWritten) / Double(total)
-            }
-        }
+    /// Checks if there are old GGUF files that should be cleaned up after MLX migration.
+    static func hasLegacyGGUFModels() -> Bool {
+        guard FileManager.default.fileExists(atPath: modelsDirectory.path) else { return false }
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: modelsDirectory.path)) ?? []
+        return contents.contains { $0.hasSuffix(".gguf") }
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didFinishDownloadingTo location: URL) {
-        guard let destination = destinationURL else {
-            continuation?.resume(throwing: ModelDownloadError.saveFailed)
-            continuation = nil
-            return
-        }
-
-        do {
-            // Remove any existing file
-            try? FileManager.default.removeItem(at: destination)
-            // Remove partial file
-            let partFile = destination.appendingPathExtension("part")
-            try? FileManager.default.removeItem(at: partFile)
-            // Move downloaded file to final destination
-            try FileManager.default.moveItem(at: location, to: destination)
-
-            print("⬇️ Model downloaded to \(destination.path)")
-
-            Task { @MainActor in
-                self.isDownloading = false
-                self.progress = 1.0
-            }
-
-            continuation?.resume(returning: destination)
-            continuation = nil
-        } catch {
-            continuation?.resume(throwing: ModelDownloadError.saveFailed)
-            continuation = nil
+    /// Removes old GGUF files to reclaim disk space after successful MLX migration.
+    static func removeLegacyGGUFModels() {
+        guard FileManager.default.fileExists(atPath: modelsDirectory.path) else { return }
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: modelsDirectory.path)) ?? []
+        for file in contents where file.hasSuffix(".gguf") || file.hasSuffix(".gguf.part") {
+            let path = modelsDirectory.appendingPathComponent(file)
+            try? FileManager.default.removeItem(at: path)
+            print("🗑️ Removed legacy GGUF model: \(file)")
         }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    didCompleteWithError error: Error?) {
-        guard let error = error else { return } // success handled in didFinishDownloadingTo
+    // MARK: - Model Scanning
 
-        // Don't report cancellation as an error
-        if (error as NSError).code == NSURLErrorCancelled {
-            return
-        }
-
-        Task { @MainActor in
-            self.isDownloading = false
-            self.error = error.localizedDescription
-        }
-
-        continuation?.resume(throwing: ModelDownloadError.networkError(error.localizedDescription))
-        continuation = nil
-    }
-
-    // MARK: - Private
-
-    private func availableDiskSpace() -> Int64? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        guard let attrs = try? FileManager.default.attributesOfFileSystem(forPath: home.path),
-              let freeSpace = attrs[.systemFreeSize] as? Int64 else {
-            return nil
-        }
-        return freeSpace
+    /// Scans for available MLX model directories in the HuggingFace cache.
+    /// MLX models are directories containing a config.json file.
+    static func availableMLXModels() -> [String] {
+        // HubApi caches to ~/.cache/huggingface/hub/models--{org}--{name}/
+        // The actual model files are in snapshots/{revision}/
+        // We don't need to scan these — MLXInference.loadModel handles cache resolution.
+        // This method is for future use in a model picker.
+        return []
     }
 }
 
 // MARK: - Model Info
 
 struct ModelInfo {
-    let name: String
-    let fileName: String
-    let downloadURL: URL
-    let sizeBytes: Int64
-    let description: String
+    let id: String              // HuggingFace model ID: "mlx-community/Ministral-3-3B-Instruct-2512-4bit"
+    let name: String            // Display name: "Ministral 3B"
+    let sizeBytes: Int64        // Approximate download size
+    let description: String     // User-facing description
 
-    /// Human-readable file size (e.g. "2.15 GB")
+    /// Human-readable file size (e.g. "1.8 GB")
     var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
     }
@@ -208,7 +138,6 @@ struct ModelInfo {
 enum ModelDownloadError: LocalizedError {
     case insufficientDiskSpace(needed: Int64, available: Int64)
     case networkError(String)
-    case saveFailed
     case cancelled
 
     var errorDescription: String? {
@@ -219,8 +148,6 @@ enum ModelDownloadError: LocalizedError {
             return "Not enough disk space. Need \(neededStr), only \(availStr) available."
         case .networkError(let message):
             return "Download failed: \(message)"
-        case .saveFailed:
-            return "Failed to save model file."
         case .cancelled:
             return "Download cancelled."
         }

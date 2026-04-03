@@ -11,6 +11,17 @@ actor MLXInference {
 
     static let shared = MLXInference()
 
+    // MARK: - Directories (nonisolated for synchronous access from CaiSettings etc.)
+
+    nonisolated static var supportDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Cai")
+    }
+
+    nonisolated static var modelsDirectory: URL {
+        supportDirectory.appendingPathComponent("models")
+    }
+
     // MARK: - State
 
     private var modelContainer: ModelContainer?

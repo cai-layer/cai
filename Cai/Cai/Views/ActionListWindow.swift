@@ -510,12 +510,24 @@ struct ActionListWindow: View {
         let trimmed = followUpText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        // Prepend a small reinforcement to keep facts stable across turns.
-        // Helps small models avoid number/fact drift during multi-turn conversations.
-        let reinforced = "Keep all facts and numbers exact from your previous reply. \(trimmed)"
-        conversationHistory.append(ChatMessage(role: "user", content: reinforced))
-        let messages = conversationHistory
+        // Store the user's clean message in conversation history.
+        conversationHistory.append(ChatMessage(role: "user", content: trimmed))
         let config = activeConfig
+
+        // Build the messages array sent to the LLM with a transient reinforcement prefix
+        // on the LAST user turn only. This helps small models avoid number/fact drift
+        // without polluting the persisted history. Skipped for deterministic actions
+        // (translate/proofread) where the prefix would change literal input semantics.
+        let isDeterministic = config.temperature == 0.0
+        let messages: [ChatMessage] = {
+            guard !isDeterministic, let last = conversationHistory.last, last.role == "user" else {
+                return conversationHistory
+            }
+            let reinforced = "Keep all facts and numbers exact from your previous reply. \(last.content)"
+            var copy = conversationHistory
+            copy[copy.count - 1] = ChatMessage(role: "user", content: reinforced)
+            return copy
+        }()
 
         showFollowUpInput = false
         followUpText = ""

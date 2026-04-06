@@ -82,6 +82,10 @@ actor LLMService {
     private var appleSessionStorage: Any?
     private var appleSessionSystemPrompt: String?
     private var appleSessionUserTurnCount: Int = 0
+    /// Wall-clock timestamp of the last successful Apple FM call. Used to invalidate
+    /// stale sessions after 5 minutes of inactivity (covers provider switches, sleep, etc.).
+    private var appleSessionLastActivity: Date?
+    private static let appleSessionMaxAge: TimeInterval = 300 // 5 minutes
 
     /// Applies the API key as a Bearer token if one is configured.
     private func applyAuth(to request: inout URLRequest) async {
@@ -467,8 +471,15 @@ actor LLMService {
             throw LLMError.emptyResponse
         }
 
-        // Follow-up detection: same system prompt + exactly one new user message
-        if let existing = appleSessionStorage as? LanguageModelSession,
+        // Follow-up detection: same system prompt + exactly one new user message,
+        // AND the previous activity was recent (sessions older than 5 min are stale —
+        // this covers provider switches, sleep, and Apple Intelligence service teardown).
+        let isFresh: Bool = {
+            guard let last = appleSessionLastActivity else { return false }
+            return Date().timeIntervalSince(last) < Self.appleSessionMaxAge
+        }()
+        if isFresh,
+           let existing = appleSessionStorage as? LanguageModelSession,
            appleSessionSystemPrompt == systemPrompt,
            userMessages.count == appleSessionUserTurnCount + 1 {
             return (existing, lastUserMessage)
@@ -479,6 +490,7 @@ actor LLMService {
         appleSessionStorage = session
         appleSessionSystemPrompt = systemPrompt
         appleSessionUserTurnCount = 0
+        appleSessionLastActivity = Date()
 
         return (session, lastUserMessage)
     }
@@ -488,9 +500,12 @@ actor LLMService {
     @available(macOS 26, *)
     private func mapAppleFMError(_ error: Error) -> Error {
         // String-based matching to be resilient across Apple's API evolution.
+        // Note: this is fragile with localized errors — Apple may translate
+        // descriptions on non-English Macs. Future improvement: type-check first.
         let description = String(describing: error).lowercased()
-        if description.contains("guardrail") || description.contains("refusal") ||
-           description.contains("content") && description.contains("polic") {
+        if description.contains("guardrail")
+            || description.contains("refusal")
+            || (description.contains("content") && description.contains("polic")) {
             return LLMError.contentFiltered
         }
         return error
@@ -506,6 +521,7 @@ actor LLMService {
             do {
                 let response = try await session.respond(to: lastUserMessage)
                 appleSessionUserTurnCount += 1
+                appleSessionLastActivity = Date()
                 return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             } catch {
                 throw mapAppleFMError(error)
@@ -531,6 +547,7 @@ actor LLMService {
                         // Only count the turn after stream completes successfully.
                         // If cancelled mid-stream, the mismatch triggers a fresh session next time.
                         self.appleSessionUserTurnCount += 1
+                        self.appleSessionLastActivity = Date()
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: self.mapAppleFMError(error))

@@ -490,14 +490,22 @@ struct SettingsView: View {
         isDownloadingModel = true
         modelError = nil
         Task {
-            // Check disk space before attempting download
+            // Check disk space before attempting download.
+            // Use the specific model's size if it's in the curated catalog,
+            // otherwise default to a generous 5 GB for unknown custom models.
+            let estimatedBytes: Int64 = ModelCatalog.curatedModels
+                .first(where: { $0.id == id })
+                .flatMap { _ in estimateBytesForCuratedModel(id: id) }
+                ?? 5_000_000_000
+            let requiredBytes = estimatedBytes + 500_000_000 // model + 500 MB buffer
             if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
                let available = attrs[.systemFreeSize] as? Int64,
-               available < 2_000_000_000 { // 2GB minimum for model + extraction
+               available < requiredBytes {
                 await MainActor.run {
                     isDownloadingModel = false
                     let availStr = ByteCountFormatter.string(fromByteCount: available, countStyle: .file)
-                    modelError = "Not enough disk space (\(availStr) available). Need at least 2 GB."
+                    let neededStr = ByteCountFormatter.string(fromByteCount: requiredBytes, countStyle: .file)
+                    modelError = "Not enough disk space (\(availStr) available). Need ~\(neededStr)."
                 }
                 return
             }
@@ -546,6 +554,21 @@ struct SettingsView: View {
             }
             forceCheckLLMStatus()
         }
+    }
+
+    /// Estimates download bytes for a curated model by parsing its size string ("~1.8 GB").
+    /// Returns nil if the model isn't in the catalog or the size string is unparseable.
+    private func estimateBytesForCuratedModel(id: String) -> Int64? {
+        guard let model = ModelCatalog.curatedModels.first(where: { $0.id == id }) else {
+            return nil
+        }
+        // Size strings look like "~1.8 GB", "~4.3 GB", "~0.8 GB"
+        let cleaned = model.size
+            .replacingOccurrences(of: "~", with: "")
+            .replacingOccurrences(of: "GB", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard let gigabytes = Double(cleaned) else { return nil }
+        return Int64(gigabytes * 1_000_000_000)
     }
 
     // MARK: - Navigation Row

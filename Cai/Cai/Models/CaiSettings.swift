@@ -361,7 +361,9 @@ class CaiSettings: ObservableObject {
         // Snapshot state BEFORE auto-recovery so we can detect genuine migration
         // vs. a user who has already successfully migrated to MLX.
         let hadExplicitMLXId = !builtInModelId.isEmpty
-        let hadLegacyGGUFKey = defaults.string(forKey: "cai_builtInModelPath") != nil
+        // Check for non-empty legacy key — empty string would falsely trigger migration.
+        let legacyPath = defaults.string(forKey: "cai_builtInModelPath")
+        let hadLegacyGGUFKey = !(legacyPath?.isEmpty ?? true)
 
         // Auto-recover: if model ID is empty but setup was done, use the default model
         if builtInSetupDone && builtInModelId.isEmpty {

@@ -29,6 +29,12 @@ actor MLXInference {
     private var currentSystemPrompt: String?
     private var currentSessionUserTurnCount: Int = 0
 
+    /// Set while a generation (streaming or non-streaming) is in flight.
+    /// Concurrent generate/stream calls would race on the underlying ModelContainer
+    /// — `ChatSession` is not safe for parallel token generation on the same model.
+    /// We reject overlapping calls with a clear error rather than corrupting state.
+    private var isGenerating: Bool = false
+
     /// Whether a model is currently loaded and ready for inference.
     var isLoaded: Bool { modelContainer != nil }
 
@@ -133,6 +139,10 @@ actor MLXInference {
         messages: [(role: String, content: String)],
         config: GenerationConfig = .default
     ) async throws -> String {
+        guard !isGenerating else { throw MLXInferenceError.busy }
+        isGenerating = true
+        defer { isGenerating = false }
+
         let (session, lastUserMessage) = try await resolveSession(
             messages: messages, config: config
         )
@@ -149,6 +159,8 @@ actor MLXInference {
         guard modelContainer != nil else {
             throw MLXInferenceError.modelNotLoaded
         }
+        guard !isGenerating else { throw MLXInferenceError.busy }
+        isGenerating = true
 
         let capturedMessages = messages
         return AsyncThrowingStream { continuation in
@@ -169,8 +181,10 @@ actor MLXInference {
                     // Only count the turn after stream completes successfully.
                     // If cancelled mid-stream, the mismatch triggers a fresh session next time.
                     self.currentSessionUserTurnCount += 1
+                    self.isGenerating = false
                     continuation.finish()
                 } catch {
+                    self.isGenerating = false
                     continuation.finish(throwing: error)
                 }
             }
@@ -185,6 +199,9 @@ actor MLXInference {
         currentSession = nil
         currentSystemPrompt = nil
         currentSessionUserTurnCount = 0
+        // Clear busy flag so a stuck stream (e.g., from model switch) doesn't
+        // permanently lock out new generations.
+        isGenerating = false
         print("🧠 MLX model unloaded")
     }
 }
@@ -193,11 +210,14 @@ actor MLXInference {
 
 enum MLXInferenceError: LocalizedError {
     case modelNotLoaded
+    case busy
 
     var errorDescription: String? {
         switch self {
         case .modelNotLoaded:
             return "No AI model is loaded. Please download a model in Settings."
+        case .busy:
+            return "Another AI action is in progress. Please wait for it to finish."
         }
     }
 }

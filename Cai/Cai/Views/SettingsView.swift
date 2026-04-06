@@ -51,7 +51,7 @@ struct SettingsView: View {
 
                     // MARK: AI Group
                     settingsGroup(title: "AI") {
-                        settingsSection(title: "Model Provider", icon: "cpu") {
+                        settingsSection(title: "Model Provider") {
                             VStack(alignment: .leading, spacing: 8) {
                                 Picker("", selection: $settings.modelProvider) {
                                     ForEach(CaiSettings.ModelProvider.allCases) { provider in
@@ -136,10 +136,10 @@ struct SettingsView: View {
                     // LLM system prompt. See https://getcai.app/docs/usage/context-snippets/
                     settingsGroup(title: "Personalization") {
                         // About You — global context
-                        settingsSection(title: "About You", icon: "person.circle") {
+                        settingsSection(title: "About You") {
                             VStack(alignment: .leading, spacing: 6) {
                                 TextField(
-                                    "e.g. My name is Alex. I'm a product designer based in Berlin. I prefer casual, concise replies. I speak English and German.",
+                                    "e.g. I'm Alex, a backend engineer at an e-commerce startup. Stack: Rails 8, Postgres, Sidekiq, React frontend. I like concise answers. Skip preambles.",
                                     text: $settings.aboutYou,
                                     axis: .vertical
                                 )
@@ -172,43 +172,44 @@ struct SettingsView: View {
                         settingsDivider
 
                         // Context Snippets — per-app context (JSON-only in v1, UI coming in v1.1)
-                        settingsSection(title: "Context Snippets", icon: "doc.text.magnifyingglass") {
+                        settingsSection(title: "Context Snippets", badge: "ALPHA") {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Per-app AI context. Teach Cai that when you copy from Terminal, it's Rails — or from Slack, match the sender's tone.")
+                                Text("Give Cai custom per-app context. Example: 'Terminal → Rails debug logs', 'GitHub → BUG:/FEAT: prefixes', 'Slack → keep professional tone'.")
                                     .font(.system(size: 11))
                                     .foregroundColor(.caiTextSecondary)
                                     .fixedSize(horizontal: false, vertical: true)
 
-                                HStack(spacing: 12) {
+                                // Two inline links — mirrors the "Community extensions · 2 installed ↗"
+                                // pattern: primary action in blue on the left, secondary link in grey
+                                // with a blue external arrow on the right.
+                                HStack(spacing: 4) {
                                     Button(action: openSnippetsFileInFinder) {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "folder")
-                                                .font(.system(size: 10))
-                                            Text("Open snippets.json in Finder")
-                                                .font(.system(size: 11, weight: .medium))
-                                        }
-                                        .foregroundColor(.caiPrimary)
+                                        Text("Open in Finder")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.caiPrimary)
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("Open snippets.json in Finder")
+                                    .help("Open ~/.config/cai/snippets.json in Finder. Edit the file in your preferred editor, then restart Cai.")
+
+                                    Text("·")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.caiTextSecondary)
 
                                     Button(action: openContextSnippetsHelp) {
                                         HStack(spacing: 4) {
-                                            Image(systemName: "questionmark.circle")
-                                                .font(.system(size: 10))
-                                            Text("View help")
-                                                .font(.system(size: 11, weight: .medium))
+                                            Text("Read docs")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.caiTextSecondary)
+                                            Image(systemName: "arrow.up.right")
+                                                .font(.system(size: 8, weight: .medium))
+                                                .foregroundColor(.caiPrimary.opacity(0.6))
                                         }
-                                        .foregroundColor(.caiPrimary)
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityLabel("Open Context Snippets help documentation")
+                                    .accessibilityLabel("Read Context Snippets documentation")
+                                    .help("Open the Context Snippets docs in your browser.")
                                 }
-
-                                Text("v1 is JSON-only — edit the file, then restart Cai for changes to take effect. Full Settings UI coming in a future release.")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
@@ -827,20 +828,37 @@ struct SettingsView: View {
         Divider().opacity(0.3).padding(.vertical, 8)
     }
 
-    /// Individual settings section with icon + title header.
+    /// Individual settings section with title header and optional status badge.
+    /// Badge follows Apple HIG pattern for beta/alpha features — monochrome pill,
+    /// small caps, subtle background. Used for Context Snippets (ALPHA) today.
     private func settingsSection<Content: View>(
         title: String,
-        icon: String,
+        badge: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiPrimary)
                 Text(title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.caiTextPrimary)
+
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .tracking(0.3)
+                        .foregroundColor(.caiTextSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.caiTextSecondary.opacity(0.12))
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(Color.caiTextSecondary.opacity(0.2), lineWidth: 0.5)
+                        )
+                        .accessibilityLabel("\(badge.lowercased()) feature")
+                }
             }
             content()
         }

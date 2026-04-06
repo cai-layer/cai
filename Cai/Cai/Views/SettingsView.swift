@@ -128,9 +128,14 @@ struct SettingsView: View {
                             .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
                             .onChange(of: settings.modelName) { _ in forceCheckLLMStatus() }
                         }
+                    }
 
-                        settingsDivider
-
+                    // MARK: Personalization Group
+                    // Layered personalization — global "About You" context + per-app Context Snippets.
+                    // Both layers feed into `LLMService.buildMessages` and get injected into every
+                    // LLM system prompt. See https://getcai.app/docs/usage/context-snippets/
+                    settingsGroup(title: "Personalization") {
+                        // About You — global context
                         settingsSection(title: "About You", icon: "person.circle") {
                             VStack(alignment: .leading, spacing: 6) {
                                 TextField(
@@ -161,6 +166,49 @@ struct SettingsView: View {
                                                 : .caiTextSecondary.opacity(0.5)
                                         )
                                 }
+                            }
+                        }
+
+                        settingsDivider
+
+                        // Context Snippets — per-app context (JSON-only in v1, UI coming in v1.1)
+                        settingsSection(title: "Context Snippets", icon: "doc.text.magnifyingglass") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Per-app AI context. Teach Cai that when you copy from Terminal, it's Rails — or from Slack, match the sender's tone.")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 12) {
+                                    Button(action: openSnippetsFileInFinder) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "folder")
+                                                .font(.system(size: 10))
+                                            Text("Open snippets.json in Finder")
+                                                .font(.system(size: 11, weight: .medium))
+                                        }
+                                        .foregroundColor(.caiPrimary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Open snippets.json in Finder")
+
+                                    Button(action: openContextSnippetsHelp) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "questionmark.circle")
+                                                .font(.system(size: 10))
+                                            Text("View help")
+                                                .font(.system(size: 11, weight: .medium))
+                                        }
+                                        .foregroundColor(.caiPrimary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Open Context Snippets help documentation")
+                                }
+
+                                Text("v1 is JSON-only — edit the file, then restart Cai for changes to take effect. Full Settings UI coming in a future release.")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
@@ -553,6 +601,31 @@ struct SettingsView: View {
                 selectedModelId = ""
             }
             forceCheckLLMStatus()
+        }
+    }
+
+    // MARK: - Context Snippets Helpers
+
+    /// Opens `~/.config/cai/snippets.json` in Finder with the file highlighted.
+    /// Creates the file first via `ContextSnippetsManager.shared` (which seeds an
+    /// empty template if missing) so the user always sees something to click.
+    private func openSnippetsFileInFinder() {
+        // Touch the shared manager to ensure the file exists (seeds on first access)
+        _ = ContextSnippetsManager.shared
+
+        let configDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cai", isDirectory: true)
+        let snippetsURL = configDir.appendingPathComponent("snippets.json")
+
+        // selectFile highlights the specific file inside the directory
+        NSWorkspace.shared.selectFile(snippetsURL.path, inFileViewerRootedAtPath: configDir.path)
+    }
+
+    /// Opens the Context Snippets help page on the landing site.
+    private func openContextSnippetsHelp() {
+        if let url = URL(string: "https://getcai.app/docs/usage/context-snippets/") {
+            NSWorkspace.shared.open(url)
+            onDismiss?()
         }
     }
 

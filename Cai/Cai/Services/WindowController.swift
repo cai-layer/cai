@@ -103,7 +103,7 @@ class WindowController: NSObject, ObservableObject {
     ///
     /// `sourceApp` is the frontmost app's display name (used in LLM prompts as context hint).
     /// `sourceBundleId` is the canonical bundle ID (used by `ContextSnippetsManager` to
-    /// match per-app context snippets — see `_docs/features/context-snippets.md`).
+    /// match per-app context snippets — see https://getcai.app/docs/usage/context-snippets/).
     func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil, sourceBundleId: String? = nil, showSettings: Bool = false) {
         // If window is already visible, dismiss first
         hideWindow()

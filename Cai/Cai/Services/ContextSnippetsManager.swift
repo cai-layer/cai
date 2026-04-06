@@ -4,10 +4,11 @@ import Foundation
 
 /// Manages per-app context snippets persisted to `~/.config/cai/snippets.json`.
 ///
-/// **v1 scope (this PR):** JSON-only, no UI. Power users edit the file directly.
-/// Changes require an app restart to take effect — documented in
-/// `_docs/features/context-snippets.md`. The v1.1 UI will add in-memory CRUD
-/// methods and call `loadSnippets()` after saves.
+/// **v1 scope (this PR):** JSON-only, no inline editor UI. Power users edit
+/// the file directly. Changes require an app restart to take effect — documented
+/// at https://getcai.app/docs/usage/context-snippets/. Settings has a single
+/// "Open snippets.json in Finder" button for discoverability. The v1.1 UI will
+/// add in-memory CRUD methods and call `loadSnippets()` after saves.
 ///
 /// **Load flow:**
 ///

@@ -10,6 +10,9 @@
 		702858722F7FFE22002527EC /* MLXInference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702858712F7FFE22002527EC /* MLXInference.swift */; };
 		702858752F800433002527EC /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 702858742F800433002527EC /* MLXLLM */; };
 		702858772F800433002527EC /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 702858762F800433002527EC /* MLXLMCommon */; };
+		7028587B2F83F920002527EC /* MCPParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7028587A2F83F920002527EC /* MCPParsingTests.swift */; };
+		7028587C2F83F920002527EC /* LLMServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702858792F83F920002527EC /* LLMServiceTests.swift */; };
+		7028587D2F83F920002527EC /* ActionGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702858782F83F920002527EC /* ActionGeneratorTests.swift */; };
 		CAI00001 /* CaiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00002 /* CaiApp.swift */; };
 		CAI00003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00004 /* AppDelegate.swift */; };
 		CAI00007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CAI00008 /* Assets.xcassets */; };
@@ -86,6 +89,9 @@
 
 /* Begin PBXFileReference section */
 		702858712F7FFE22002527EC /* MLXInference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXInference.swift; sourceTree = "<group>"; };
+		702858782F83F920002527EC /* ActionGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionGeneratorTests.swift; sourceTree = "<group>"; };
+		702858792F83F920002527EC /* LLMServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMServiceTests.swift; sourceTree = "<group>"; };
+		7028587A2F83F920002527EC /* MCPParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPParsingTests.swift; sourceTree = "<group>"; };
 		CAI00002 /* CaiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiApp.swift; sourceTree = "<group>"; };
 		CAI00004 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CAI00008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -241,6 +247,9 @@
 		CAI00054 /* CaiTests */ = {
 			isa = PBXGroup;
 			children = (
+				702858782F83F920002527EC /* ActionGeneratorTests.swift */,
+				702858792F83F920002527EC /* LLMServiceTests.swift */,
+				7028587A2F83F920002527EC /* MCPParsingTests.swift */,
 				CAI00051 /* ContentDetectorTests.swift */,
 				CAI00301 /* MCPTransportClientTests.swift */,
 				CAI00303 /* MCPTemplateTests.swift */,
@@ -468,6 +477,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				CAI00050 /* ContentDetectorTests.swift in Sources */,
+				7028587B2F83F920002527EC /* MCPParsingTests.swift in Sources */,
+				7028587C2F83F920002527EC /* LLMServiceTests.swift in Sources */,
+				7028587D2F83F920002527EC /* ActionGeneratorTests.swift in Sources */,
 				CAI00300 /* MCPTransportClientTests.swift in Sources */,
 				CAI00302 /* MCPTemplateTests.swift in Sources */,
 			);
@@ -677,6 +689,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = T666G8244T;
 				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.soyasis.cai.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -695,6 +708,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = T666G8244T;
 				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.soyasis.cai.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

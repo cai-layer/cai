@@ -116,6 +116,52 @@ final class LLMServiceTests: XCTestCase {
                       "Proofread system prompt should explicitly forbid markdown")
     }
 
+    func testSummarizeSystemPromptForbidsMarkdown() {
+        let (system, _) = LLMService.prompts(
+            for: .summarize,
+            text: "test",
+            appContext: nil
+        )
+        // Regression guard: Summarize output flows through ResultView's inline-only
+        // markdown renderer, so block-level markdown (#, -, [ ]) leaks as raw text
+        // into the view and the clipboard. The prompt must forbid it.
+        XCTAssertTrue(system.lowercased().contains("markdown"),
+                      "Summarize system prompt should explicitly forbid markdown")
+    }
+
+    func testSummarizeUsesUnicodeBullets() {
+        let (system, _) = LLMService.prompts(
+            for: .summarize,
+            text: "test",
+            appContext: nil
+        )
+        // Regression guard: Summarize must use Unicode bullet (•), not markdown
+        // hyphens. Unicode bullets render correctly AND copy cleanly to the
+        // clipboard; markdown `- item` leaks raw characters in both places.
+        XCTAssertTrue(system.contains("\u{2022}"),
+                      "Summarize should instruct the model to use Unicode bullet •, not markdown -")
+    }
+
+    func testExplainSystemPromptForbidsMarkdown() {
+        let (system, _) = LLMService.prompts(
+            for: .explain,
+            text: "test",
+            appContext: nil
+        )
+        XCTAssertTrue(system.lowercased().contains("markdown"),
+                      "Explain system prompt should explicitly forbid markdown")
+    }
+
+    func testCustomSystemPromptForbidsMarkdown() {
+        let (system, _) = LLMService.prompts(
+            for: .custom("do something"),
+            text: "test",
+            appContext: nil
+        )
+        XCTAssertTrue(system.lowercased().contains("markdown"),
+                      "Custom action system prompt should explicitly forbid markdown")
+    }
+
     // MARK: - buildMessages (Context Snippets + About You injection)
 
     /// Regression guard: without snippet or About You, the helper returns a

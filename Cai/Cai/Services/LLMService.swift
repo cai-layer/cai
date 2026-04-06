@@ -205,12 +205,12 @@ actor LLMService {
         switch action {
         case .summarize:
             return (
-                system: "Output only the summary.\(context) Use bullet points. No preamble, no introductions. For math, use Unicode symbols.",
+                system: "Output only the summary.\(context) Use short lines starting with \"\u{2022} \" (Unicode bullet + space) for each point. No preamble, no introductions, no markdown syntax (no #, no -, no [ ]). For math, use Unicode symbols.",
                 user: "Summarize this in 2-3 bullet points. Each bullet should be one sentence. Capture the key points only.\n\n\(text)"
             )
         case .translate(let lang):
             return (
-                system: "You are a translator.\(context) Output only the translation. Preserve the original tone, formatting, and line breaks.",
+                system: "You are a translator.\(context) Output only the translation. Preserve the original tone, formatting, and line breaks. Do not add markdown syntax that wasn't in the original.",
                 user: "Translate to \(lang):\n\n\(text)"
             )
         case .define:
@@ -220,7 +220,7 @@ actor LLMService {
             )
         case .explain:
             return (
-                system: "Explain clearly in plain language.\(context) Under 100 words. Start directly \u{2014} no preamble. For math, use Unicode symbols.",
+                system: "Explain clearly in plain language.\(context) Under 100 words. Start directly \u{2014} no preamble. Plain text only \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols.",
                 user: "Explain this:\n\n\(text)"
             )
         case .reply:
@@ -235,7 +235,7 @@ actor LLMService {
             )
         case .custom(let instruction):
             return (
-                system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard. For math, use Unicode symbols.",
+                system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard. Plain text only \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols.",
                 user: "\(instruction)\n\n\(text)"
             )
         }

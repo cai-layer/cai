@@ -1075,7 +1075,7 @@ struct ActionListWindow: View {
 
         case .shortcutShell(let command):
             let clipboardText = self.text
-            let systemPrompt = "You are a helpful assistant. The user ran a shell command on their clipboard text. Help them with any questions about the output."
+            let systemPrompt = "You are a helpful assistant. The user ran a shell command on their clipboard text. Help them with any questions about the output. Plain text only \u{2014} no markdown syntax."
             conversationHistory = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: clipboardText)
             isFollowUpEnabled = true
             showResultView(title: action.title) {
@@ -1084,7 +1084,7 @@ struct ActionListWindow: View {
 
         case .copyText:
             let extractedText = self.text
-            let systemPrompt = "You are a helpful assistant. The user shared text extracted from an image via OCR. Help them with any questions about it. For math, use Unicode symbols."
+            let systemPrompt = "You are a helpful assistant. The user shared text extracted from an image via OCR. Help them with any questions about it. Plain text only \u{2014} no markdown syntax. For math, use Unicode symbols."
             conversationHistory = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: extractedText)
             // onResult callback will append the assistant message with extractedText
             isFollowUpEnabled = true
@@ -1148,7 +1148,7 @@ struct ActionListWindow: View {
 
         if isNewAction || text.isEmpty {
             // New action mode — no clipboard context, general assistant
-            let systemPrompt = "You are a helpful assistant. Answer clearly and concisely. For math, use Unicode symbols."
+            let systemPrompt = "You are a helpful assistant. Answer clearly and concisely. Plain text only \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols."
             let initialMessages = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: instruction)
             conversationHistory = initialMessages
             activeConfig = config

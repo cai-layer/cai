@@ -76,7 +76,7 @@ struct ClipboardHistoryView: View {
                         .padding(.vertical, 6)
                         .padding(.horizontal, 4)
                     }
-                    .onChange(of: selectionState.selectedIndex) { newValue in
+                    .onChange(of: selectionState.selectedIndex) { _, newValue in
                         if newValue < visible.count {
                             withAnimation(.easeOut(duration: 0.1)) {
                                 proxy.scrollTo(visible[newValue].id, anchor: .center)
@@ -102,8 +102,8 @@ struct ClipboardHistoryView: View {
             .padding(.vertical, 8)
         }
         // Clamp selection when entries change (pin/unpin/new entry)
-        .onChange(of: history.pinnedEntries.count) { _ in clampSelection() }
-        .onChange(of: history.regularEntries.count) { _ in clampSelection() }
+        .onChange(of: history.pinnedEntries.count) { clampSelection() }
+        .onChange(of: history.regularEntries.count) { clampSelection() }
     }
 
     // MARK: - Header Subtitle

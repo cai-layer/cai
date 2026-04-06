@@ -116,7 +116,7 @@ struct SettingsView: View {
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
                                 }
                             }
-                            .onChange(of: settings.modelProvider) { newProvider in
+                            .onChange(of: settings.modelProvider) { _, newProvider in
                                 if newProvider == .builtIn {
                                     startBuiltInIfNeeded()
                                 }
@@ -125,8 +125,8 @@ struct SettingsView: View {
                                     fetchAvailableModels()
                                 }
                             }
-                            .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
-                            .onChange(of: settings.modelName) { _ in forceCheckLLMStatus() }
+                            .onChange(of: settings.customModelURL) { forceCheckLLMStatus(); fetchAvailableModels() }
+                            .onChange(of: settings.modelName) { forceCheckLLMStatus() }
                         }
                     }
 
@@ -147,7 +147,7 @@ struct SettingsView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 12))
                                 .accessibilityLabel("About you — personal context for AI responses")
-                                .onChange(of: settings.aboutYou) { newValue in
+                                .onChange(of: settings.aboutYou) { _, newValue in
                                     if newValue.count > CaiSettings.aboutYouMaxLength {
                                         settings.aboutYou = String(newValue.prefix(CaiSettings.aboutYouMaxLength))
                                     }
@@ -241,7 +241,7 @@ struct SettingsView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 12, design: .monospaced))
                                 .accessibilityLabel("Search engine base URL")
-                                .onChange(of: settings.searchURL) { newValue in
+                                .onChange(of: settings.searchURL) { _, newValue in
                                     if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                         settings.searchURL = CaiSettings.defaultSearchURL
                                     }

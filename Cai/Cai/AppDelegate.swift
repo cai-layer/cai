@@ -116,6 +116,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             self?.showModelSetupWindow()
         }
+
+        // Eagerly initialize ContextSnippetsManager so snippets.json is loaded and
+        // validated at launch. If the file is malformed, the toast fires immediately
+        // instead of waiting for the user to trigger their first LLM action.
+        // Deferred one runloop tick so the toast observer is ready to receive it.
+        DispatchQueue.main.async {
+            _ = ContextSnippetsManager.shared
+        }
     }
 
     @objc func handleStatusItemClick(_ sender: NSStatusBarButton) {

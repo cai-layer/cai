@@ -151,16 +151,16 @@ struct ActionListWindow: View {
 
     var body: some View {
         bodyWithKeyboardHandlers
-            .onChange(of: showSettings) { _ in updateFilterInputFlag() }
-            .onChange(of: showHistory) { _ in updateFilterInputFlag() }
-            .onChange(of: showResult) { _ in updateFilterInputFlag() }
-            .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
-            .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
-            .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
-            .onChange(of: showMCPForm) { _ in updateFilterInputFlag() }
-            .onChange(of: showConnectors) { _ in updateFilterInputFlag() }
-            .onChange(of: showExtensionConfirm) { _ in updateFilterInputFlag() }
-            .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
+            .onChange(of: showSettings) { updateFilterInputFlag() }
+            .onChange(of: showHistory) { updateFilterInputFlag() }
+            .onChange(of: showResult) { updateFilterInputFlag() }
+            .onChange(of: showCustomPrompt) { updateFilterInputFlag() }
+            .onChange(of: showShortcutsManagement) { updateFilterInputFlag() }
+            .onChange(of: showDestinationsManagement) { updateFilterInputFlag() }
+            .onChange(of: showMCPForm) { updateFilterInputFlag() }
+            .onChange(of: showConnectors) { updateFilterInputFlag() }
+            .onChange(of: showExtensionConfirm) { updateFilterInputFlag() }
+            .onChange(of: showFollowUpInput) { updateFilterInputFlag() }
             .onAppear {
                 updateFilterInputFlag()
                 if showSettingsOnAppear {
@@ -623,7 +623,7 @@ struct ActionListWindow: View {
                         .padding(.horizontal, 4)
                     }
                 }
-                .onChange(of: selectionState.selectedIndex) { newValue in
+                .onChange(of: selectionState.selectedIndex) { _, newValue in
                     if newValue < visible.count {
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(visible[newValue].id, anchor: .center)
@@ -1580,16 +1580,20 @@ struct ActionListWindow: View {
 
         try process.run()
 
-        // Timeout after 15 seconds
-        let deadline = DispatchTime.now() + .seconds(15)
-        let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        // Timeout after 15 seconds — race the process exit against a sleep.
+        // Using Task.sleep instead of DispatchSemaphore.wait keeps us async-safe
+        // (Swift 6 requires this; DispatchSemaphore.wait is unavailable from async contexts).
+        let exitTask = Task.detached {
             process.waitUntilExit()
-            done.signal()
         }
-
-        if done.wait(timeout: deadline) == .timedOut {
+        let timeoutTask = Task.detached {
+            try await Task.sleep(nanoseconds: 15 * 1_000_000_000)
             process.terminate()
+        }
+        await exitTask.value
+        timeoutTask.cancel()
+
+        if process.terminationReason == .uncaughtSignal {
             throw NSError(domain: "Cai", code: 1, userInfo: [NSLocalizedDescriptionKey: "Command timed out after 15 seconds"])
         }
 

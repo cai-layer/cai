@@ -92,10 +92,10 @@ struct MCPFormView: View {
                 return
             }
         }
-        .onChange(of: searchExpanded) { newValue in
+        .onChange(of: searchExpanded) { _, newValue in
             Self.pickerDropdownOpen = newValue.values.contains(true)
         }
-        .onChange(of: fieldValues) { newValues in
+        .onChange(of: fieldValues) { _, newValues in
             // Clear error when user edits a field (they're about to retry)
             if errorMessage != nil && !isSubmitting {
                 errorMessage = nil
@@ -272,7 +272,7 @@ struct MCPFormView: View {
                         }
                         .padding(16)
                     }
-                    .onChange(of: errorMessage) { newError in
+                    .onChange(of: errorMessage) { _, newError in
                         if newError != nil {
                             withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo("formError", anchor: .top)

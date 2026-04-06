@@ -23,7 +23,6 @@ final class CrashReportingService {
             options.sendDefaultPii = false
             options.enableAutoSessionTracking = false
             options.tracesSampleRate = 0
-            options.profilesSampleRate = 0
             options.enableAutoPerformanceTracing = false
             options.enableCaptureFailedRequests = false
 

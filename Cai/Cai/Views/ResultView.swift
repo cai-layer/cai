@@ -217,7 +217,7 @@ struct ResultView: View {
                 }
             }
         }
-        .onChange(of: showFollowUpInput) { showing in
+        .onChange(of: showFollowUpInput) { _, showing in
             if showing {
                 WindowController.passThrough = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

@@ -375,10 +375,6 @@ struct ShortcutsManagementView: View {
     // MARK: - Share as Extension
 
     private func shareShortcutAsExtension(_ shortcut: CaiShortcut) {
-        let slug = shortcut.name.lowercased()
-            .replacingOccurrences(of: " ", with: "-")
-            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
-
         var yaml = """
             # cai-extension
             name: \(shortcut.name)

@@ -167,7 +167,7 @@ actor OutputDestinationService {
             throw OutputDestinationError.invalidURL
         }
 
-        await MainActor.run {
+        _ = await MainActor.run {
             NSWorkspace.shared.open(url)
         }
     }
@@ -194,16 +194,20 @@ actor OutputDestinationService {
 
         try process.run()
 
-        // Timeout after 15 seconds
-        let deadline = DispatchTime.now() + .seconds(15)
-        let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        // Timeout after 15 seconds — race process exit against a sleep.
+        // Using Task instead of DispatchSemaphore.wait keeps us async-safe
+        // (Swift 6 requires this; DispatchSemaphore.wait is unavailable from async contexts).
+        let exitTask = Task.detached {
             process.waitUntilExit()
-            done.signal()
         }
-
-        if done.wait(timeout: deadline) == .timedOut {
+        let timeoutTask = Task.detached {
+            try await Task.sleep(nanoseconds: 15 * 1_000_000_000)
             process.terminate()
+        }
+        await exitTask.value
+        timeoutTask.cancel()
+
+        if process.terminationReason == .uncaughtSignal {
             throw OutputDestinationError.timeout
         }
 

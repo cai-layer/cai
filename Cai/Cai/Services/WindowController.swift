@@ -105,6 +105,18 @@ class WindowController: NSObject, ObservableObject {
     /// `sourceBundleId` is the canonical bundle ID (used by `ContextSnippetsManager` to
     /// match per-app context snippets — see https://getcai.app/docs/usage/context-snippets/).
     func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil, sourceBundleId: String? = nil, showSettings: Bool = false) {
+        // If a Context Snippets load error was captured at launch, fire its toast
+        // now (once) so the user sees it in context as they invoke Cai, instead of
+        // as a decontextualized floating pill at app startup.
+        if let pendingError = ContextSnippetsManager.shared.consumePendingLoadError() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                NotificationCenter.default.post(
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": pendingError]
+                )
+            }
+        }
+
         // If window is already visible, dismiss first
         hideWindow()
 

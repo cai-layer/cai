@@ -36,6 +36,12 @@ class ContextSnippetsManager: ObservableObject {
     /// `@Published` will propagate changes to any observing views.
     @Published private(set) var snippets: [ContextSnippet] = []
 
+    /// Pending load-failure message, captured at init time and consumed on first
+    /// Cai invocation so the user sees the toast in context (not as a decontextualized
+    /// floating pill at app launch). Call `consumePendingLoadError()` from the place
+    /// that shows the Cai window.
+    private var pendingLoadError: String?
+
     // MARK: - Config File Location
 
     private let configDirectory: URL
@@ -69,7 +75,7 @@ class ContextSnippetsManager: ObservableObject {
             data = try Data(contentsOf: configFileURL)
         } catch {
             print("⚠️ ContextSnippets: failed to read snippets.json: \(error.localizedDescription)")
-            postLoadFailureToast(reason: "Could not read snippets file")
+            postLoadFailureToast(reason: "Context Snippets: could not read snippets file")
             snippets = []
             return
         }
@@ -88,7 +94,7 @@ class ContextSnippetsManager: ObservableObject {
             // forward-migration story when v2 ships.
             guard file.version == 1 else {
                 print("⚠️ ContextSnippets: snippets.json has version \(file.version) — this Cai build only supports version 1. Update Cai to use this file.")
-                postLoadFailureToast(reason: "Snippets file was created by a newer version of Cai")
+                postLoadFailureToast(reason: "Context Snippets: file was created by a newer version of Cai")
                 snippets = []
                 return
             }
@@ -96,7 +102,7 @@ class ContextSnippetsManager: ObservableObject {
             snippets = file.snippets
         } catch {
             print("⚠️ ContextSnippets: failed to decode snippets.json: \(error.localizedDescription)")
-            postLoadFailureToast(reason: "Snippets file has a JSON error")
+            postLoadFailureToast(reason: "Context Snippets: JSON error")
             snippets = []
         }
     }
@@ -123,16 +129,18 @@ class ContextSnippetsManager: ObservableObject {
         try? empty.write(to: configFileURL, atomically: true, encoding: .utf8)
     }
 
-    /// Posts a `.caiShowToast` notification on the main thread so load failures
-    /// are user-visible instead of silent. Same pattern as MLX model load failures
-    /// in `AppDelegate.startBuiltInLLMAndAutoDetect`.
+    /// Captures a load-failure message to be shown the next time Cai is invoked.
+    /// We defer the toast until the user opens Cai so the error is seen in context —
+    /// showing a floating toast at app launch is easy to miss and confusing.
     private func postLoadFailureToast(reason: String) {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: .caiShowToast, object: nil,
-                userInfo: ["message": "\(reason). Check console for details."]
-            )
-        }
+        pendingLoadError = "\(reason). Check console for details."
+    }
+
+    /// Returns and clears the pending load-error message. Called by the window
+    /// controller when Cai is shown, so the toast fires once and then clears.
+    func consumePendingLoadError() -> String? {
+        defer { pendingLoadError = nil }
+        return pendingLoadError
     }
 
     // MARK: - Lookup

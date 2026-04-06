@@ -52,7 +52,7 @@ No cloud. No telemetry. No accounts.
 
 - **Smart detection** of content types (word, text, image, meeting, address, URL, JSON) with context-aware actions
 - **Image to Text** — copy a screenshot or image and Cai extracts the text via on-device OCR (Apple Vision), then run any action on it
-- **Built-in AI** — uses [Apple Intelligence](#apple-intelligence) on macOS 26+ (recommended, zero setup), or ships with [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) as fallback. Also compatible with LM Studio, Ollama, or any OpenAI-compatible server. Drag and drop your own `.gguf` model too
+- **Built-in AI** — uses [Apple Intelligence](#apple-intelligence) on macOS 26+ (recommended, zero setup), or runs [Ministral 3B](https://huggingface.co/mlx-community/Ministral-3-3B-Instruct-2512-4bit) in-process via MLX-Swift on Apple Silicon. Also compatible with LM Studio, Ollama, or any OpenAI-compatible server. Pick from a curated model list or any HuggingFace MLX model
 - **Built-in chat** — ask follow-up questions with **Tab**, or press **⌘N** to start a new chat without clipboard content
 - **Ask AI** (⌘1) — free-form prompt to do anything: improve writing, create email replies, translate, count words
 - **Custom actions** — save reusable prompts, URL templates, and shell commands, access them by typing to filter
@@ -87,7 +87,7 @@ No cloud. No telemetry. No accounts.
 1. Download the `.dmg` from the [latest release](../../releases/latest)
 2. Open the DMG and drag **Cai.app** to your Applications folder
 3. Open the app and grant Accessibility permission ([see below](#first-launch-setup))
-4. On macOS 26+, Cai uses Apple Intelligence automatically. On older versions, a built-in model (~2 GB) downloads on first launch — or skip if you already use LM Studio / Ollama
+4. On macOS 26+, Cai uses Apple Intelligence automatically. Otherwise, a built-in model (Ministral 3B, ~1.8 GB) downloads on first launch and runs in-process via MLX-Swift — or skip if you already use LM Studio / Ollama
 
 ### First Launch Setup
 
@@ -125,11 +125,11 @@ On Macs with an M1 chip or later running **macOS 26+**, Cai uses Apple Intellige
 
 ### Built-in Model (fallback)
 
-On older macOS versions, Cai ships with a bundled AI engine ([llama.cpp](https://github.com/ggml-org/llama.cpp)). On first launch it downloads [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) (~2 GB) and runs everything locally — no external server needed.
+On older macOS versions, Cai runs an MLX model in-process via [MLX-Swift](https://github.com/ml-explore/mlx-swift) — Apple's native ML framework for Apple Silicon. On first launch it downloads [Ministral 3B](https://huggingface.co/mlx-community/Ministral-3-3B-Instruct-2512-4bit) (~1.8 GB) and runs everything locally — no external server, no subprocess.
 
-Models are stored in `~/Library/Application Support/Cai/models/`. The engine starts automatically on launch and stops when you quit Cai.
+Models are cached in `~/.cache/huggingface/hub/`. Inference happens in-process with the rest of Cai, so there's no startup delay or crash recovery to worry about.
 
-**Custom models:** Drop any `.gguf` file into the models folder and select it from the model picker in Settings or the action window footer. Cai will restart the engine with your chosen model.
+**Curated models:** The model picker in Settings includes Ministral 3B, Qwen3 4B, Gemma 3 1B, and Qwen 2.5 7B (16 GB+ RAM recommended). Pick "Other (HuggingFace ID)" to use any model from the [mlx-community](https://huggingface.co/mlx-community) collection.
 
 ### External providers
 
@@ -203,7 +203,7 @@ Remove the quarantine flag: `xattr -cr /Applications/Cai.app`
 ## Tech Stack
 
 - **SwiftUI** + **AppKit** (native macOS, no Electron)
-- **Bundled [llama.cpp](https://github.com/ggml-org/llama.cpp)** for local LLM inference (ARM64 macOS, Metal GPU)
+- **[MLX-Swift](https://github.com/ml-explore/mlx-swift)** for in-process LLM inference on Apple Silicon (Metal GPU)
 - **Actor-based** services for thread-safe async/await
 - [HotKey](https://github.com/soffes/HotKey) (SPM) for global keyboard shortcut
 

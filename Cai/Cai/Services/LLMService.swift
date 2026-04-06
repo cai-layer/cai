@@ -241,6 +241,61 @@ actor LLMService {
         }
     }
 
+    // MARK: - Message Builder
+
+    /// Builds the initial `[ChatMessage]` array for an LLM action, layering in
+    /// optional global "About You" context and an optional per-app Context Snippet.
+    ///
+    /// This is a `nonisolated static` pure function — no actor state, no singleton
+    /// access — so it's fully unit-testable in isolation. Callers resolve the
+    /// inputs (`aboutYou` from CaiSettings, `snippet` from ContextSnippetsManager)
+    /// and pass them in; this function just formats the messages array.
+    ///
+    /// **Injection order (outer → inner in the final system prompt):**
+    ///
+    /// ```text
+    ///   About the user: {aboutYou}          ← outermost (global)
+    ///
+    ///   [App context: {snippet.appName}]    ← middle (per-app)
+    ///   {snippet.context}
+    ///
+    ///   {systemPrompt}                       ← innermost (action)
+    /// ```
+    ///
+    /// The `[App context: ...]` label is important for small 3B models — they
+    /// respond well to named sections as delimiters.
+    ///
+    /// - Parameters:
+    ///   - systemPrompt: Action-specific system prompt from `prompts(for:)`
+    ///   - userPrompt: Action-specific user prompt from `prompts(for:)`
+    ///   - aboutYou: Global user context (empty string → not injected)
+    ///   - snippet: Per-app context snippet (nil → not injected)
+    /// - Returns: `[system message, user message]` ready for LLM dispatch
+    nonisolated static func buildMessages(
+        systemPrompt: String,
+        userPrompt: String,
+        aboutYou: String,
+        snippet: ContextSnippet?
+    ) -> [ChatMessage] {
+        var finalSystem = systemPrompt
+
+        // Build inside-out: snippet wraps the system prompt first…
+        if let snippet {
+            let header = "[App context: \(snippet.appName)]"
+            finalSystem = "\(header)\n\(snippet.context)\n\n\(finalSystem)"
+        }
+
+        // …then "About You" wraps everything.
+        if !aboutYou.isEmpty {
+            finalSystem = "About the user: \(aboutYou)\n\n\(finalSystem)"
+        }
+
+        return [
+            ChatMessage(role: "system", content: finalSystem),
+            ChatMessage(role: "user", content: userPrompt)
+        ]
+    }
+
     // MARK: - Input Truncation
 
     /// Maximum characters per message sent to the LLM. ~12.5K tokens for English text,

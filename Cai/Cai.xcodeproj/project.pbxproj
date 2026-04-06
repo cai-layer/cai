@@ -75,6 +75,9 @@
 		CAI00302 /* MCPTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00303 /* MCPTemplateTests.swift */; };
 		CAI00304 /* MCPServerConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00305 /* MCPServerConfigManager.swift */; };
 		CAI00306 /* MCPActionConfigRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00307 /* MCPActionConfigRegistry.swift */; };
+		CAI00400 /* ContextSnippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00401 /* ContextSnippet.swift */; };
+		CAI00402 /* ContextSnippetsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00403 /* ContextSnippetsManager.swift */; };
+		CAI00404 /* ContextSnippetsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00405 /* ContextSnippetsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -154,6 +157,9 @@
 		CAI00303 /* MCPTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTemplateTests.swift; sourceTree = "<group>"; };
 		CAI00305 /* MCPServerConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServerConfigManager.swift; sourceTree = "<group>"; };
 		CAI00307 /* MCPActionConfigRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPActionConfigRegistry.swift; sourceTree = "<group>"; };
+		CAI00401 /* ContextSnippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextSnippet.swift; sourceTree = "<group>"; };
+		CAI00403 /* ContextSnippetsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextSnippetsManager.swift; sourceTree = "<group>"; };
+		CAI00405 /* ContextSnippetsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextSnippetsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -240,6 +246,7 @@
 				CAI00305 /* MCPServerConfigManager.swift */,
 				CAI00307 /* MCPActionConfigRegistry.swift */,
 				CAI00192 /* MCPTransportClient.swift */,
+				CAI00403 /* ContextSnippetsManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -253,6 +260,7 @@
 				CAI00051 /* ContentDetectorTests.swift */,
 				CAI00301 /* MCPTransportClientTests.swift */,
 				CAI00303 /* MCPTemplateTests.swift */,
+				CAI00405 /* ContextSnippetsTests.swift */,
 			);
 			path = CaiTests;
 			sourceTree = "<group>";
@@ -266,6 +274,7 @@
 				CAI00121 /* OutputDestination.swift */,
 				CAI00123 /* BuiltInDestinations.swift */,
 				CAI00181 /* MCPModels.swift */,
+				CAI00401 /* ContextSnippet.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -469,6 +478,8 @@
 				CAI00188 /* MCPFormView.swift in Sources */,
 				CAI00190 /* ConnectorsSettingsView.swift in Sources */,
 				CAI00194 /* MCPTransportClient.swift in Sources */,
+				CAI00400 /* ContextSnippet.swift in Sources */,
+				CAI00402 /* ContextSnippetsManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -482,6 +493,7 @@
 				7028587D2F83F920002527EC /* ActionGeneratorTests.swift in Sources */,
 				CAI00300 /* MCPTransportClientTests.swift in Sources */,
 				CAI00302 /* MCPTemplateTests.swift in Sources */,
+				CAI00404 /* ContextSnippetsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

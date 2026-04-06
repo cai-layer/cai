@@ -6,6 +6,9 @@ struct ActionListWindow: View {
     let actions: [ActionItem]
     @ObservedObject var selectionState: SelectionState
     let sourceApp: String?
+    /// Bundle ID of the frontmost app at hotkey time. Used by Context Snippets
+    /// to match per-app system prompt enrichments. See `LLMService.buildMessages`.
+    let sourceBundleId: String?
     let onDismiss: () -> Void
     let onExecute: (ActionItem) -> Void
     var showSettingsOnAppear: Bool = false
@@ -543,17 +546,20 @@ struct ActionListWindow: View {
         resultViewId += 1
     }
 
-    /// Builds the initial [ChatMessage] array for an LLM action, including "About You" context.
+    /// Builds the initial [ChatMessage] array for an LLM action with "About You"
+    /// global context and optional per-app Context Snippet injected.
+    ///
+    /// Thin wrapper over `LLMService.buildMessages` — resolves inputs from the
+    /// view's state (settings, source bundle ID), then delegates to the pure
+    /// static helper. The helper is unit-testable in isolation.
     private func buildInitialMessages(systemPrompt: String, userPrompt: String) -> [ChatMessage] {
-        let aboutYou = settings.aboutYou
-        var finalSystem = systemPrompt
-        if !aboutYou.isEmpty {
-            finalSystem = "About the user: \(aboutYou)\n\n\(finalSystem)"
-        }
-        return [
-            ChatMessage(role: "system", content: finalSystem),
-            ChatMessage(role: "user", content: userPrompt)
-        ]
+        let snippet = ContextSnippetsManager.shared.snippet(forBundleId: sourceBundleId)
+        return LLMService.buildMessages(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            aboutYou: settings.aboutYou,
+            snippet: snippet
+        )
     }
 
     private func goBackToActions() {

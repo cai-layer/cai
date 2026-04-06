@@ -100,7 +100,11 @@ class WindowController: NSObject, ObservableObject {
     }
 
     /// Shows the action window centered on screen with actions for the given content.
-    func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil, showSettings: Bool = false) {
+    ///
+    /// `sourceApp` is the frontmost app's display name (used in LLM prompts as context hint).
+    /// `sourceBundleId` is the canonical bundle ID (used by `ContextSnippetsManager` to
+    /// match per-app context snippets — see `_docs/features/context-snippets.md`).
+    func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil, sourceBundleId: String? = nil, showSettings: Bool = false) {
         // If window is already visible, dismiss first
         hideWindow()
 
@@ -176,6 +180,7 @@ class WindowController: NSObject, ObservableObject {
             actions: actions,
             selectionState: selectionState,
             sourceApp: sourceApp,
+            sourceBundleId: sourceBundleId,
             onDismiss: dismissAction,
             onExecute: executeAction,
             showSettingsOnAppear: showSettings

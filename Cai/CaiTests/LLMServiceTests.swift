@@ -115,4 +115,102 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertTrue(system.lowercased().contains("markdown"),
                       "Proofread system prompt should explicitly forbid markdown")
     }
+
+    // MARK: - buildMessages (Context Snippets + About You injection)
+
+    /// Regression guard: without snippet or About You, the helper returns a
+    /// bare system prompt (matches pre-Context-Snippets behavior).
+    func testBuildMessagesNeitherInjection() {
+        let messages = LLMService.buildMessages(
+            systemPrompt: "You are a summarizer.",
+            userPrompt: "Summarize this.",
+            aboutYou: "",
+            snippet: nil
+        )
+
+        XCTAssertEqual(messages.count, 2)
+        XCTAssertEqual(messages[0].role, "system")
+        XCTAssertEqual(messages[0].content, "You are a summarizer.")
+        XCTAssertEqual(messages[1].role, "user")
+        XCTAssertEqual(messages[1].content, "Summarize this.")
+    }
+
+    /// Regression guard: "About You" alone still works (existing behavior).
+    func testBuildMessagesAboutYouOnly() {
+        let messages = LLMService.buildMessages(
+            systemPrompt: "You are a summarizer.",
+            userPrompt: "Summarize this.",
+            aboutYou: "I'm a Rails developer.",
+            snippet: nil
+        )
+
+        XCTAssertEqual(messages.count, 2)
+        XCTAssertTrue(messages[0].content.hasPrefix("About the user: I'm a Rails developer."),
+                      "About You should be prepended to the system prompt")
+        XCTAssertTrue(messages[0].content.hasSuffix("You are a summarizer."),
+                      "Action system prompt should still be present after About You")
+    }
+
+    /// New behavior: snippet alone (no About You) injects the `[App context: X]` section.
+    func testBuildMessagesSnippetOnly() {
+        let snippet = ContextSnippet(
+            bundleId: "com.apple.Terminal",
+            appName: "Terminal",
+            context: "Ruby/Rails debugging context.",
+            enabled: true
+        )
+
+        let messages = LLMService.buildMessages(
+            systemPrompt: "You are a summarizer.",
+            userPrompt: "Summarize this.",
+            aboutYou: "",
+            snippet: snippet
+        )
+
+        XCTAssertEqual(messages.count, 2)
+        XCTAssertTrue(messages[0].content.contains("[App context: Terminal]"),
+                      "Structured label must appear for small-model section awareness")
+        XCTAssertTrue(messages[0].content.contains("Ruby/Rails debugging context."),
+                      "Snippet context should be in the system prompt")
+        XCTAssertTrue(messages[0].content.contains("You are a summarizer."),
+                      "Action system prompt should still be present")
+        XCTAssertFalse(messages[0].content.contains("About the user"),
+                       "About You should not appear when empty")
+    }
+
+    /// New behavior: snippet + About You both present, with correct layering.
+    /// Order (outer → inner): About You → [App context] → system prompt.
+    func testBuildMessagesSnippetAndAboutYou() {
+        let snippet = ContextSnippet(
+            bundleId: "com.apple.Terminal",
+            appName: "Terminal",
+            context: "Ruby/Rails debugging context.",
+            enabled: true
+        )
+
+        let messages = LLMService.buildMessages(
+            systemPrompt: "You are a summarizer.",
+            userPrompt: "Summarize this.",
+            aboutYou: "I'm a backend engineer.",
+            snippet: snippet
+        )
+
+        let systemContent = messages[0].content
+
+        // Verify both sections are present
+        XCTAssertTrue(systemContent.contains("About the user: I'm a backend engineer."))
+        XCTAssertTrue(systemContent.contains("[App context: Terminal]"))
+        XCTAssertTrue(systemContent.contains("Ruby/Rails debugging context."))
+        XCTAssertTrue(systemContent.contains("You are a summarizer."))
+
+        // Verify ordering — About You first, then App context, then action prompt
+        let aboutRange = systemContent.range(of: "About the user:")!
+        let appContextRange = systemContent.range(of: "[App context:")!
+        let actionPromptRange = systemContent.range(of: "You are a summarizer.")!
+
+        XCTAssertLessThan(aboutRange.lowerBound, appContextRange.lowerBound,
+                          "About You must come before the App context section")
+        XCTAssertLessThan(appContextRange.lowerBound, actionPromptRange.lowerBound,
+                          "App context must come before the action system prompt")
+    }
 }

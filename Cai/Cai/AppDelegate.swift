@@ -246,12 +246,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Reads clipboard content and shows the action window, or shows a toast if empty.
     /// Priority: image file (Finder) → text → image data → empty.
-    private func openWithClipboard(sourceApp: String? = nil) {
+    ///
+    /// `sourceApp` is the display name ("Terminal"). `sourceBundleId` is the canonical
+    /// key ("com.apple.Terminal") used by `ContextSnippetsManager` to match per-app
+    /// snippets. Both are captured at hotkey time before Cmd+C simulation steals focus.
+    private func openWithClipboard(sourceApp: String? = nil, sourceBundleId: String? = nil) {
         // 1. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
         //    Must come before text check: Finder puts both file URL and path text on the pasteboard,
         //    so readClipboard() would match the path string and skip OCR.
         if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
-            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
+            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp, sourceBundleId: sourceBundleId)
 
         // 2. Text found
         } else if let content = clipboardService.readClipboard() {
@@ -269,27 +273,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             windowController.showActionWindow(
                 text: clampedContent,
                 detection: detection,
-                sourceApp: sourceApp
+                sourceApp: sourceApp,
+                sourceBundleId: sourceBundleId
             )
 
         // 3. Image data on clipboard (e.g. Preview copy, screenshot to clipboard) — OCR it
         } else if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
-            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp)
+            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp, sourceBundleId: sourceBundleId)
 
         // 4. Image present but OCR found no text — still open window
         } else if OCRService.shared.hasImageOnClipboard() || OCRService.shared.hasImageFileOnClipboard() {
             print("No text found in clipboard image — opening window")
-            showEmptyWindow(sourceApp: sourceApp)
+            showEmptyWindow(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
 
         // 5. Nothing on clipboard — still open window
         } else {
             print("Clipboard is empty — opening window")
-            showEmptyWindow(sourceApp: sourceApp)
+            showEmptyWindow(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
         }
     }
 
     /// Shows the action window with OCR-extracted text from an image.
-    private func showImageOCRResult(ocrText: String, sourceApp: String?) {
+    private func showImageOCRResult(ocrText: String, sourceApp: String?, sourceBundleId: String?) {
         clipboardHistory.recordImageClipboard(ocrText: ocrText)
 
         let detection = ContentResult(
@@ -303,13 +308,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowController.showActionWindow(
             text: ocrText,
             detection: detection,
-            sourceApp: sourceApp
+            sourceApp: sourceApp,
+            sourceBundleId: sourceBundleId
         )
     }
 
     /// Opens the action window with no clipboard content (empty state).
     /// User can still use Cmd+N (new action) or Cmd+0 (clipboard history).
-    private func showEmptyWindow(sourceApp: String?) {
+    private func showEmptyWindow(sourceApp: String?, sourceBundleId: String?) {
         let detection = ContentResult(
             type: .empty,
             confidence: 1.0,
@@ -319,7 +325,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowController.showActionWindow(
             text: "",
             detection: detection,
-            sourceApp: sourceApp
+            sourceApp: sourceApp,
+            sourceBundleId: sourceBundleId
         )
     }
 
@@ -502,8 +509,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Capture the frontmost app name before Cmd+C simulation steals focus
-        let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
+        // Capture the frontmost app's display name AND bundle ID before Cmd+C
+        // simulation steals focus. The display name feeds into LLM prompts
+        // ("(from Terminal)") and the bundle ID is used by ContextSnippetsManager
+        // to match per-app context snippets.
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let sourceApp = frontmost?.localizedName
+        let sourceBundleId = frontmost?.bundleIdentifier
 
         // Always simulate Cmd+C to capture the current selection.
         // Most apps (browsers, mail clients) don't expose AXSelectedText,
@@ -511,7 +523,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // If nothing is selected, Cmd+C is a no-op and we fall back to
         // whatever is already on the clipboard.
         clipboardService.copySelectedText { [weak self] in
-            self?.openWithClipboard(sourceApp: sourceApp)
+            self?.openWithClipboard(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
         }
     }
 }

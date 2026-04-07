@@ -4,11 +4,11 @@
 
 <h1 align="center">Cai</h1>
 
-<h3 align="center">The AI clipboard assistant for macOS</h3>
+<h3 align="center">The AI Action Layer for macOS</h3>
 
 <p align="center">
-  A privacy-first clipboard assistant for macOS.<br>
-  All local. Zero app switching.
+  Select any text or image, press ⌥C, get instant AI actions.<br>
+  100% local. Free and open source.
 </p>
 
 <p align="center">
@@ -21,14 +21,14 @@
 </p>
 
 <p align="center">
-  <a href="https://getcai.app">Website</a> · <a href="../../releases/latest">Download</a> · <a href="https://github.com/cai-layer/cai-extensions">Extensions</a>
+  <a href="https://getcai.app">Website</a> · <a href="https://getcai.app/docs/">Docs</a> · <a href="../../releases/latest">Download</a> · <a href="https://github.com/cai-layer/cai-extensions">Extensions</a>
 </p>
 
 ---
 
 https://github.com/user-attachments/assets/7abef32a-deed-4da3-880f-1222031800ee
 
-Cai is a native macOS menu bar app that detects what's on your clipboard and offers smart, context-aware actions. Copy a meeting invite and it creates a calendar event. Copy an address and it opens Maps. Copy a screenshot and it extracts the text. Copy any text and ask your local AI to summarize, translate, or do anything you want — all without leaving your keyboard.
+Cai is a native macOS menu bar app that adds an AI action layer to your Mac. Select any text or image, press **⌥C**, and instantly run AI actions — summarize, translate, OCR, draft replies, create GitHub issues, run shell commands, and more — all without leaving your workflow. It's the missing AI action layer your Mac needs.
 
 No cloud. No telemetry. No accounts.
 
@@ -44,64 +44,35 @@ No cloud. No telemetry. No accounts.
 - Select `"serendipity"` → Define, Explain, Translate, Search
 - Select `"Let's meet Tuesday at 3pm at Starbucks"` → Create calendar event, Open in Maps
 - Select an email in Mail → Reply, Summarize, Translate
+- Copy a screenshot → Image to Text (OCR), then any text action
 - Select any text → Ask AI: *"Extract ingredients for 2 people"*
-- Copy a screenshot → Image to Text (OCR), then Summarize, Translate, or any action
-- Select a project name → Custom action: search in Google Drive (`https://drive.google.com/drive/search?q=%s`)
+
+→ [Read the full How It Works guide](https://getcai.app/docs/usage/how-it-works/)
 
 ## Features
 
-- **Smart detection** of content types (word, text, image, meeting, address, URL, JSON) with context-aware actions
-- **Image to Text** — copy a screenshot or image and Cai extracts the text via on-device OCR (Apple Vision), then run any action on it
-- **Built-in AI** — uses [Apple Intelligence](#apple-intelligence) on macOS 26+ (recommended, zero setup), or runs [Ministral 3B](https://huggingface.co/mlx-community/Ministral-3-3B-Instruct-2512-4bit) in-process via MLX-Swift on Apple Silicon. Also compatible with LM Studio, Ollama, or any OpenAI-compatible server. Pick from a curated model list or any HuggingFace MLX model
-- **Built-in chat** — ask follow-up questions with **Tab**, or press **⌘N** to start a new chat without clipboard content
-- **Ask AI** (⌘1) — free-form prompt to do anything: improve writing, create email replies, translate, count words
-- **Custom actions** — save reusable prompts, URL templates, and shell commands, access them by typing to filter
-- **Connectors** — create GitHub Issues and Linear tickets directly from your clipboard with AI-generated titles and descriptions
-- **Output destinations** — send results to Mail, Notes, Reminders, or custom webhooks, URL schemes, AppleScript, and shell commands
+- **Smart detection** — Cai reads what you copied (word, text, image, meeting, address, URL, JSON) and shows the right actions
+- **Image to Text** — extract text from screenshots and images via on-device OCR (Apple Vision)
+- **Built-in AI** — uses [Apple Intelligence](https://getcai.app/docs/getting-started/llm-setup/) on macOS 26+, or runs an MLX model in-process via MLX-Swift on Apple Silicon
+- **Bring your own LLM** — works with LM Studio, Ollama, any OpenAI-compatible server, or any model from [HuggingFace mlx-community](https://huggingface.co/mlx-community)
+- **Built-in chat** — ask follow-up questions with **Tab**, or press **⌘N** to start a new chat
+- **Custom actions** — save reusable prompts, URL templates, and shell commands
+- **Connectors** — create GitHub Issues and Linear tickets from any selected text or image with AI-generated context
+- **Output destinations** — send results to Mail, Notes, Reminders, or any app via webhooks, AppleScript, deeplinks, and shell commands
 - **Clipboard history** — search, pin, and reuse your last 100 clipboard items with **⌘0**
-- **App-aware** — Cai knows which app you're in (Mail, Slack, Safari…) and adapts AI responses to match the context
-- **About You** — set personal context (profession, tone, preferences) so AI responses are tailored to you
-- **Type-to-filter** — start typing to filter actions and destinations by name
-- **Keyboard-first** — navigate and execute everything without touching the mouse
+- **Context Snippets** — teach Cai per-app context so every action gets smarter
 - **Privacy-first** — no internet required, no data leaves your machine
 
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|---|---|
-| **⌥C** | Trigger Cai (global hotkey) |
-| **↑ ↓** | Navigate actions |
-| **↵** | Execute selected action |
-| **⌘1–9** | Jump to action by number |
-| **⌘0** | Open clipboard history (searchable, with pinning) |
-| **⌘N** | New chat (ask anything, without clipboard content) |
-| **⌘↵** | Submit custom prompt / Copy result |
-| **Tab** | Ask a follow-up question on the result |
-| **A–Z** | Type to filter actions |
-| **Esc** | Clear filter / Back / Dismiss |
+→ [See all features in the docs](https://getcai.app/docs/)
 
 ## Installation
 
-### Download
-
 1. Download the `.dmg` from the [latest release](../../releases/latest)
 2. Open the DMG and drag **Cai.app** to your Applications folder
-3. Open the app and grant Accessibility permission ([see below](#first-launch-setup))
-4. On macOS 26+, Cai uses Apple Intelligence automatically. Otherwise, a built-in model (Ministral 3B, ~1.8 GB) downloads on first launch and runs in-process via MLX-Swift — or skip if you already use LM Studio / Ollama
+3. Open the app and grant **Accessibility permission** when prompted
+4. On macOS 26+, Cai uses Apple Intelligence automatically. Otherwise, the built-in MLX model downloads on first launch — or skip if you already use LM Studio / Ollama
 
-### First Launch Setup
-
-On first launch, Cai needs **Accessibility permission** to use the global hotkey (⌥C) and simulate ⌘C to copy your selection.
-
-**Step 1** — Open Cai. It will ask for Accessibility permission. Click **Open System Settings**.
-
-<img src="assets/setup-5-accessibility-prompt.png" width="450" alt="Accessibility permission prompt">
-
-**Step 2** — Toggle Cai **on** in the Accessibility list.
-
-<img src="assets/setup-6-accessibility-toggle.png" width="450" alt="Accessibility toggle enabled for Cai">
-
-You're all set! Press **⌥C** with any text selected to start using Cai.
+→ [Full installation guide](https://getcai.app/docs/getting-started/installation/) · [LLM setup](https://getcai.app/docs/getting-started/llm-setup/)
 
 ### Build from Source
 
@@ -111,105 +82,42 @@ cd cai/Cai
 open Cai.xcodeproj
 ```
 
-In Xcode:
-1. Select the **Cai** scheme and **My Mac** as destination
-2. **Product → Run** (⌘R)
+In Xcode: select the **Cai** scheme and **My Mac** as destination, then **Product → Run** (⌘R).
 
 > **Note:** The app requires **Accessibility permission** and runs **without App Sandbox** (required for global hotkey and CGEvent posting).
 
-## LLM Setup
+## Documentation
 
-### Apple Intelligence (recommended)
+Full documentation is at [getcai.app/docs](https://getcai.app/docs/):
 
-On Macs with an M1 chip or later running **macOS 26+**, Cai uses Apple Intelligence as the default model provider — no download needed, no setup required. If available, Cai will offer it during first launch setup.
-
-### Built-in Model (fallback)
-
-On older macOS versions, Cai runs an MLX model in-process via [MLX-Swift](https://github.com/ml-explore/mlx-swift) — Apple's native ML framework for Apple Silicon. On first launch it downloads [Ministral 3B](https://huggingface.co/mlx-community/Ministral-3-3B-Instruct-2512-4bit) (~1.8 GB) and runs everything locally — no external server, no subprocess.
-
-Models are cached in `~/.cache/huggingface/hub/`. Inference happens in-process with the rest of Cai, so there's no startup delay or crash recovery to worry about.
-
-**Curated models:** The model picker in Settings includes Ministral 3B, Qwen3 4B, Gemma 3 1B, and Qwen 2.5 7B (16 GB+ RAM recommended). Pick "Other (HuggingFace ID)" to use any model from the [mlx-community](https://huggingface.co/mlx-community) collection.
-
-### External providers
-
-Cai works with **LM Studio**, **Ollama**, or any OpenAI-compatible endpoint (local or cloud). Auto-detects running providers on launch.
-
-AI is optional — system actions (Maps, Calendar, Search, Pretty Print JSON) work without it. API keys are stored in the **macOS Keychain**.
-
-## Custom Actions
-
-Save frequently used prompts, URL templates, and shell commands as custom actions. They appear when you type to filter the action list.
-
-- **Prompt** — sends clipboard text + your prompt to the LLM (e.g., "Rewrite as email reply")
-- **URL** — opens a URL with clipboard text substituted via `%s` (e.g., `https://drive.google.com/drive/search?q=%s`)
-- **Shell** — runs a shell command with your clipboard text (e.g., `echo "%s" | wc -w`)
-
-Create them in Preferences → Custom Actions.
-
-## Output Destinations
-
-Send results to an output destination instead of just copying to clipboard.
-
-**Built-in:** Email (Mail.app), Save to Notes, Create Reminder.
-
-**Custom destinations:** Webhook, AppleScript, Deeplink, Shell Command — use `{{result}}` as a placeholder for your text.
-
-Create them in Preferences → Output Destinations. Enable "Show in action list" for direct-access workflows.
-
-## Connectors
-
-Create GitHub Issues and Linear tickets directly from your clipboard. Cai uses AI to generate titles and descriptions from copied text or screenshots.
-
-**Supported connectors:**
-- **GitHub** — create issues in any repo with a fine-grained personal access token
-- **Linear** — create tickets in any team with an API key
-
-Set up connectors in Preferences → Connectors. Tokens are stored in macOS Keychain.
-
-> See the [connector setup guide](https://getcai.app/docs/usage/connectors/) for step-by-step instructions.
-
-## Community Extensions
-
-Browse and install extensions from the [cai-extensions](https://github.com/cai-layer/cai-extensions) repo.
-
-**Install:** Copy an extension's YAML → press **⌥C** → "Install Extension" → review and confirm.
-
-Cai shows a trust confirmation before installing — you'll see the extension name, type, author, and where it sends data (if applicable). AppleScript and shell extensions are blocked from clipboard install for security.
-
-**Create your own:** Fork the repo, add a YAML file, and open a PR. See the [extension guide](https://github.com/cai-layer/cai-extensions#creating-extensions) for details.
+- **[How It Works](https://getcai.app/docs/usage/how-it-works/)** — content detection, smart actions, follow-ups
+- **[Keyboard Shortcuts](https://getcai.app/docs/usage/keyboard-shortcuts/)** — every key and what it does
+- **[LLM Setup](https://getcai.app/docs/getting-started/llm-setup/)** — Apple Intelligence, MLX, LM Studio, Ollama, cloud providers
+- **[Choosing a Model](https://getcai.app/docs/getting-started/llm-setup/#choosing-a-model)** — model picker guide and quantization explainer
+- **[Ask AI](https://getcai.app/docs/usage/custom-actions/)** — free-form prompts on selected text
+- **[Custom Actions](https://getcai.app/docs/usage/saved-actions/)** — save prompts, URLs, and shell commands
+- **[Custom Destinations](https://getcai.app/docs/usage/destinations/)** — webhooks, AppleScript, deeplinks, shell
+- **[Connectors](https://getcai.app/docs/usage/connectors/)** — GitHub and Linear integration
+- **[Context Snippets](https://getcai.app/docs/usage/context-snippets/)** — per-app context for smarter actions
+- **[Community Extensions](https://getcai.app/docs/usage/extensions/)** — install and create shared actions
+- **[Troubleshooting](https://getcai.app/docs/troubleshooting/common-issues/)** — common issues and fixes
 
 ## Requirements
 
 - **macOS 13.0** (Ventura) or later
 - **Apple Silicon** (M1 or later) for the built-in AI engine
-- **~2.5 GB disk space** for the bundled model (downloaded on first launch)
 - **Accessibility permission** (for global hotkey ⌥C)
-
-## Troubleshooting
-
-**macOS blocks Cai from opening (building from source)**
-Remove the quarantine flag: `xattr -cr /Applications/Cai.app`
-
-**Global shortcut ⌥C doesn't work**
-- Check **System Settings → Privacy & Security → Accessibility** — make sure Cai is listed and enabled
-- If still not working, remove Cai from the list and re-add it
-- Make sure no other app is using ⌥C (e.g., Raycast, Alfred)
-
-**LLM not connecting**
-- Verify your server is running: `curl http://127.0.0.1:1234/v1/models`
-- Ollama uses port `11434`, LM Studio uses `1234` — make sure you selected the right provider
 
 ## Tech Stack
 
 - **SwiftUI** + **AppKit** (native macOS, no Electron)
-- **[MLX-Swift](https://github.com/ml-explore/mlx-swift)** for in-process LLM inference on Apple Silicon (Metal GPU)
+- **[MLX-Swift](https://github.com/ml-explore/mlx-swift)** for in-process LLM inference on Apple Silicon
 - **Actor-based** services for thread-safe async/await
-- [HotKey](https://github.com/soffes/HotKey) (SPM) for global keyboard shortcut
+- [HotKey](https://github.com/soffes/HotKey) (SPM) for the global keyboard shortcut
 
 ---
 
-Built as a side project with [Claude Code](https://claude.ai/code)'s help
+Built as a side project with [Claude Code](https://claude.ai/code)'s help.
 
 ## License
 

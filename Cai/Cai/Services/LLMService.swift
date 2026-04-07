@@ -588,6 +588,32 @@ actor LLMService {
         }
         return error
     }
+
+    /// Detects Apple Intelligence refusal responses that come back as plain text
+    /// rather than thrown errors. FoundationModels sometimes returns refusals like
+    /// "Sorry, but I cannot fulfill that request." as a successful response body
+    /// instead of throwing a guardrail error — we treat these as contentFiltered
+    /// so the user sees a clear "Apple Intelligence declined" message instead of
+    /// a cryptic one-liner in the result view.
+    nonisolated static func isAppleFMRefusal(_ text: String) -> Bool {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Refusals are always short (< 200 chars) and start with a recognizable phrase.
+        // Keep the list conservative to avoid false positives on legitimate responses.
+        guard normalized.count < 200 else { return false }
+        let refusalPrefixes = [
+            "sorry, but i cannot",
+            "sorry, but i can't",
+            "i'm sorry, but i cannot",
+            "i'm sorry, but i can't",
+            "i cannot fulfill",
+            "i can't fulfill",
+            "i cannot help with",
+            "i can't help with",
+            "i'm unable to",
+            "i am unable to",
+        ]
+        return refusalPrefixes.contains { normalized.hasPrefix($0) }
+    }
     #endif
 
     /// Generates a response using Apple's on-device Foundation Models.
@@ -598,9 +624,15 @@ actor LLMService {
             let (session, lastUserMessage) = try resolveAppleFMSession(messages: messages)
             do {
                 let response = try await session.respond(to: lastUserMessage)
+                let content = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Apple FM sometimes returns plain-text refusals instead of throwing.
+                // Convert those to a proper error so the UI shows "Apple Intelligence declined…"
+                if Self.isAppleFMRefusal(content) {
+                    throw LLMError.contentFiltered
+                }
                 appleSessionUserTurnCount += 1
                 appleSessionLastActivity = Date()
-                return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                return content
             } catch {
                 throw mapAppleFMError(error)
             }
@@ -618,10 +650,43 @@ actor LLMService {
             return AsyncThrowingStream { continuation in
                 Task {
                     do {
+                        // Each `partial.content` is the CUMULATIVE text so far (the UI
+                        // replaces `result = chunk` on each yield). We suppress early
+                        // yields until we've seen ~30 chars so a plain-text refusal
+                        // (e.g. "Sorry, but I cannot fulfill that request.") can be
+                        // detected and converted into a contentFiltered error BEFORE
+                        // any text is shown to the user.
                         let stream = session.streamResponse(to: lastUserMessage)
+                        var lastContent = ""
+                        var refusalChecked = false
+
                         for try await partial in stream {
-                            continuation.yield(partial.content)
+                            lastContent = partial.content
+                            if !refusalChecked && lastContent.count < 30 {
+                                continue  // keep buffering — too short to classify
+                            }
+                            if !refusalChecked {
+                                refusalChecked = true
+                                if Self.isAppleFMRefusal(lastContent) {
+                                    continuation.finish(throwing: LLMError.contentFiltered)
+                                    return
+                                }
+                            }
+                            continuation.yield(lastContent)
                         }
+
+                        // Stream ended before we reached the 30-char threshold —
+                        // classify and flush the final buffer.
+                        if !refusalChecked {
+                            if Self.isAppleFMRefusal(lastContent) {
+                                continuation.finish(throwing: LLMError.contentFiltered)
+                                return
+                            }
+                            if !lastContent.isEmpty {
+                                continuation.yield(lastContent)
+                            }
+                        }
+
                         // Only count the turn after stream completes successfully.
                         // If cancelled mid-stream, the mismatch triggers a fresh session next time.
                         self.appleSessionUserTurnCount += 1

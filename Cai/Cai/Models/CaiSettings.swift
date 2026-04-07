@@ -90,7 +90,15 @@ class CaiSettings: ObservableObject {
     }
 
     @Published var modelProvider: ModelProvider {
-        didSet { defaults.set(modelProvider.rawValue, forKey: Keys.modelProvider) }
+        didSet {
+            defaults.set(modelProvider.rawValue, forKey: Keys.modelProvider)
+            // Free MLX model memory (~2 GB for Ministral 3B) when the user switches
+            // away from the built-in provider. Without this, the model stays resident
+            // even though it's never used by the new provider.
+            if oldValue == .builtIn && modelProvider != .builtIn {
+                Task { await MLXInference.shared.unload() }
+            }
+        }
     }
 
     /// Only used when modelProvider == .custom

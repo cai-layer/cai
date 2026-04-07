@@ -259,4 +259,103 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertLessThan(appContextRange.lowerBound, actionPromptRange.lowerBound,
                           "App context must come before the action system prompt")
     }
+
+    // MARK: - LLMService.buildFollowUpSystemPrompt
+
+    /// The conversational core of the follow-up prompt. Used as a marker so tests can
+    /// verify the core is present without binding to its exact wording. Update this
+    /// constant if the core string changes.
+    private static let followUpCoreMarker = "continuing a conversation"
+
+    func testFollowUpPromptIsConversationalAndForbidsMarkdown() {
+        let prompt = LLMService.buildFollowUpSystemPrompt(aboutYou: "", snippet: nil)
+        XCTAssertTrue(prompt.contains(Self.followUpCoreMarker),
+                      "Follow-up prompt should contain the conversational core")
+        XCTAssertFalse(prompt.localizedCaseInsensitiveContains("Output only"),
+                       "Follow-up prompt must NOT contain 'Output only' — that's the action-specific framing we're swapping away from")
+        XCTAssertTrue(prompt.contains("no markdown"),
+                      "Follow-up prompt must forbid markdown to match project policy")
+    }
+
+    func testFollowUpPromptOmitsAboutYouWhenEmpty() {
+        let prompt = LLMService.buildFollowUpSystemPrompt(aboutYou: "", snippet: nil)
+        XCTAssertFalse(prompt.contains("About the user:"),
+                       "Empty aboutYou must not inject the About the user header")
+    }
+
+    func testFollowUpPromptInjectsAboutYouWhenPresent() {
+        let prompt = LLMService.buildFollowUpSystemPrompt(
+            aboutYou: "I prefer metric units.",
+            snippet: nil
+        )
+        XCTAssertTrue(prompt.contains("About the user: I prefer metric units."),
+                      "Non-empty aboutYou must be wrapped with the standard header")
+    }
+
+    func testFollowUpPromptOmitsSnippetWhenNil() {
+        let prompt = LLMService.buildFollowUpSystemPrompt(
+            aboutYou: "Whatever",
+            snippet: nil
+        )
+        XCTAssertFalse(prompt.contains("[App context:"),
+                       "Nil snippet must not inject the App context header")
+    }
+
+    func testFollowUpPromptInjectsContextSnippet() {
+        let snippet = ContextSnippet(
+            bundleId: "com.apple.Terminal",
+            appName: "Terminal",
+            context: "Ruby/Rails debugging context."
+        )
+        let prompt = LLMService.buildFollowUpSystemPrompt(
+            aboutYou: "",
+            snippet: snippet
+        )
+        XCTAssertTrue(prompt.contains("[App context: Terminal]"),
+                      "Snippet must inject an [App context: …] header with the appName")
+        XCTAssertTrue(prompt.contains("Ruby/Rails debugging context."),
+                      "Snippet body must be present")
+    }
+
+    func testFollowUpPromptWrappingOrderMatchesBuildMessages() {
+        // Mirror the buildMessages contract: About You outermost → App context middle →
+        // conversational core innermost. Locks in the ordering invariant so a future
+        // refactor can't accidentally flip the layers.
+        let snippet = ContextSnippet(
+            bundleId: "com.apple.Terminal",
+            appName: "Terminal",
+            context: "Ruby/Rails debugging context."
+        )
+        let prompt = LLMService.buildFollowUpSystemPrompt(
+            aboutYou: "I'm a backend engineer.",
+            snippet: snippet
+        )
+
+        let aboutRange = prompt.range(of: "About the user:")!
+        let appContextRange = prompt.range(of: "[App context:")!
+        let coreRange = prompt.range(of: Self.followUpCoreMarker)!
+
+        XCTAssertLessThan(aboutRange.lowerBound, appContextRange.lowerBound,
+                          "About You must come before the App context section")
+        XCTAssertLessThan(appContextRange.lowerBound, coreRange.lowerBound,
+                          "App context must come before the conversational core")
+    }
+
+    func testBuildMessagesDoesNotInjectFollowUpPrompt() {
+        // Regression guard: buildMessages is for turn-1 only and must NEVER auto-inject
+        // the conversational follow-up prompt. The system prompt swap belongs to the
+        // caller (ActionListWindow.submitFollowUp). If this guarantee changes, the
+        // wrapping order in buildFollowUpSystemPrompt needs to be re-audited.
+        let messages = LLMService.buildMessages(
+            systemPrompt: "Output only the summary.",
+            userPrompt: "test",
+            aboutYou: "",
+            snippet: nil
+        )
+        XCTAssertEqual(messages.count, 2)
+        XCTAssertEqual(messages[0].role, "system")
+        XCTAssertTrue(messages[0].content.contains("Output only the summary"))
+        XCTAssertFalse(messages[0].content.contains(Self.followUpCoreMarker),
+                       "buildMessages must not inject the follow-up conversational core")
+    }
 }

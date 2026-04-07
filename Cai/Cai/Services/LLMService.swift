@@ -77,16 +77,6 @@ actor LLMService {
     /// Used in generate() requests — some providers (LM Studio) require it.
     private var cachedModelName: String?
 
-    // Apple FM session reuse — mirrors the MLX session pattern.
-    // Storage uses Any? because LanguageModelSession is only available on macOS 26+.
-    private var appleSessionStorage: Any?
-    private var appleSessionSystemPrompt: String?
-    private var appleSessionUserTurnCount: Int = 0
-    /// Wall-clock timestamp of the last successful Apple FM call. Used to invalidate
-    /// stale sessions after 5 minutes of inactivity (covers provider switches, sleep, etc.).
-    private var appleSessionLastActivity: Date?
-    private static let appleSessionMaxAge: TimeInterval = 300 // 5 minutes
-
     /// Applies the API key as a Bearer token if one is configured.
     private func applyAuth(to request: inout URLRequest) async {
         let key = await MainActor.run { CaiSettings.shared.apiKey }
@@ -294,6 +284,54 @@ actor LLMService {
             ChatMessage(role: "system", content: finalSystem),
             ChatMessage(role: "user", content: userPrompt)
         ]
+    }
+
+    // MARK: - Follow-up System Prompt
+
+    /// Builds the system prompt used for follow-up turns (Tab → ask question after a result).
+    ///
+    /// **Why this exists:** the turn-1 system prompt is action-specific (e.g. *"Output only
+    /// the summary…"*). When the user asks an unrelated follow-up like *"What's a cell?"*
+    /// after a Summarize, that contradictory framing causes Apple Intelligence to refuse
+    /// (and pollutes context for stricter MLX models). On follow-up we swap to a
+    /// conversational system prompt — but we MUST preserve the same outer wrapping
+    /// (`About the user: …` and `[App context: …]`) that `buildMessages` applies for
+    /// turn 1, otherwise users silently lose their personalization on every follow-up.
+    ///
+    /// Wrapping order matches `buildMessages` exactly (outer → inner):
+    ///
+    /// ```text
+    ///   About the user: {aboutYou}          ← outermost (only if non-empty)
+    ///
+    ///   [App context: {snippet.appName}]    ← middle (only if snippet != nil)
+    ///   {snippet.context}
+    ///
+    ///   {conversational core}                ← innermost
+    /// ```
+    ///
+    /// `nonisolated static` so it's pure and unit-testable in isolation.
+    nonisolated static func buildFollowUpSystemPrompt(
+        aboutYou: String,
+        snippet: ContextSnippet?
+    ) -> String {
+        let core = """
+            You are a helpful assistant continuing a conversation. Answer the user's \
+            follow-up question naturally based on the prior exchange. Plain text only \
+            \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols.
+            """
+
+        var prompt = core
+
+        if let snippet {
+            let header = "[App context: \(snippet.appName)]"
+            prompt = "\(header)\n\(snippet.context)\n\n\(prompt)"
+        }
+
+        if !aboutYou.isEmpty {
+            prompt = "About the user: \(aboutYou)\n\n\(prompt)"
+        }
+
+        return prompt
     }
 
     // MARK: - Input Truncation
@@ -530,47 +568,69 @@ actor LLMService {
         return Status(available: false, modelName: nil, error: "Requires macOS 26+")
     }
 
-    /// Resolves the Apple FM session: reuses existing session for follow-ups,
-    /// creates a fresh one when the system prompt changes (new action).
-    /// Mirrors the MLX session reuse pattern.
+    /// Builds a fresh Apple FM session seeded with the real prior conversation.
+    ///
+    /// We deliberately create a new session on every call (stateless) rather than
+    /// reusing one across follow-ups. The previous session-reuse implementation
+    /// carried bookkeeping state (system prompt, turn count, last-activity timestamp)
+    /// and silently invalidated on any mismatch — which on follow-ups would create
+    /// a fresh session with NO prior context (because the system prompt swap in
+    /// `submitFollowUp` always changes the prompt). `LanguageModelSession(transcript:)`
+    /// lets us seed the new session with the real prior turns directly, so the model
+    /// sees actual `instructions` + `prompt` + `response` entries instead of losing
+    /// context or seeing a hallucinated replay.
+    ///
+    /// API references verified against the macOS 26 SDK swiftinterface — every
+    /// constructor used here is `public`. See `_docs/architecture/APPLE-FM-API.md`.
     #if canImport(FoundationModels)
     @available(macOS 26, *)
-    private func resolveAppleFMSession(
-        messages: [ChatMessage]
-    ) throws -> (session: LanguageModelSession, lastUserMessage: String) {
+    private func buildAppleFMSession(
+        from messages: [ChatMessage]
+    ) throws -> (session: LanguageModelSession, latestUserMessage: String) {
         let model = SystemLanguageModel.default
         guard model.availability == .available else {
             throw LLMError.appleIntelligenceUnavailable
         }
 
         let systemPrompt = messages.first(where: { $0.role == "system" })?.content ?? ""
-        let userMessages = messages.filter { $0.role == "user" }
-        guard let lastUserMessage = userMessages.last?.content else {
+        let turns = messages.filter { $0.role != "system" }
+        guard let last = turns.last, last.role == "user" else {
             throw LLMError.emptyResponse
         }
+        let priorTurns = turns.dropLast()
 
-        // Follow-up detection: same system prompt + exactly one new user message,
-        // AND the previous activity was recent (sessions older than 5 min are stale —
-        // this covers provider switches, sleep, and Apple Intelligence service teardown).
-        let isFresh: Bool = {
-            guard let last = appleSessionLastActivity else { return false }
-            return Date().timeIntervalSince(last) < Self.appleSessionMaxAge
-        }()
-        if isFresh,
-           let existing = appleSessionStorage as? LanguageModelSession,
-           appleSessionSystemPrompt == systemPrompt,
-           userMessages.count == appleSessionUserTurnCount + 1 {
-            return (existing, lastUserMessage)
+        // Turn-1 fast path: no history → use the simple instructions-only initializer.
+        // Avoids the cost of building a Transcript when there's nothing to seed.
+        if priorTurns.isEmpty {
+            return (LanguageModelSession(instructions: systemPrompt), last.content)
         }
 
-        // New conversation — create fresh session
-        let session = LanguageModelSession(instructions: systemPrompt)
-        appleSessionStorage = session
-        appleSessionSystemPrompt = systemPrompt
-        appleSessionUserTurnCount = 0
-        appleSessionLastActivity = Date()
+        // Follow-up path: build a Transcript from scratch with real prior entries.
+        var entries: [Transcript.Entry] = []
+        if !systemPrompt.isEmpty {
+            let instructions = Transcript.Instructions(
+                segments: [.text(.init(content: systemPrompt))],
+                toolDefinitions: []
+            )
+            entries.append(.instructions(instructions))
+        }
+        for turn in priorTurns {
+            let segment: Transcript.Segment = .text(.init(content: turn.content))
+            switch turn.role {
+            case "user":
+                entries.append(.prompt(Transcript.Prompt(segments: [segment])))
+            case "assistant":
+                entries.append(.response(Transcript.Response(assetIDs: [], segments: [segment])))
+            default:
+                // Unknown roles in conversation history aren't expected; skip rather than
+                // pollute the transcript with miscoded turns.
+                continue
+            }
+        }
 
-        return (session, lastUserMessage)
+        let transcript = Transcript(entries: entries)
+        let session = LanguageModelSession(transcript: transcript)
+        return (session, last.content)
     }
 
     /// Maps Apple FM errors to LLMError cases. Handles guardrail violations,
@@ -617,21 +677,20 @@ actor LLMService {
     #endif
 
     /// Generates a response using Apple's on-device Foundation Models.
-    /// Reuses the session across follow-ups to avoid replaying earlier turns.
+    /// Stateless: builds a fresh session seeded with the real prior conversation
+    /// on every call. See `buildAppleFMSession` for the rationale.
     private func generateWithAppleFM(_ messages: [ChatMessage]) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
-            let (session, lastUserMessage) = try resolveAppleFMSession(messages: messages)
+            let (session, latestUserMessage) = try buildAppleFMSession(from: messages)
             do {
-                let response = try await session.respond(to: lastUserMessage)
+                let response = try await session.respond(to: latestUserMessage)
                 let content = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 // Apple FM sometimes returns plain-text refusals instead of throwing.
                 // Convert those to a proper error so the UI shows "Apple Intelligence declined…"
                 if Self.isAppleFMRefusal(content) {
                     throw LLMError.contentFiltered
                 }
-                appleSessionUserTurnCount += 1
-                appleSessionLastActivity = Date()
                 return content
             } catch {
                 throw mapAppleFMError(error)
@@ -642,11 +701,11 @@ actor LLMService {
     }
 
     /// Streams a response using Apple's on-device Foundation Models.
-    /// Reuses the session across follow-ups.
+    /// Stateless: see `buildAppleFMSession`.
     private func streamWithAppleFM(_ messages: [ChatMessage]) async throws -> AsyncThrowingStream<String, Error> {
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
-            let (session, lastUserMessage) = try resolveAppleFMSession(messages: messages)
+            let (session, latestUserMessage) = try buildAppleFMSession(from: messages)
             return AsyncThrowingStream { continuation in
                 Task {
                     do {
@@ -656,7 +715,7 @@ actor LLMService {
                         // (e.g. "Sorry, but I cannot fulfill that request.") can be
                         // detected and converted into a contentFiltered error BEFORE
                         // any text is shown to the user.
-                        let stream = session.streamResponse(to: lastUserMessage)
+                        let stream = session.streamResponse(to: latestUserMessage)
                         var lastContent = ""
                         var refusalChecked = false
 
@@ -687,10 +746,6 @@ actor LLMService {
                             }
                         }
 
-                        // Only count the turn after stream completes successfully.
-                        // If cancelled mid-stream, the mismatch triggers a fresh session next time.
-                        self.appleSessionUserTurnCount += 1
-                        self.appleSessionLastActivity = Date()
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: self.mapAppleFMError(error))

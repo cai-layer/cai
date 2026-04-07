@@ -517,17 +517,41 @@ struct ActionListWindow: View {
         conversationHistory.append(ChatMessage(role: "user", content: trimmed))
         let config = activeConfig
 
+        // Swap the action-specific system prompt (e.g. "Output only the summary") for a
+        // conversational one. The turn-1 prompt did its job; subsequent turns are free-form
+        // chat about the result. Without this swap, Apple Intelligence refuses unrelated
+        // follow-ups like "What's a cell?" after a Summarize because the contradictory
+        // framing trips its guardrail. We mutate a COPY of conversationHistory so the
+        // persisted record keeps the original action prompt — Esc-then-reopen still shows
+        // the original action context intact.
+        //
+        // The follow-up prompt preserves the same About You / Context Snippet wrapping
+        // that buildMessages applies on turn 1, so users don't silently lose their
+        // personalization on every follow-up.
+        let snippet = ContextSnippetsManager.shared.snippet(forBundleId: sourceBundleId)
+        let followUpSystem = LLMService.buildFollowUpSystemPrompt(
+            aboutYou: settings.aboutYou,
+            snippet: snippet
+        )
+        var updatedHistory = conversationHistory
+        let followUpSystemMessage = ChatMessage(role: "system", content: followUpSystem)
+        if let systemIndex = updatedHistory.firstIndex(where: { $0.role == "system" }) {
+            updatedHistory[systemIndex] = followUpSystemMessage
+        } else {
+            updatedHistory.insert(followUpSystemMessage, at: 0)
+        }
+
         // Build the messages array sent to the LLM with a transient reinforcement prefix
         // on the LAST user turn only. This helps small models avoid number/fact drift
         // without polluting the persisted history. Skipped for deterministic actions
         // (translate/proofread) where the prefix would change literal input semantics.
         let isDeterministic = config.temperature == 0.0
         let messages: [ChatMessage] = {
-            guard !isDeterministic, let last = conversationHistory.last, last.role == "user" else {
-                return conversationHistory
+            guard !isDeterministic, let last = updatedHistory.last, last.role == "user" else {
+                return updatedHistory
             }
             let reinforced = "Keep all facts and numbers exact from your previous reply. \(last.content)"
-            var copy = conversationHistory
+            var copy = updatedHistory
             copy[copy.count - 1] = ChatMessage(role: "user", content: reinforced)
             return copy
         }()

@@ -13,6 +13,7 @@
 		7028587B2F83F920002527EC /* MCPParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7028587A2F83F920002527EC /* MCPParsingTests.swift */; };
 		7028587C2F83F920002527EC /* LLMServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702858792F83F920002527EC /* LLMServiceTests.swift */; };
 		7028587D2F83F920002527EC /* ActionGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702858782F83F920002527EC /* ActionGeneratorTests.swift */; };
+		CAI00500 /* MLXInferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00501 /* MLXInferenceTests.swift */; };
 		CAI00001 /* CaiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00002 /* CaiApp.swift */; };
 		CAI00003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00004 /* AppDelegate.swift */; };
 		CAI00007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CAI00008 /* Assets.xcassets */; };
@@ -94,6 +95,7 @@
 		702858712F7FFE22002527EC /* MLXInference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXInference.swift; sourceTree = "<group>"; };
 		702858782F83F920002527EC /* ActionGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionGeneratorTests.swift; sourceTree = "<group>"; };
 		702858792F83F920002527EC /* LLMServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMServiceTests.swift; sourceTree = "<group>"; };
+		CAI00501 /* MLXInferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXInferenceTests.swift; sourceTree = "<group>"; };
 		7028587A2F83F920002527EC /* MCPParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPParsingTests.swift; sourceTree = "<group>"; };
 		CAI00002 /* CaiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiApp.swift; sourceTree = "<group>"; };
 		CAI00004 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -261,6 +263,7 @@
 				CAI00301 /* MCPTransportClientTests.swift */,
 				CAI00303 /* MCPTemplateTests.swift */,
 				CAI00405 /* ContextSnippetsTests.swift */,
+				CAI00501 /* MLXInferenceTests.swift */,
 			);
 			path = CaiTests;
 			sourceTree = "<group>";
@@ -494,6 +497,7 @@
 				CAI00300 /* MCPTransportClientTests.swift in Sources */,
 				CAI00302 /* MCPTemplateTests.swift in Sources */,
 				CAI00404 /* ContextSnippetsTests.swift in Sources */,
+				CAI00500 /* MLXInferenceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

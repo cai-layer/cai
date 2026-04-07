@@ -23,12 +23,6 @@ actor MLXInference {
     private var modelContainer: ModelContainer?
     private var memoryConfigured = false
 
-    // Session reuse: persist ChatSession across follow-up calls to avoid
-    // replaying the full conversation history on each turn.
-    private var currentSession: ChatSession?
-    private var currentSystemPrompt: String?
-    private var currentSessionUserTurnCount: Int = 0
-
     /// Set while a generation (streaming or non-streaming) is in flight.
     /// Concurrent generate/stream calls would race on the underlying ModelContainer
     /// — `ChatSession` is not safe for parallel token generation on the same model.
@@ -77,59 +71,44 @@ actor MLXInference {
         print("🧠 MLX model ready: \(id)")
     }
 
-    // MARK: - Session Resolution
+    // MARK: - Session Inputs
 
-    /// Resolves whether to reuse the existing ChatSession (follow-up) or create a new one.
-    /// ChatSession maintains internal KV cache across respond() calls, so reusing it
-    /// avoids replaying the full conversation history on each follow-up turn.
-    private func resolveSession(
-        messages: [(role: String, content: String)],
-        config: GenerationConfig
-    ) async throws -> (session: ChatSession, lastUserMessage: String) {
-        guard let container = modelContainer else {
+    /// Converts Cai's `(role, content)` message tuples into MLX's session-input format.
+    ///
+    /// We deliberately create a fresh `ChatSession` on every generation call (stateless)
+    /// rather than reusing one across follow-ups. The previous session-reuse implementation
+    /// carried bookkeeping state (system prompt, turn count) and a replay loop that
+    /// fabricated assistant responses to rebuild the KV cache on session invalidation —
+    /// the replayed text didn't match what the user actually saw on screen, polluting
+    /// context. `ChatSession(history:)` lets us seed a fresh session with the *real*
+    /// prior turns directly (lazy prefill happens on the first `respond()` call).
+    ///
+    /// `nonisolated static` so unit tests can call it without an actor hop or a loaded model.
+    ///
+    /// - Parameter messages: ordered conversation, optionally starting with one system message
+    /// - Returns:
+    ///   - `instructions`: the system prompt (or `nil`) to pass as `ChatSession.instructions`
+    ///   - `history`: prior user/assistant turns to pass as `ChatSession.history` (system
+    ///     messages are never included — `instructions` already prepends one)
+    ///   - `latestUserMessage`: the final user turn that triggers generation
+    /// - Throws: `MLXInferenceError.modelNotLoaded` if the message list is empty or the
+    ///   final entry isn't a user turn (we have no other error to map it to today)
+    nonisolated static func buildSessionInputs(
+        from messages: [(role: String, content: String)]
+    ) throws -> (instructions: String?, history: [Chat.Message], latestUserMessage: String) {
+        let instructions = messages.first(where: { $0.role == "system" })?.content
+        let turns = messages.filter { $0.role != "system" }
+        guard let last = turns.last, last.role == "user" else {
             throw MLXInferenceError.modelNotLoaded
         }
-
-        let systemPrompt = messages.first(where: { $0.role == "system" })?.content
-        let userMessages = messages.filter { $0.role == "user" }
-        guard let lastUserMessage = userMessages.last?.content else {
-            throw MLXInferenceError.modelNotLoaded
-        }
-
-        // Follow-up detection: same system prompt + exactly one new user message
-        if let session = currentSession,
-           currentSystemPrompt == systemPrompt,
-           userMessages.count == currentSessionUserTurnCount + 1 {
-            return (session, lastUserMessage)
-        }
-
-        // New conversation — create fresh session with tuned parameters
-        let params = GenerateParameters(
-            maxTokens: config.maxTokens,
-            temperature: config.temperature,
-            topP: config.topP,
-            repetitionPenalty: config.repetitionPenalty
-        )
-        let session = ChatSession(
-            container,
-            instructions: systemPrompt,
-            generateParameters: params
-        )
-
-        currentSession = session
-        currentSystemPrompt = systemPrompt
-        currentSessionUserTurnCount = 0
-
-        // Edge case: session was invalidated mid-conversation (model switch, etc.)
-        // and caller is retrying with the full history. Replay earlier turns.
-        if userMessages.count > 1 {
-            for userMsg in userMessages.dropLast() {
-                _ = try await session.respond(to: userMsg.content)
-                currentSessionUserTurnCount += 1
+        let history: [Chat.Message] = turns.dropLast().map { turn in
+            switch turn.role {
+            case "assistant": return .assistant(turn.content)
+            // Unknown roles are coerced to user (defensive — not expected in practice).
+            default: return .user(turn.content)
             }
         }
-
-        return (session, lastUserMessage)
+        return (instructions, history, last.content)
     }
 
     // MARK: - Generate
@@ -139,16 +118,34 @@ actor MLXInference {
         messages: [(role: String, content: String)],
         config: GenerationConfig = .default
     ) async throws -> String {
+        guard let container = modelContainer else {
+            throw MLXInferenceError.modelNotLoaded
+        }
         guard !isGenerating else { throw MLXInferenceError.busy }
         isGenerating = true
         defer { isGenerating = false }
 
-        let (session, lastUserMessage) = try await resolveSession(
-            messages: messages, config: config
+        let (instructions, history, latestUserMessage) =
+            try Self.buildSessionInputs(from: messages)
+
+        let params = GenerateParameters(
+            maxTokens: config.maxTokens,
+            temperature: config.temperature,
+            topP: config.topP,
+            repetitionPenalty: config.repetitionPenalty
         )
-        let result = try await session.respond(to: lastUserMessage)
-        currentSessionUserTurnCount += 1
-        return result
+
+        // Fresh session every call. The history seeded here is the *real* conversation;
+        // prefill happens lazily on the first respond() call (~100-200ms for 2-3 turns
+        // on a 3B model — imperceptible).
+        let session = ChatSession(
+            container,
+            instructions: instructions,
+            history: history,
+            generateParameters: params
+        )
+
+        return try await session.respond(to: latestUserMessage)
     }
 
     /// Generates a streaming response. Returns an AsyncThrowingStream of string chunks.
@@ -156,31 +153,47 @@ actor MLXInference {
         messages: [(role: String, content: String)],
         config: GenerationConfig = .default
     ) throws -> AsyncThrowingStream<String, Error> {
-        guard modelContainer != nil else {
+        guard let container = modelContainer else {
             throw MLXInferenceError.modelNotLoaded
         }
         guard !isGenerating else { throw MLXInferenceError.busy }
         isGenerating = true
 
-        let capturedMessages = messages
+        // Build inputs synchronously up-front so a malformed messages array fails before
+        // the stream is created (callers expect throws here, not via the stream).
+        let inputs: (instructions: String?, history: [Chat.Message], latestUserMessage: String)
+        do {
+            inputs = try Self.buildSessionInputs(from: messages)
+        } catch {
+            isGenerating = false
+            throw error
+        }
+
+        let params = GenerateParameters(
+            maxTokens: config.maxTokens,
+            temperature: config.temperature,
+            topP: config.topP,
+            repetitionPenalty: config.repetitionPenalty
+        )
+
         return AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let (session, lastUserMessage) = try await self.resolveSession(
-                        messages: capturedMessages, config: config
+                    let session = ChatSession(
+                        container,
+                        instructions: inputs.instructions,
+                        history: inputs.history,
+                        generateParameters: params
                     )
                     // MLX ChatSession.streamResponse yields DELTAS (just the new tokens).
                     // We accumulate and yield CUMULATIVE strings so ResultView can consume
                     // them uniformly — matching Apple FoundationModels' `partial.content` format.
-                    let stream = session.streamResponse(to: lastUserMessage)
+                    let stream = session.streamResponse(to: inputs.latestUserMessage)
                     var accumulated = ""
                     for try await delta in stream {
                         accumulated += delta
                         continuation.yield(accumulated)
                     }
-                    // Only count the turn after stream completes successfully.
-                    // If cancelled mid-stream, the mismatch triggers a fresh session next time.
-                    self.currentSessionUserTurnCount += 1
                     self.isGenerating = false
                     continuation.finish()
                 } catch {
@@ -196,9 +209,6 @@ actor MLXInference {
     /// Unloads the model and frees memory.
     func unload() {
         modelContainer = nil
-        currentSession = nil
-        currentSystemPrompt = nil
-        currentSessionUserTurnCount = 0
         // Clear busy flag so a stuck stream (e.g., from model switch) doesn't
         // permanently lock out new generations.
         isGenerating = false

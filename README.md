@@ -29,7 +29,9 @@ Run custom actions, locally. </h3>
   <img src="assets/cai-demo.gif" width="720" alt="Cai demo — select text, press ⌥C, pick an action">
 </p>
 
-Other tools store your clipboard. Cai acts on it. Select any text or image, press **⌥C**, and run AI prompts, shell scripts, or connectors like GitHub and Linear — without switching apps. One hotkey, no config, everything runs locally.
+## What
+
+Select any text or image anywhere, press **⌥C**, and run AI prompts, shell scripts, or connectors like GitHub and Linear **without the app switching**. One hotkey, no config, everything runs locally.
 
 No cloud. No telemetry. No accounts.
 

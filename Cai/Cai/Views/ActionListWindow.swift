@@ -1232,6 +1232,12 @@ struct ActionListWindow: View {
                         showDestinationsManagement = false
                         showSettings = true
                     }
+                },
+                onBrowseExtensions: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showDestinationsManagement = false
+                        showExtensionBrowser = true
+                    }
                 }
             )
         } else if showExtensionBrowser {
@@ -1258,6 +1264,12 @@ struct ActionListWindow: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showShortcutsManagement = false
                         showSettings = true
+                    }
+                },
+                onBrowseExtensions: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showShortcutsManagement = false
+                        showExtensionBrowser = true
                     }
                 }
             )

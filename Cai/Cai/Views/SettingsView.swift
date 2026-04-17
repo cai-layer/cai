@@ -76,7 +76,7 @@ struct SettingsView: View {
                                         .font(.system(size: 12, design: .monospaced))
                                         .accessibilityLabel("Claude model name")
 
-                                    Text("Model ID \u{2014} e.g. claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6")
+                                    Text("Model ID, e.g. claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6")
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
 
@@ -86,6 +86,50 @@ struct SettingsView: View {
                                         .accessibilityLabel("Anthropic API key")
 
                                     Text("API key from [console.anthropic.com](https://console.anthropic.com/)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                } else if settings.modelProvider == .openrouter {
+                                    SecureField("sk-or-v1-...", text: $settings.openRouterApiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .accessibilityLabel("OpenRouter API key")
+
+                                    Text("API key from [openrouter.ai/keys](https://openrouter.ai/keys)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+                                    // Model picker: populated from OpenRouter's /v1/models.
+                                    // Falls back to the typed slug if the fetch hasn't happened yet
+                                    // (offline / key not entered) so the user isn't locked out.
+                                    HStack(spacing: 8) {
+                                        Picker("", selection: $settings.openRouterModelName) {
+                                            if !availableModels.contains(settings.openRouterModelName) {
+                                                Text(settings.openRouterModelName.isEmpty
+                                                     ? CaiSettings.defaultOpenRouterModel
+                                                     : settings.openRouterModelName)
+                                                    .tag(settings.openRouterModelName)
+                                            }
+                                            ForEach(availableModels, id: \.self) { model in
+                                                Text(model).tag(model)
+                                            }
+                                        }
+                                        .labelsHidden()
+                                        .pickerStyle(.menu)
+                                        .accessibilityLabel("OpenRouter model")
+                                        .disabled(availableModels.isEmpty)
+
+                                        Button(action: { fetchAvailableModels() }) {
+                                            Image(systemName: "arrow.clockwise")
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundColor(.caiTextSecondary)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Refresh model list")
+                                    }
+
+                                    Text(availableModels.isEmpty
+                                         ? "Enter your API key to load the model list"
+                                         : "\(availableModels.count) models available")
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
                                 } else {
@@ -147,6 +191,11 @@ struct SettingsView: View {
                             }
                             .onChange(of: settings.anthropicModelName) { forceCheckLLMStatus() }
                             .onChange(of: settings.anthropicApiKey) { forceCheckLLMStatus() }
+                            .onChange(of: settings.openRouterModelName) { forceCheckLLMStatus() }
+                            .onChange(of: settings.openRouterApiKey) {
+                                forceCheckLLMStatus()
+                                fetchAvailableModels()
+                            }
                             .onChange(of: settings.apiKey) { forceCheckLLMStatus() }
                             .onChange(of: settings.customModelURL) { forceCheckLLMStatus(); fetchAvailableModels() }
                             .onChange(of: settings.modelName) { forceCheckLLMStatus() }

@@ -78,8 +78,21 @@ actor LLMService {
     private var cachedModelName: String?
 
     /// Applies the API key as a Bearer token if one is configured.
+    /// Picks the right key per provider so OpenRouter's key doesn't clobber
+    /// a local LM Studio / Ollama setup (and vice versa).
     private func applyAuth(to request: inout URLRequest) async {
-        let key = await MainActor.run { CaiSettings.shared.apiKey }
+        let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+        let key: String
+        switch provider {
+        case .openrouter:
+            key = await MainActor.run { CaiSettings.shared.openRouterApiKey }
+            // OpenRouter uses these for traffic attribution on their model leaderboards.
+            // Harmless to send, helps us show up as a known client.
+            request.setValue("https://getcai.app", forHTTPHeaderField: "HTTP-Referer")
+            request.setValue("Cai", forHTTPHeaderField: "X-Title")
+        default:
+            key = await MainActor.run { CaiSettings.shared.apiKey }
+        }
         if !key.isEmpty {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
@@ -112,7 +125,7 @@ actor LLMService {
             return checkAppleFMStatus()
         }
 
-        // Anthropic — check API key is configured. No validation call — Anthropic's
+        // Anthropic, check API key is configured. No validation call, Anthropic's
         // API has quirks with lightweight probe requests (intermittent temperature/top_p
         // rejection on alias model IDs). Real errors surface on first action instead.
         if provider == .anthropic {
@@ -122,6 +135,19 @@ actor LLMService {
             }
             let model = await MainActor.run { CaiSettings.shared.anthropicModelName }
             return Status(available: true, modelName: model, error: nil)
+        }
+
+        // OpenRouter, check API key is configured. Don't probe /v1/models, the
+        // list is hundreds of entries long and the user has already picked a
+        // specific slug via openRouterModelName. Real errors surface on first action.
+        if provider == .openrouter {
+            let key = await MainActor.run { CaiSettings.shared.openRouterApiKey }
+            if key.isEmpty {
+                return Status(available: false, modelName: nil, error: "No API key")
+            }
+            let model = await MainActor.run { CaiSettings.shared.openRouterModelName }
+            let resolved = model.isEmpty ? CaiSettings.defaultOpenRouterModel : model
+            return Status(available: true, modelName: resolved, error: nil)
         }
 
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
@@ -172,6 +198,13 @@ actor LLMService {
             let model = await MainActor.run { CaiSettings.shared.anthropicModelName }
             return [model]
         }
+        // OpenRouter: only query if the user has entered a key. Their /v1/models
+        // endpoint is actually open to unauth'd callers, but we want the list to
+        // act as a key validity signal, so no key means no list.
+        if provider == .openrouter {
+            let key = await MainActor.run { CaiSettings.shared.openRouterApiKey }
+            if key.isEmpty { return [] }
+        }
 
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
         guard !baseURL.isEmpty,
@@ -191,7 +224,13 @@ actor LLMService {
             }
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let models = json["data"] as? [[String: Any]] {
-                return models.compactMap { $0["id"] as? String }
+                let ids = models.compactMap { $0["id"] as? String }
+                // OpenRouter returns models in popularity / recency order, which
+                // isn't scannable when there are 400+ of them. Sort for that case.
+                if provider == .openrouter {
+                    return ids.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                }
+                return ids
             }
         } catch {}
         return []
@@ -406,16 +445,23 @@ actor LLMService {
             throw LLMError.invalidURL
         }
 
-        // Use user-specified model name if set, otherwise auto-detect
-        let userModel = await MainActor.run { CaiSettings.shared.modelName }
+        // Use user-specified model name if set, otherwise auto-detect.
+        // OpenRouter has its own dedicated slug field since auto-detect against
+        // their /v1/models (hundreds of entries) would pick a random first model.
         let modelToUse: String
-        if !userModel.isEmpty {
-            modelToUse = userModel
+        if provider == .openrouter {
+            let slug = await MainActor.run { CaiSettings.shared.openRouterModelName }
+            modelToUse = slug.isEmpty ? CaiSettings.defaultOpenRouterModel : slug
         } else {
-            if cachedModelName == nil {
-                _ = await checkStatus()
+            let userModel = await MainActor.run { CaiSettings.shared.modelName }
+            if !userModel.isEmpty {
+                modelToUse = userModel
+            } else {
+                if cachedModelName == nil {
+                    _ = await checkStatus()
+                }
+                modelToUse = cachedModelName ?? ""
             }
-            modelToUse = cachedModelName ?? ""
         }
 
         let body = ChatRequest(

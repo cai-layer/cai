@@ -1090,10 +1090,13 @@ struct ActionListWindow: View {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
                         await MainActor.run {
-                            ClipboardService.shared.pasteResult(trimmed, toBundleId: bundleId) {
+                            ClipboardService.shared.pasteResult(trimmed, toBundleId: bundleId) { success in
+                                let message = success
+                                    ? "Replaced selection"
+                                    : "Could not paste. Check Accessibility permission."
                                 NotificationCenter.default.post(
                                     name: .caiShowToast, object: nil,
-                                    userInfo: ["message": "Replaced selection"]
+                                    userInfo: ["message": message]
                                 )
                             }
                         }
@@ -1589,8 +1592,15 @@ struct ActionListWindow: View {
     // MARK: - Output Destinations
 
     private func executeDestination(_ destination: OutputDestination, with text: String) {
-        // Always copy to clipboard first
-        SystemActions.copyToClipboard(text)
+        // Copy to clipboard as a fallback "you can paste this somewhere" side-effect.
+        // Skipped for .pasteBack because pasteResult snapshots the pasteboard first,
+        // and if we clobber it here that snapshot captures the AI text instead of
+        // whatever the user had on their clipboard, defeating the whole point.
+        if case .pasteBack = destination.type {
+            // handled entirely inside pasteResult
+        } else {
+            SystemActions.copyToClipboard(text)
+        }
 
         Task {
             do {

@@ -36,12 +36,15 @@ actor OutputDestinationService {
     // MARK: - Paste Back
 
     private func executePasteBack(text: String, sourceBundleId: String?) async throws {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let success = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             Task { @MainActor in
-                ClipboardService.shared.pasteResult(text, toBundleId: sourceBundleId) {
-                    continuation.resume()
+                ClipboardService.shared.pasteResult(text, toBundleId: sourceBundleId) { success in
+                    continuation.resume(returning: success)
                 }
             }
+        }
+        if !success {
+            throw OutputDestinationError.pasteBackFailed
         }
     }
 

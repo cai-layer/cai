@@ -191,6 +191,7 @@ enum OutputDestinationError: LocalizedError {
     case shellFailed(Int, String)
     case notConfigured(String)
     case timeout
+    case pasteBackFailed
 
     var errorDescription: String? {
         switch self {
@@ -206,6 +207,8 @@ enum OutputDestinationError: LocalizedError {
             return "Missing setup: \(field)"
         case .timeout:
             return "Operation timed out"
+        case .pasteBackFailed:
+            return "Could not paste the response. Check Accessibility permission."
         }
     }
 }

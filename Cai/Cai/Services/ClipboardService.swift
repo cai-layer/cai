@@ -89,23 +89,23 @@ class ClipboardService {
 
     /// Pastes `text` into the app identified by `bundleId` by simulating Cmd+V.
     ///
-    /// Flow: re-activate the source app (Cai has stolen focus by now), briefly wait
-    /// for the activation to take effect, overwrite the general pasteboard with
-    /// `text`, post Cmd+V via CGEvent (same private-source + flag-override trick as
-    /// copy), then restore the prior pasteboard contents after a short delay so the
-    /// user's clipboard isn't left holding the AI result.
+    /// Flow: snapshot the whole pasteboard (every item, every type) so images,
+    /// file URLs, and rich text survive the round trip. Re-activate the source
+    /// app (Cai has stolen focus by now), briefly wait for the activation to
+    /// take effect, overwrite the pasteboard with `text`, post Cmd+V via CGEvent
+    /// (same private-source + flag-override trick as copy), then restore the
+    /// snapshot after a short delay.
     ///
-    /// Requirements mirror `copySelectedText`: Accessibility permission, App Sandbox
-    /// disabled. Keycode for V is 9 (kVK_ANSI_V).
-    func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping () -> Void) {
+    /// `completion(true)` is called only if the paste was actually posted.
+    /// Any early exit (CGEventSource creation fail, CGEvent build fail) restores
+    /// the snapshot first and calls `completion(false)` so callers can show an
+    /// accurate "something broke" toast instead of a misleading success.
+    ///
+    /// Requirements mirror `copySelectedText`: Accessibility permission, App
+    /// Sandbox disabled. Keycode for V is 9 (kVK_ANSI_V).
+    func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping (Bool) -> Void) {
         let pasteboard = NSPasteboard.general
-
-        // Snapshot the current pasteboard string so we can restore it afterwards.
-        // Only the primary string representation is preserved. Rich content (images,
-        // file URLs) is not, which is an accepted trade-off: pasteResult is only
-        // reached from an LLM text flow where the user's prior selection already
-        // lives on the pasteboard as a string.
-        let priorString = pasteboard.string(forType: .string)
+        let snapshot = PasteboardSnapshot(pasteboard)
 
         // Re-activate the source app if known. Without this, Cmd+V would be
         // delivered to Cai (frontmost after the panel became key).
@@ -124,7 +124,8 @@ class ClipboardService {
 
             guard let eventSource = CGEventSource(stateID: .privateState) else {
                 print("❌ Failed to create CGEventSource for paste")
-                completion()
+                snapshot.restore(to: pasteboard)
+                completion(false)
                 return
             }
 
@@ -133,7 +134,8 @@ class ClipboardService {
             guard let keyDown = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCodeV, keyDown: true),
                   let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCodeV, keyDown: false) else {
                 print("❌ Failed to create CGEvent for paste")
-                completion()
+                snapshot.restore(to: pasteboard)
+                completion(false)
                 return
             }
 
@@ -145,16 +147,48 @@ class ClipboardService {
 
             print("⌨️ Posted Cmd+V via CGEvent to \(bundleId ?? "frontmost app")")
 
-            // Restore the prior pasteboard after a delay long enough for the target
-            // app to consume our text. 400ms is conservative: fast apps finish the
-            // paste in ~50ms, slow Electron apps can take ~200ms.
+            // Restore the snapshot after a delay long enough for the target
+            // app to consume our text. 400ms is conservative: fast apps finish
+            // the paste in ~50ms, slow Electron apps can take ~200ms.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                pasteboard.clearContents()
-                if let priorString = priorString {
-                    pasteboard.setString(priorString, forType: .string)
-                }
-                completion()
+                snapshot.restore(to: pasteboard)
+                completion(true)
             }
+        }
+    }
+
+    /// Snapshot of every NSPasteboardItem on the pasteboard at a moment in time.
+    /// Captures every declared type per item as raw Data, so images, file URLs,
+    /// RTF, plain text etc. all survive a clear + restore cycle. NSPasteboardItem
+    /// instances themselves are invalidated by `clearContents()`, so we can't
+    /// just hang on to the original objects: we have to extract the data eagerly
+    /// and rebuild fresh items on restore.
+    private struct PasteboardSnapshot {
+        private let items: [[NSPasteboard.PasteboardType: Data]]
+
+        init(_ pasteboard: NSPasteboard) {
+            self.items = pasteboard.pasteboardItems?.map { item in
+                var dict: [NSPasteboard.PasteboardType: Data] = [:]
+                for type in item.types {
+                    if let data = item.data(forType: type) {
+                        dict[type] = data
+                    }
+                }
+                return dict
+            } ?? []
+        }
+
+        func restore(to pasteboard: NSPasteboard) {
+            pasteboard.clearContents()
+            guard !items.isEmpty else { return }
+            let fresh = items.map { dict -> NSPasteboardItem in
+                let item = NSPasteboardItem()
+                for (type, data) in dict {
+                    item.setData(data, forType: type)
+                }
+                return item
+            }
+            pasteboard.writeObjects(fresh)
         }
     }
 

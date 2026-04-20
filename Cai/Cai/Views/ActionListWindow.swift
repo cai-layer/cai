@@ -140,7 +140,8 @@ struct ActionListWindow: View {
                     subtitle: subtitle,
                     icon: sc.type.icon,
                     shortcut: shortcut,
-                    type: actionType
+                    type: actionType,
+                    autoReplaceSelection: sc.type == .prompt && sc.autoReplaceSelection
                 ))
                 shortcut += 1
             }
@@ -1072,6 +1073,45 @@ struct ActionListWindow: View {
             let prompts = LLMService.prompts(for: llmAction, text: clipboardText, appContext: app)
             let initialMessages = buildInitialMessages(systemPrompt: prompts.system, userPrompt: prompts.user)
             let config = GenerationConfig.forAction(llmAction)
+
+            // Fast-path: user-configured shortcut marked "auto replace selection".
+            // Skip the result view; dismiss Cai, generate in the background, then
+            // paste the response over the source app's selection via Cmd+V.
+            if action.autoReplaceSelection {
+                let bundleId = self.sourceBundleId
+                let shortcutName = action.title
+                onDismiss()
+                NotificationCenter.default.post(
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": "Generating: \(shortcutName)"]
+                )
+                Task {
+                    do {
+                        let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
+                        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                        await MainActor.run {
+                            ClipboardService.shared.pasteResult(trimmed, toBundleId: bundleId) { success in
+                                let message = success
+                                    ? "Replaced selection"
+                                    : "Could not paste. Check Accessibility permission."
+                                NotificationCenter.default.post(
+                                    name: .caiShowToast, object: nil,
+                                    userInfo: ["message": message]
+                                )
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .caiShowToast, object: nil,
+                                userInfo: ["message": "Error: \(error.localizedDescription)"]
+                            )
+                        }
+                    }
+                }
+                return
+            }
+
             conversationHistory = initialMessages
             activeConfig = config
             isFollowUpEnabled = true
@@ -1552,12 +1592,19 @@ struct ActionListWindow: View {
     // MARK: - Output Destinations
 
     private func executeDestination(_ destination: OutputDestination, with text: String) {
-        // Always copy to clipboard first
-        SystemActions.copyToClipboard(text)
+        // Copy to clipboard as a fallback "you can paste this somewhere" side-effect.
+        // Skipped for .pasteBack because pasteResult snapshots the pasteboard first,
+        // and if we clobber it here that snapshot captures the AI text instead of
+        // whatever the user had on their clipboard, defeating the whole point.
+        if case .pasteBack = destination.type {
+            // handled entirely inside pasteResult
+        } else {
+            SystemActions.copyToClipboard(text)
+        }
 
         Task {
             do {
-                try await OutputDestinationService.shared.execute(destination, with: text)
+                try await OutputDestinationService.shared.execute(destination, with: text, sourceBundleId: sourceBundleId)
                 await MainActor.run {
                     // Dismiss first — orderOut removes the main window from the
                     // display hierarchy so the toast's NSHostingView doesn't conflict.

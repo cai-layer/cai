@@ -52,6 +52,19 @@ struct BuiltInDestinations {
         showInActionList: false
     )
 
+    /// Replaces the user's current selection in the source app by simulating Cmd+V
+    /// after Cai hands focus back. Off by default so users opt in, since the
+    /// destructive overwrite behavior surprises people the first time.
+    static let pasteBack = OutputDestination(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+        name: "Replace Selection",
+        icon: "arrow.uturn.down.square",
+        type: .pasteBack,
+        isEnabled: false,
+        isBuiltIn: true,
+        showInActionList: false
+    )
+
     /// All built-in destinations, seeded on first launch
-    static let all: [OutputDestination] = [email, notes, reminders]
+    static let all: [OutputDestination] = [email, notes, reminders, pasteBack]
 }

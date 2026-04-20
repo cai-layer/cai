@@ -137,13 +137,34 @@ actor LLMService {
             return Status(available: true, modelName: model, error: nil)
         }
 
-        // OpenRouter, check API key is configured. Don't probe /v1/models, the
-        // list is hundreds of entries long and the user has already picked a
-        // specific slug via openRouterModelName. Real errors surface on first action.
+        // OpenRouter — probe /api/v1/key (auth-required) so the status indicator
+        // reflects whether the key actually works, not just whether the field
+        // is non-empty. /v1/models is public on OpenRouter so it would give a
+        // false-positive green on an invalid key.
         if provider == .openrouter {
             let key = await MainActor.run { CaiSettings.shared.openRouterApiKey }
             if key.isEmpty {
                 return Status(available: false, modelName: nil, error: "No API key")
+            }
+            guard let probeURL = URL(string: "https://openrouter.ai/api/v1/key") else {
+                return Status(available: false, modelName: nil, error: "Invalid probe URL")
+            }
+            var probe = URLRequest(url: probeURL)
+            probe.timeoutInterval = 5
+            probe.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            do {
+                let (_, response) = try await URLSession.shared.data(for: probe)
+                guard let http = response as? HTTPURLResponse else {
+                    return Status(available: false, modelName: nil, error: "Invalid response")
+                }
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    return Status(available: false, modelName: nil, error: "Invalid API key")
+                }
+                if http.statusCode != 200 {
+                    return Status(available: false, modelName: nil, error: "OpenRouter returned \(http.statusCode)")
+                }
+            } catch {
+                return Status(available: false, modelName: nil, error: "Cannot reach OpenRouter")
             }
             let model = await MainActor.run { CaiSettings.shared.openRouterModelName }
             let resolved = model.isEmpty ? CaiSettings.defaultOpenRouterModel : model
@@ -499,6 +520,11 @@ actor LLMService {
         }
 
         guard http.statusCode == 200 else {
+            // Auth failures are the #1 user-facing confusion for cloud providers.
+            // Surface a concrete action instead of the raw server body.
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw LLMError.serverError(http.statusCode, "Authentication failed — check your API key in Settings → Model Provider.")
+            }
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw LLMError.serverError(http.statusCode, body)
         }

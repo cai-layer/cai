@@ -36,9 +36,9 @@ Cai/Cai/
 ├── Models/
 │   ├── ActionItem.swift        # ActionItem, ActionType (.shortcutShell, .shortcutURL, etc.), LLMAction enums
 │   ├── CaiSettings.swift       # UserDefaults-backed settings (singleton), installedExtensions tracking
-│   ├── CaiShortcut.swift       # User-defined shortcut model (prompt, url, shell types)
-│   ├── OutputDestination.swift # Destination model, DestinationType, WebhookConfig, SetupField
-│   ├── BuiltInDestinations.swift # Pre-defined destinations (Email, Notes, Reminders)
+│   ├── CaiShortcut.swift       # User-defined shortcut model (prompt, url, shell types; prompt has optional autoReplaceSelection)
+│   ├── OutputDestination.swift # Destination model, DestinationType (incl. .pasteBack), WebhookConfig, SetupField
+│   ├── BuiltInDestinations.swift # Pre-defined destinations (Replace Selection, Email, Notes, Reminders)
 │   └── MCPModels.swift         # MCP types: MCPServerConfig, MCPActionConfig, MCPFieldConfig, MCPError
 ├── Services/
 │   ├── WindowController.swift  # Floating panel, keyboard routing, event monitors
@@ -89,8 +89,8 @@ Cai/Cai/
 ## Feature Overview
 
 - **[Core flow](_docs/architecture/ARCHITECTURE.md#core-flow)**: Option+C → CGEvent Cmd+C → ContentDetector → ActionGenerator → ActionListWindow
-- **[Custom actions](_docs/architecture/ARCHITECTURE.md#custom-shortcuts)**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView. (Code still uses `CaiShortcut` / `shortcuts` internally.)
-- **[Output destinations](_docs/architecture/ARCHITECTURE.md#output-destinations)**: Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type.
+- **[Custom actions](_docs/architecture/ARCHITECTURE.md#custom-shortcuts)**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView. Prompt-type shortcuts support an optional `autoReplaceSelection` flag that pastes the LLM result directly over the source selection, skipping the result view. (Code still uses `CaiShortcut` / `shortcuts` internally.)
+- **[Output destinations](_docs/architecture/ARCHITECTURE.md#output-destinations)**: Replace Selection, Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type. Replace Selection pastes the result over the user's selection in the source app via simulated ⌘V.
 - **[Community extensions](_docs/architecture/ARCHITECTURE.md#community-extensions)**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
 - **[Built-in LLM](_docs/architecture/ARCHITECTURE.md#built-in-llm)**: In-process MLX-Swift inference on Apple Silicon. Auto-download Ministral 3B 4-bit from mlx-community. Curated model picker + custom HuggingFace model support. See also [`_docs/architecture/LLM.md`](_docs/architecture/LLM.md).
 - **[Crash reporting](_docs/architecture/ARCHITECTURE.md#crash-reporting-sentry)**: Opt-in Sentry, disabled by default. No PII.

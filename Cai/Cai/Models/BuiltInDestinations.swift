@@ -52,19 +52,20 @@ struct BuiltInDestinations {
         showInActionList: false
     )
 
-    /// Replaces the user's current selection in the source app by simulating Cmd+V
-    /// after Cai hands focus back. Off by default so users opt in, since the
-    /// destructive overwrite behavior surprises people the first time.
+    /// Replaces the user's current selection in the source app by pasting the
+    /// LLM result. Enabled by default and shown first (Cmd+1) because
+    /// replace-in-place is the highest-leverage destination for most users.
     static let pasteBack = OutputDestination(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
         name: "Replace Selection",
         icon: "arrow.uturn.down.square",
         type: .pasteBack,
-        isEnabled: false,
+        isEnabled: true,
         isBuiltIn: true,
         showInActionList: false
     )
 
-    /// All built-in destinations, seeded on first launch
-    static let all: [OutputDestination] = [email, notes, reminders, pasteBack]
+    /// All built-in destinations, seeded on first launch.
+    /// Order matters — it drives Cmd+1, Cmd+2, … shortcuts in the result view.
+    static let all: [OutputDestination] = [pasteBack, email, notes, reminders]
 }

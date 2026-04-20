@@ -34,6 +34,7 @@ class CaiSettings: ObservableObject {
         static let installedExtensions = "cai_installedExtensions"
         static let appearance = "cai_appearance"
         static let anthropicModelName = "cai_anthropicModelName"
+        static let migratedPasteBackDefaultsV3 = "cai_migratedPasteBackDefaultsV3"
         // apiKey moved to Keychain — see KeychainHelper
     }
 
@@ -415,13 +416,35 @@ class CaiSettings: ObservableObject {
             // `BuiltInDestinations.all` won't appear otherwise.
             let existingIds = Set(decoded.map(\.id))
             let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
-            if missingBuiltIns.isEmpty {
-                self.outputDestinations = decoded
-            } else {
-                self.outputDestinations = decoded + missingBuiltIns
+            var working = missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns
+
+            // One-shot migration: promote Replace Selection to on-by-default and
+            // position 0 (Cmd+1). Runs once per user; after that, their order and
+            // enabled state is their own. Intentionally overrides explicit opt-out
+            // from the brief window where paste-back shipped as off-by-default.
+            var migrationChanged = !missingBuiltIns.isEmpty
+            if !defaults.bool(forKey: Keys.migratedPasteBackDefaultsV3) {
+                let pasteBackId = BuiltInDestinations.pasteBack.id
+                if let idx = working.firstIndex(where: { $0.id == pasteBackId }) {
+                    var pasteBack = working.remove(at: idx)
+                    pasteBack.isEnabled = true
+                    working.insert(pasteBack, at: 0)
+                    migrationChanged = true
+                }
+                defaults.set(true, forKey: Keys.migratedPasteBackDefaultsV3)
+            }
+
+            self.outputDestinations = working
+            // didSet doesn't fire during init, so persist by hand when a
+            // migration mutated the list — otherwise it re-runs every launch.
+            if migrationChanged, let data = try? JSONEncoder().encode(working) {
+                defaults.set(data, forKey: Keys.outputDestinations)
             }
         } else {
             self.outputDestinations = BuiltInDestinations.all
+            // Fresh install — canonical order already matches, just set the flag
+            // so the migration doesn't run next launch.
+            defaults.set(true, forKey: Keys.migratedPasteBackDefaultsV3)
         }
 
         let installedSlugs = defaults.stringArray(forKey: Keys.installedExtensions) ?? []

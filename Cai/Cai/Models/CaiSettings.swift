@@ -34,6 +34,7 @@ class CaiSettings: ObservableObject {
         static let installedExtensions = "cai_installedExtensions"
         static let appearance = "cai_appearance"
         static let anthropicModelName = "cai_anthropicModelName"
+        static let openRouterModelName = "cai_openRouterModelName"
         static let migratedPasteBackDefaultsV3 = "cai_migratedPasteBackDefaultsV3"
         // apiKey moved to Keychain — see KeychainHelper
     }
@@ -46,6 +47,7 @@ class CaiSettings: ObservableObject {
         case lmstudio = "LM Studio"
         case ollama = "Ollama"
         case anthropic = "Anthropic"
+        case openrouter = "OpenRouter"
         case custom = "Custom"
 
         var id: String { rawValue }
@@ -76,10 +78,11 @@ class CaiSettings: ObservableObject {
         var defaultURL: String {
             switch self {
             case .builtIn: return "http://127.0.0.1:8690"
-            case .apple: return ""  // No HTTP endpoint — uses FoundationModels framework
+            case .apple: return ""  // No HTTP endpoint, uses FoundationModels framework.
             case .lmstudio: return "http://127.0.0.1:1234"
             case .ollama: return "http://127.0.0.1:11434"
             case .anthropic: return "https://api.anthropic.com"
+            case .openrouter: return "https://openrouter.ai/api"
             case .custom: return ""
             }
         }
@@ -197,19 +200,31 @@ class CaiSettings: ObservableObject {
             return modelProvider.defaultURL
         case .anthropic:
             return "https://api.anthropic.com"
+        case .openrouter:
+            return "https://openrouter.ai/api"
         case .custom:
             return customModelURL
         }
     }
 
     /// Anthropic model name (e.g. "claude-sonnet-4-6").
-    /// Hardcoded picker in Settings — Anthropic has no /v1/models endpoint.
+    /// Hardcoded picker in Settings, Anthropic has no /v1/models endpoint.
     @Published var anthropicModelName: String {
         didSet { defaults.set(anthropicModelName, forKey: Keys.anthropicModelName) }
     }
 
     /// Default Anthropic model ID. Users can override in Settings.
     static let defaultAnthropicModel = "claude-sonnet-4-6"
+
+    /// OpenRouter model slug (e.g. "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet").
+    /// Routed through OpenRouter's OpenAI-compatible chat completions endpoint.
+    /// Users pick the slug from the model list at openrouter.ai/models.
+    @Published var openRouterModelName: String {
+        didSet { defaults.set(openRouterModelName, forKey: Keys.openRouterModelName) }
+    }
+
+    /// Default OpenRouter model slug. Cheap and fast, a reasonable starting point.
+    static let defaultOpenRouterModel = "openai/gpt-4o-mini"
 
     /// HuggingFace model ID for the built-in MLX model (e.g., "mlx-community/Ministral-3-3B-Instruct-2512-4bit")
     @Published var builtInModelId: String {
@@ -252,13 +267,26 @@ class CaiSettings: ObservableObject {
     }
 
     /// Dedicated API key for Anthropic (Claude API). Separate from `apiKey` to prevent
-    /// cross-provider key leakage — Anthropic uses `x-api-key` header, not Bearer.
+    /// cross-provider key leakage, Anthropic uses `x-api-key` header, not Bearer.
     @Published var anthropicApiKey: String {
         didSet {
             if anthropicApiKey.isEmpty {
                 KeychainHelper.delete(forKey: "cai_anthropicApiKey")
             } else {
                 KeychainHelper.set(anthropicApiKey, forKey: "cai_anthropicApiKey")
+            }
+        }
+    }
+
+    /// Dedicated API key for OpenRouter. Kept separate from the shared `apiKey`
+    /// so users can configure OpenRouter alongside a local LM Studio / Ollama
+    /// server without the keys getting crossed.
+    @Published var openRouterApiKey: String {
+        didSet {
+            if openRouterApiKey.isEmpty {
+                KeychainHelper.delete(forKey: "cai_openRouterApiKey")
+            } else {
+                KeychainHelper.set(openRouterApiKey, forKey: "cai_openRouterApiKey")
             }
         }
     }
@@ -380,6 +408,9 @@ class CaiSettings: ObservableObject {
         self.anthropicModelName = defaults.string(forKey: Keys.anthropicModelName)
             ?? Self.defaultAnthropicModel
 
+        self.openRouterModelName = defaults.string(forKey: Keys.openRouterModelName)
+            ?? Self.defaultOpenRouterModel
+
         // API key: read from Keychain, migrate from UserDefaults if needed
         if let keychainKey = KeychainHelper.get(forKey: "cai_apiKey") {
             self.apiKey = keychainKey
@@ -397,6 +428,13 @@ class CaiSettings: ObservableObject {
             self.anthropicApiKey = anthropicKey
         } else {
             self.anthropicApiKey = ""
+        }
+
+        // OpenRouter API key: separate Keychain entry
+        if let openRouterKey = KeychainHelper.get(forKey: "cai_openRouterApiKey") {
+            self.openRouterApiKey = openRouterKey
+        } else {
+            self.openRouterApiKey = ""
         }
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue

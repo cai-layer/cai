@@ -84,10 +84,25 @@ class WindowController: NSObject, ObservableObject {
         }
     }
 
-    /// Fixed window height — always shows space for 9 rows (Spotlight-style).
+    /// Default / minimum window height. Sized to show `maxVisibleRows` rows (Spotlight-style).
+    /// The window is vertically resizable: users can drag the bottom edge to grow it,
+    /// useful for the Settings screens and long result bodies. Width stays pinned.
     private static var fixedWindowHeight: CGFloat {
         let contentHeight = maxVisibleRows * rowHeight + listVerticalPadding
         return headerHeight + dividerHeight + contentHeight + dividerHeight + footerHeight
+    }
+
+    private static let heightKey = "cai_windowHeight"
+
+    private static func saveWindowHeight(_ height: CGFloat) {
+        UserDefaults.standard.set(Double(height), forKey: heightKey)
+    }
+
+    private static func loadWindowHeight() -> CGFloat? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: heightKey) != nil else { return nil }
+        let height = CGFloat(defaults.double(forKey: heightKey))
+        return height >= fixedWindowHeight ? height : nil
     }
 
     /// Shows the action window in settings mode (triggered by menu bar left-click).
@@ -179,7 +194,7 @@ class WindowController: NSObject, ObservableObject {
         // Reset selection state
         selectionState = SelectionState()
 
-        let windowHeight = Self.fixedWindowHeight
+        let windowHeight = Self.loadWindowHeight() ?? Self.fixedWindowHeight
 
         // Create dismiss/execute closures
         let dismissAction: () -> Void = { [weak self] in
@@ -207,18 +222,21 @@ class WindowController: NSObject, ObservableObject {
         // to avoid double-handling).
         let hostingView = KeyEventHostingView(
             rootView: actionList
-                .frame(width: Self.windowWidth, height: windowHeight)
+                .frame(width: Self.windowWidth)
         )
         hostingView.frame = NSRect(x: 0, y: 0, width: Self.windowWidth, height: windowHeight)
+        hostingView.autoresizingMask = [.width, .height]  // follow panel when user drags to resize
         hostingView.wantsLayer = true
         hostingView.layer?.cornerRadius = Self.cornerRadius
         hostingView.layer?.cornerCurve = .continuous
         hostingView.layer?.masksToBounds = true
 
-        // Create borderless CaiPanel (custom subclass that returns YES from canBecomeKey)
+        // Create borderless resizable CaiPanel (custom subclass returns YES from canBecomeKey).
+        // `.resizable` lets the user drag the bottom edge to grow the window; min/max
+        // size pin the width so only vertical resize is possible.
         let panel = CaiPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.windowWidth, height: windowHeight),
-            styleMask: [.borderless],
+            styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -228,6 +246,8 @@ class WindowController: NSObject, ObservableObject {
         panel.level = .floating
         panel.isMovableByWindowBackground = true  // Drag to reposition
         panel.contentView = hostingView
+        panel.minSize = NSSize(width: Self.windowWidth, height: Self.fixedWindowHeight)
+        panel.maxSize = NSSize(width: Self.windowWidth, height: .greatestFiniteMagnitude)
 
         // Allow the panel to become key so we receive keyboard events
         panel.isFloatingPanel = true
@@ -263,9 +283,10 @@ class WindowController: NSObject, ObservableObject {
     }
 
     func hideWindow() {
-        // Save window position before dismissing
-        if let origin = window?.frame.origin {
-            Self.saveWindowPosition(origin)
+        // Save window position and resized height before dismissing
+        if let frame = window?.frame {
+            Self.saveWindowPosition(frame.origin)
+            Self.saveWindowHeight(frame.height)
         }
         removeEventMonitors()
 

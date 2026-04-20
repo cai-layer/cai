@@ -19,6 +19,11 @@ struct SettingsView: View {
     @State private var availableModels: [String] = []
     /// Debounce task for LLM status checks (prevents API call storms during typing)
     @State private var statusCheckTask: Task<Void, Never>?
+    /// Debounce task for model list fetches (prevents API call storms during key paste/typing)
+    @State private var modelFetchTask: Task<Void, Never>?
+    /// Set to true when the last model fetch completed with an empty list while a key was present.
+    /// Used to tell the user "unable to load" vs "haven't tried yet".
+    @State private var modelListFetchFailed: Bool = false
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -76,7 +81,7 @@ struct SettingsView: View {
                                         .font(.system(size: 12, design: .monospaced))
                                         .accessibilityLabel("Claude model name")
 
-                                    Text("Model ID \u{2014} e.g. claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6")
+                                    Text("Model ID, e.g. claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6")
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
 
@@ -86,6 +91,57 @@ struct SettingsView: View {
                                         .accessibilityLabel("Anthropic API key")
 
                                     Text("API key from [console.anthropic.com](https://console.anthropic.com/)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                } else if settings.modelProvider == .openrouter {
+                                    SecureField("sk-or-v1-...", text: $settings.openRouterApiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .accessibilityLabel("OpenRouter API key")
+
+                                    Text("API key from [openrouter.ai/keys](https://openrouter.ai/keys)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+                                    // Model selection: the text field is always editable so users can
+                                    // paste a slug manually (offline, fetch failed, or slug not yet in the list).
+                                    // When OpenRouter's /v1/models has been fetched, a picker is shown too
+                                    // for quick browsing.
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        TextField("openrouter/model-slug", text: $settings.openRouterModelName)
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.system(size: 12, design: .monospaced))
+                                            .accessibilityLabel("OpenRouter model slug")
+
+                                        HStack(spacing: 8) {
+                                            if !availableModels.isEmpty {
+                                                Picker("", selection: $settings.openRouterModelName) {
+                                                    if !availableModels.contains(settings.openRouterModelName) {
+                                                        Text(settings.openRouterModelName.isEmpty
+                                                             ? CaiSettings.defaultOpenRouterModel
+                                                             : settings.openRouterModelName)
+                                                            .tag(settings.openRouterModelName)
+                                                    }
+                                                    ForEach(availableModels, id: \.self) { model in
+                                                        Text(model).tag(model)
+                                                    }
+                                                }
+                                                .labelsHidden()
+                                                .pickerStyle(.menu)
+                                                .accessibilityLabel("OpenRouter model")
+                                            }
+
+                                            Button(action: { fetchAvailableModels(debounce: false) }) {
+                                                Image(systemName: "arrow.clockwise")
+                                                    .font(.system(size: 10, weight: .medium))
+                                                    .foregroundColor(.caiTextSecondary)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("Refresh model list")
+                                        }
+                                    }
+
+                                    Text(openRouterModelListHelperText)
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
                                 } else {
@@ -147,6 +203,11 @@ struct SettingsView: View {
                             }
                             .onChange(of: settings.anthropicModelName) { forceCheckLLMStatus() }
                             .onChange(of: settings.anthropicApiKey) { forceCheckLLMStatus() }
+                            .onChange(of: settings.openRouterModelName) { forceCheckLLMStatus() }
+                            .onChange(of: settings.openRouterApiKey) {
+                                forceCheckLLMStatus()
+                                fetchAvailableModels(debounce: true)
+                            }
                             .onChange(of: settings.apiKey) { forceCheckLLMStatus() }
                             .onChange(of: settings.customModelURL) { forceCheckLLMStatus(); fetchAvailableModels() }
                             .onChange(of: settings.modelName) { forceCheckLLMStatus() }
@@ -797,13 +858,42 @@ struct SettingsView: View {
         }
     }
 
-    private func fetchAvailableModels() {
-        Task {
+    /// Fetches the active provider's model list. Pass `debounce: true` when this is triggered
+    /// by a fast-changing input (like the api key field) so we don't hit the provider on every
+    /// keystroke/paste chunk. Any in-flight fetch is cancelled when a new one starts.
+    private func fetchAvailableModels(debounce: Bool = false) {
+        modelFetchTask?.cancel()
+        modelFetchTask = Task {
+            if debounce {
+                try? await Task.sleep(for: .milliseconds(800))
+                guard !Task.isCancelled else { return }
+            }
             let models = await LLMService.shared.availableModels()
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 availableModels = models
+                // For providers that use a key (openrouter), empty list after a fetch attempt
+                // with a key present means the call failed (network, 401, 429, etc.).
+                modelListFetchFailed = models.isEmpty && !settings.openRouterApiKey.isEmpty
+                    && settings.modelProvider == .openrouter
             }
         }
+    }
+
+    /// Helper text under the OpenRouter model selector. Distinguishes "haven't entered a key yet"
+    /// from "key present but fetch returned nothing" so users aren't misled into thinking the key
+    /// step is still missing.
+    private var openRouterModelListHelperText: String {
+        if !availableModels.isEmpty {
+            return "\(availableModels.count) models available"
+        }
+        if settings.openRouterApiKey.isEmpty {
+            return "Enter a model slug above, or add your API key to load the model list"
+        }
+        if modelListFetchFailed {
+            return "Unable to load model list. Try refreshing."
+        }
+        return "Loading model list…"
     }
 
     // MARK: - Permission Indicator

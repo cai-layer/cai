@@ -48,6 +48,10 @@ enum DestinationType: Equatable {
     case webhook(WebhookConfig)
     case deeplink(template: String)
     case shell(command: String)
+    /// Pastes the result over the current selection in the source app
+    /// (the app that was frontmost when Cai was invoked). No template:
+    /// the LLM result text is pasted verbatim via simulated Cmd+V.
+    case pasteBack
 
     var label: String {
         switch self {
@@ -55,6 +59,7 @@ enum DestinationType: Equatable {
         case .webhook: return "Webhook"
         case .deeplink: return "Deeplink"
         case .shell: return "Shell Command"
+        case .pasteBack: return "Replace Selection"
         }
     }
 
@@ -65,6 +70,7 @@ enum DestinationType: Equatable {
         case .webhook: return "webhook"
         case .deeplink: return "deeplink"
         case .shell: return "shell"
+        case .pasteBack: return "pasteBack"
         }
     }
 }
@@ -73,7 +79,7 @@ enum DestinationType: Equatable {
 
 extension DestinationType: Codable {
     private enum CodingKeys: String, CodingKey {
-        case applescript, webhook, deeplink, shell
+        case applescript, webhook, deeplink, shell, pasteBack
         case urlScheme // legacy
     }
 
@@ -100,6 +106,8 @@ extension DestinationType: Codable {
         } else if container.contains(.shell) {
             let nested = try container.nestedContainer(keyedBy: NestedKeys.self, forKey: .shell)
             self = .shell(command: try nested.decode(String.self, forKey: .command))
+        } else if container.contains(.pasteBack) {
+            self = .pasteBack
         } else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: decoder.codingPath,
@@ -123,6 +131,9 @@ extension DestinationType: Codable {
         case .shell(let command):
             var nested = container.nestedContainer(keyedBy: NestedKeys.self, forKey: .shell)
             try nested.encode(command, forKey: .command)
+        case .pasteBack:
+            // No associated value: presence of the key is the signal.
+            try container.encode(true, forKey: .pasteBack)
         }
     }
 }
@@ -180,6 +191,7 @@ enum OutputDestinationError: LocalizedError {
     case shellFailed(Int, String)
     case notConfigured(String)
     case timeout
+    case pasteBackFailed
 
     var errorDescription: String? {
         switch self {
@@ -195,6 +207,8 @@ enum OutputDestinationError: LocalizedError {
             return "Missing setup: \(field)"
         case .timeout:
             return "Operation timed out"
+        case .pasteBackFailed:
+            return "Could not paste the response. Check Accessibility permission."
         }
     }
 }

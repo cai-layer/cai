@@ -9,6 +9,9 @@ struct ActionItem: Identifiable {
     let icon: String  // SF Symbol name
     let shortcut: Int
     let type: ActionType
+    /// Set by shortcut-driven actions where the user has opted in to
+    /// auto-pasting the LLM response back over their selection.
+    var autoReplaceSelection: Bool = false
 }
 
 enum ActionType {

@@ -10,6 +10,10 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
     var name: String
     var type: ShortcutType
     var value: String  // prompt text or URL template with %s
+    /// When true (prompt-type only), the LLM response is pasted straight over
+    /// the user's current selection in the source app, skipping the result
+    /// review UI. Defaults to false.
+    var autoReplaceSelection: Bool
 
     enum ShortcutType: String, Codable, CaseIterable {
         case prompt
@@ -41,10 +45,26 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         }
     }
 
-    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String) {
+    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false) {
         self.id = id
         self.name = name
         self.type = type
         self.value = value
+        self.autoReplaceSelection = autoReplaceSelection
+    }
+
+    // Custom decoder so previously-persisted shortcuts (without the flag) still
+    // decode, defaulting to false.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.type = try c.decode(ShortcutType.self, forKey: .type)
+        self.value = try c.decode(String.self, forKey: .value)
+        self.autoReplaceSelection = try c.decodeIfPresent(Bool.self, forKey: .autoReplaceSelection) ?? false
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, type, value, autoReplaceSelection
     }
 }

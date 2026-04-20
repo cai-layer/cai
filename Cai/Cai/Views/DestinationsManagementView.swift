@@ -567,6 +567,11 @@ struct DestinationsManagementView: View {
         case .shell(let command):
             formTypeTag = "shell"
             formShellCommand = command
+        case .pasteBack:
+            // pasteBack is built-in only and has no configurable fields, so the
+            // edit form is never reached via this case. Fall back to webhook defaults
+            // to avoid leaving form state uninitialized if an extension ever tries.
+            formTypeTag = "webhook"
         }
     }
 
@@ -680,6 +685,10 @@ struct DestinationsManagementView: View {
                 .map { "  \($0)" }.joined(separator: "\n")
             yaml += "\ntype: applescript"
             yaml += "\napplescript: |\n\(indented)"
+
+        case .pasteBack:
+            // pasteBack is built-in only; not shareable as an extension.
+            return
         }
 
         // Setup fields

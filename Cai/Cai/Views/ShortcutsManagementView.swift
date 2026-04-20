@@ -15,6 +15,7 @@ struct ShortcutsManagementView: View {
     @State private var formName: String = ""
     @State private var formType: CaiShortcut.ShortcutType = .prompt
     @State private var formValue: String = ""
+    @State private var formAutoReplace: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -189,6 +190,7 @@ struct ShortcutsManagementView: View {
                 formName = shortcut.name
                 formType = shortcut.type
                 formValue = shortcut.value
+                formAutoReplace = shortcut.autoReplaceSelection
                 editingShortcutId = shortcut.id
                 WindowController.passThrough = true
             }) {
@@ -309,6 +311,23 @@ struct ShortcutsManagementView: View {
                 }
             }
 
+            // Auto replace selection, prompt-type only
+            if formType == .prompt {
+                Toggle(isOn: $formAutoReplace) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Auto replace selection")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.caiTextPrimary)
+                        Text("Paste the response over your selection and skip the review screen.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.caiTextSecondary.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+
             // Save / Cancel buttons
             HStack(spacing: 8) {
                 Button("Cancel") {
@@ -358,8 +377,11 @@ struct ShortcutsManagementView: View {
         let trimmedValue = formValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedValue.isEmpty else { return }
 
+        // Only the prompt type supports auto-replace; other types silently drop it.
+        let autoReplace = formType == .prompt && formAutoReplace
+
         if isNew {
-            let shortcut = CaiShortcut(name: trimmedName, type: formType, value: trimmedValue)
+            let shortcut = CaiShortcut(name: trimmedName, type: formType, value: trimmedValue, autoReplaceSelection: autoReplace)
             withAnimation(.easeInOut(duration: 0.15)) {
                 settings.shortcuts.append(shortcut)
             }
@@ -369,6 +391,7 @@ struct ShortcutsManagementView: View {
                 settings.shortcuts[index].name = trimmedName
                 settings.shortcuts[index].type = formType
                 settings.shortcuts[index].value = trimmedValue
+                settings.shortcuts[index].autoReplaceSelection = autoReplace
             }
         }
 
@@ -384,6 +407,7 @@ struct ShortcutsManagementView: View {
         formName = ""
         formType = .prompt
         formValue = ""
+        formAutoReplace = false
     }
 
     // MARK: - Share as Extension

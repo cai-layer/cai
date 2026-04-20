@@ -385,7 +385,16 @@ class CaiSettings: ObservableObject {
 
         if let data = defaults.data(forKey: Keys.outputDestinations),
            let decoded = try? JSONDecoder().decode([OutputDestination].self, from: data) {
-            self.outputDestinations = decoded
+            // Seed any built-in destinations added after the user's first launch.
+            // Existing users loaded `decoded` from UserDefaults, so new entries in
+            // `BuiltInDestinations.all` won't appear otherwise.
+            let existingIds = Set(decoded.map(\.id))
+            let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
+            if missingBuiltIns.isEmpty {
+                self.outputDestinations = decoded
+            } else {
+                self.outputDestinations = decoded + missingBuiltIns
+            }
         } else {
             self.outputDestinations = BuiltInDestinations.all
         }

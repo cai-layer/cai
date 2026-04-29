@@ -105,32 +105,50 @@ class ClipboardHistory: ObservableObject {
         }
     }
 
+    /// Background queue for pasteboard reads. NSPasteboard.string(forType:) is an XPC
+    /// call to `pboardd`; running it on main blocks the runloop for seconds when the
+    /// daemon is slow (large clipboard payloads, system under load), producing app
+    /// hangs. Vision OCR is even worse (50–200ms). We keep the cheap changeCount
+    /// check on main and dispatch the actual reads here.
+    private static let pasteboardQueue = DispatchQueue(label: "app.cai.clipboard-history", qos: .utility)
+
+    /// Guards against piling up multiple in-flight reads if a fetch takes longer
+    /// than the 0.5s timer interval (e.g. OCR on a huge image).
+    private var fetchInFlight = false
+
     /// Check if the pasteboard has new content
     private func checkForChanges() {
         let pasteboard = NSPasteboard.general
         let currentCount = pasteboard.changeCount
 
         guard currentCount != lastChangeCount else { return }
+        guard !fetchInFlight else { return }
         lastChangeCount = currentCount
+        fetchInFlight = true
 
-        // 1. Image file on clipboard (e.g. Finder copy) — OCR takes priority over filename text
-        if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
-            addEntry(ocrText, isImage: true)
-            return
-        }
+        Self.pasteboardQueue.async { [weak self] in
+            defer { DispatchQueue.main.async { self?.fetchInFlight = false } }
+            guard let self = self else { return }
 
-        // 2. Try text
-        if let text = pasteboard.string(forType: .string) {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                addEntry(trimmed)
+            // 1. Image file on clipboard (e.g. Finder copy) — OCR takes priority over filename text
+            if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
+                DispatchQueue.main.async { self.addEntry(ocrText, isImage: true) }
                 return
             }
-        }
 
-        // 3. Image data on clipboard (no file, no text) — OCR
-        if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
-            addEntry(ocrText, isImage: true)
+            // 2. Try text
+            if let text = pasteboard.string(forType: .string) {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    DispatchQueue.main.async { self.addEntry(trimmed) }
+                    return
+                }
+            }
+
+            // 3. Image data on clipboard (no file, no text) — OCR
+            if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
+                DispatchQueue.main.async { self.addEntry(ocrText, isImage: true) }
+            }
         }
     }
 

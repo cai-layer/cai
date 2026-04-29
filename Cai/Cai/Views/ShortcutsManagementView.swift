@@ -392,7 +392,12 @@ struct ShortcutsManagementView: View {
 
     private func saveForm(isNew: Bool, shortcutId: UUID?) {
         let trimmedName = formName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedValue = formValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Normalize smart/curly quotes to straight quotes — macOS's smart-quote
+        // autocorrect silently replaces typed quotes in text fields, and zsh
+        // (Shell type) + URL schemes only understand straight quotes.
+        let trimmedValue = formValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .normalizingSmartQuotes()
         guard !trimmedName.isEmpty, !trimmedValue.isEmpty else { return }
 
         // Only the prompt type supports auto-replace; other types silently drop it.

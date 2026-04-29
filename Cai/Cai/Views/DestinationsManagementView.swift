@@ -533,21 +533,24 @@ struct DestinationsManagementView: View {
     // MARK: - Form Helpers
 
     private func buildDestinationType() -> DestinationType {
+        // Normalize smart/curly quotes in template fields — macOS's smart-quote
+        // autocorrect silently replaces typed quotes, and zsh, URL schemes,
+        // AppleScript, and JSON webhook bodies only understand straight quotes.
         switch formTypeTag {
         case "applescript":
-            return .applescript(template: formAppleScript)
+            return .applescript(template: formAppleScript.normalizingSmartQuotes())
         case "webhook":
             let headers = parseHeaders(formWebhookHeaders)
             return .webhook(WebhookConfig(
-                url: formWebhookURL,
+                url: formWebhookURL.normalizingSmartQuotes(),
                 method: formWebhookMethod,
                 headers: headers,
-                bodyTemplate: formWebhookBody
+                bodyTemplate: formWebhookBody.normalizingSmartQuotes()
             ))
         case "deeplink":
-            return .deeplink(template: formDeeplink)
+            return .deeplink(template: formDeeplink.normalizingSmartQuotes())
         case "shell":
-            return .shell(command: formShellCommand)
+            return .shell(command: formShellCommand.normalizingSmartQuotes())
         default:
             return .webhook(WebhookConfig(url: "", bodyTemplate: ""))
         }

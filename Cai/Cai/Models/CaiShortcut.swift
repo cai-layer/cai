@@ -68,3 +68,30 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         case id, name, type, value, autoReplaceSelection
     }
 }
+
+// MARK: - Smart-quote normalization
+
+extension String {
+    /// Replaces macOS "smart quotes" (curly typographic quotes inserted
+    /// automatically by NSTextView / SwiftUI TextField when Substitutions →
+    /// Smart Quotes is on) with straight ASCII quotes. Shell (zsh), URL
+    /// schemes, JSON, and AppleScript all reject curly quotes — a user
+    /// pasting or typing `'{{result}}'` into a Shortcut or Destination
+    /// template gets `'{{result}}'`, which fails at runtime with an
+    /// unhelpful "command not found" or parse error.
+    ///
+    /// Applied at save-time in ShortcutsManagementView and
+    /// DestinationsManagementView. Not applied to user clipboard text —
+    /// only to template definitions where curly quotes have no valid use.
+    func normalizingSmartQuotes() -> String {
+        self
+            .replacingOccurrences(of: "\u{2018}", with: "'")   // ' left single
+            .replacingOccurrences(of: "\u{2019}", with: "'")   // ' right single
+            .replacingOccurrences(of: "\u{201A}", with: "'")   // ‚ low single
+            .replacingOccurrences(of: "\u{201B}", with: "'")   // ‛ reversed single
+            .replacingOccurrences(of: "\u{201C}", with: "\"")  // " left double
+            .replacingOccurrences(of: "\u{201D}", with: "\"")  // " right double
+            .replacingOccurrences(of: "\u{201E}", with: "\"")  // „ low double
+            .replacingOccurrences(of: "\u{201F}", with: "\"")  // ‟ reversed double
+    }
+}

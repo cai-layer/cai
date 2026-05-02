@@ -3,7 +3,7 @@
 Quick reference for Claude Code. For the full docs map (when to read what), see [`_docs/INDEX.md`](_docs/INDEX.md).
 
 ## Design System
-Always read [`_docs/design/DESIGN.md`](_docs/design/DESIGN.md) before making any visual or UI decisions.
+Always read [`docs/design/DESIGN.md`](docs/design/DESIGN.md) before making any visual or UI decisions.
 All color tokens, typography sizes, spacing, border radii, animation curves, and component patterns are defined there.
 Do not deviate from the design system without explicit user approval.
 In QA mode, flag any code that doesn't match DESIGN.md.

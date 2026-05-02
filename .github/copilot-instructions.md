@@ -139,4 +139,4 @@ Flag navigations that leave filter state set.
 ## ⚪ Design tokens (nice to have)
 
 - Colors come from `CaiColors.swift` — flag hardcoded hex, `Color(red:green:blue:)`, or raw system colors (`Color.blue`, `.gray`, `.black`, `.white`). `caiPrimary` is the only hardcoded brand color — everything else must be an NSColor-adaptive token for Light/Dark mode.
-- Read `_docs/design/DESIGN.md` before approving visual changes.
+- Read `docs/design/DESIGN.md` before approving visual changes.

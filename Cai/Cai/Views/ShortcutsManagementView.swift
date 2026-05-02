@@ -16,6 +16,7 @@ struct ShortcutsManagementView: View {
     @State private var formType: CaiShortcut.ShortcutType = .prompt
     @State private var formValue: String = ""
     @State private var formAutoReplace: Bool = false
+    @State private var formPinned: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,6 +73,8 @@ struct ShortcutsManagementView: View {
                             formName = ""
                             formType = .prompt
                             formValue = ""
+                            formAutoReplace = false
+                            formPinned = false
                             isAddingNew = true
                             WindowController.passThrough = true
                         }) {
@@ -179,9 +182,17 @@ struct ShortcutsManagementView: View {
 
             // Name + value preview
             VStack(alignment: .leading, spacing: 1) {
-                Text(shortcut.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.caiTextPrimary)
+                HStack(spacing: 4) {
+                    Text(shortcut.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.caiTextPrimary)
+                    if shortcut.pinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.caiPrimary)
+                            .accessibilityLabel("Pinned to top of action list")
+                    }
+                }
 
                 Text(shortcut.value)
                     .font(.system(size: 11))
@@ -209,6 +220,7 @@ struct ShortcutsManagementView: View {
                 formType = shortcut.type
                 formValue = shortcut.value
                 formAutoReplace = shortcut.autoReplaceSelection
+                formPinned = shortcut.pinned
                 editingShortcutId = shortcut.id
                 WindowController.passThrough = true
             }) {
@@ -346,6 +358,21 @@ struct ShortcutsManagementView: View {
                 .controlSize(.mini)
             }
 
+            // Pin to top — applies to all types.
+            Toggle(isOn: $formPinned) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pin to top")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.caiTextPrimary)
+                    Text("Show this action above the built-ins and assign the first ⌘ numbers.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+
             // Save / Cancel buttons
             HStack(spacing: 8) {
                 Button("Cancel") {
@@ -392,14 +419,25 @@ struct ShortcutsManagementView: View {
 
     private func saveForm(isNew: Bool, shortcutId: UUID?) {
         let trimmedName = formName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedValue = formValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Normalize smart/curly quotes to straight quotes — macOS's smart-quote
+        // autocorrect silently replaces typed quotes in text fields, and zsh
+        // (Shell type) + URL schemes only understand straight quotes.
+        let trimmedValue = formValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .normalizingSmartQuotes()
         guard !trimmedName.isEmpty, !trimmedValue.isEmpty else { return }
 
         // Only the prompt type supports auto-replace; other types silently drop it.
         let autoReplace = formType == .prompt && formAutoReplace
 
         if isNew {
-            let shortcut = CaiShortcut(name: trimmedName, type: formType, value: trimmedValue, autoReplaceSelection: autoReplace)
+            let shortcut = CaiShortcut(
+                name: trimmedName,
+                type: formType,
+                value: trimmedValue,
+                autoReplaceSelection: autoReplace,
+                pinned: formPinned
+            )
             withAnimation(.easeInOut(duration: 0.15)) {
                 settings.shortcuts.append(shortcut)
             }
@@ -410,6 +448,7 @@ struct ShortcutsManagementView: View {
                 settings.shortcuts[index].type = formType
                 settings.shortcuts[index].value = trimmedValue
                 settings.shortcuts[index].autoReplaceSelection = autoReplace
+                settings.shortcuts[index].pinned = formPinned
             }
         }
 
@@ -426,6 +465,7 @@ struct ShortcutsManagementView: View {
         formType = .prompt
         formValue = ""
         formAutoReplace = false
+        formPinned = false
     }
 
     // MARK: - Share as Extension

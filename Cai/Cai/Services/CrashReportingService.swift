@@ -26,10 +26,33 @@ final class CrashReportingService {
             options.enableAutoPerformanceTracing = false
             options.enableCaptureFailedRequests = false
 
-            // Strip any remaining PII in beforeSend
+            // Strip any remaining PII in beforeSend, and drop known false-positive
+            // app hangs that originate inside third-party frameworks we can't fix.
             options.beforeSend = { event in
                 event.user = nil
                 event.serverName = nil
+
+                // Sparkle shows "no update found" / error alerts via NSAlert.runModal,
+                // which blocks the main runloop while the user reads the alert.
+                // Sentry's hang detector flags this as a 2s+ hang the moment the user
+                // takes >2s to click OK. It's a UX choice in Sparkle, not a bug in Cai.
+                // Drop these so they don't drown out real hangs.
+                //
+                // Scope the frame check to the App Hanging exception's own stacktrace
+                // (not all threads) — otherwise a Sparkle background thread doing an
+                // update check during an unrelated main-thread hang would mask the
+                // real signal.
+                if let hangException = event.exceptions?.first(where: { $0.type == "App Hanging" }) {
+                    let frames = hangException.stacktrace?.frames ?? []
+                    let inSparkle = frames.contains { frame in
+                        (frame.package?.contains("Sparkle") == true) ||
+                        (frame.module?.contains("Sparkle") == true) ||
+                        (frame.function?.contains("SPU") == true) ||
+                        (frame.function?.contains("Sparkle") == true)
+                    }
+                    if inSparkle { return nil }
+                }
+
                 return event
             }
 

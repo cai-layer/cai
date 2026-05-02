@@ -4,11 +4,10 @@
 
 <h1 align="center">Cai</h1>
 
-<h3 align="center">Press ⌥C on anything.
-Run custom actions, locally. </h3>
+<h3 align="center">Act on anything. Locally. </h3>
 
 <p align="center">
-  Select any text or image and transform with AI, scripts, shortcuts and more. </br>Zero app switching. 
+  Select any text or image and transform with custom AI, scripts, shortcuts and more. Zero app switching. 
 </p>
 
 <p align="center">

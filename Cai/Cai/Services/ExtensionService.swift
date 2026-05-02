@@ -45,9 +45,7 @@ struct ExtensionService {
         }
 
         #if DEBUG
-        if let raw = String(data: data, encoding: .utf8) {
-            print("[ExtensionService] Received \(data.count) bytes")
-        }
+        print("[ExtensionService] Received \(data.count) bytes")
         #endif
 
         return try JSONDecoder().decode([ExtensionEntry].self, from: data)

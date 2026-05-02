@@ -14,6 +14,9 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
     /// the user's current selection in the source app, skipping the result
     /// review UI. Defaults to false.
     var autoReplaceSelection: Bool
+    /// When true, this shortcut appears at the top of the default action list
+    /// (above built-ins) and consumes the first ⌘ numbers.
+    var pinned: Bool
 
     enum ShortcutType: String, Codable, CaseIterable {
         case prompt
@@ -45,16 +48,17 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         }
     }
 
-    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false) {
+    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false) {
         self.id = id
         self.name = name
         self.type = type
         self.value = value
         self.autoReplaceSelection = autoReplaceSelection
+        self.pinned = pinned
     }
 
-    // Custom decoder so previously-persisted shortcuts (without the flag) still
-    // decode, defaulting to false.
+    // Custom decoder so previously-persisted shortcuts (without newer flags)
+    // still decode, defaulting them to false.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(UUID.self, forKey: .id)
@@ -62,10 +66,11 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         self.type = try c.decode(ShortcutType.self, forKey: .type)
         self.value = try c.decode(String.self, forKey: .value)
         self.autoReplaceSelection = try c.decodeIfPresent(Bool.self, forKey: .autoReplaceSelection) ?? false
+        self.pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, type, value, autoReplaceSelection
+        case id, name, type, value, autoReplaceSelection, pinned
     }
 }
 

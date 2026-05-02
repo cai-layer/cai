@@ -108,40 +108,24 @@ struct ActionListWindow: View {
                     subtitle: action.subtitle,
                     icon: action.icon,
                     shortcut: shortcut,
-                    type: action.type
+                    type: action.type,
+                    autoReplaceSelection: action.autoReplaceSelection
                 ))
                 shortcut += 1
             }
         }
 
         // Add matching user shortcuts — any word prefix match on name.
-        let clipboardText = text
+        // Skip shortcuts already surfaced as pinned items in the searchable list.
+        let alreadyShown = Set(items.map(\.id))
         for sc in settings.shortcuts {
+            let id = "shortcut_\(sc.id.uuidString)"
+            guard !alreadyShown.contains(id) else { continue }
             if anyWordHasPrefix(sc.name, query: query) {
-                let actionType: ActionType
-                let subtitle: String
-                switch sc.type {
-                case .prompt:
-                    actionType = .llmAction(.custom(sc.value))
-                    subtitle = sc.value
-                case .url:
-                    actionType = .shortcutURL(sc.value)
-                    let preview = String(clipboardText.prefix(20))
-                    let suffix = clipboardText.count > 20 ? "…" : ""
-                    subtitle = sc.value.replacingOccurrences(of: "%s", with: preview + suffix)
-                case .shell:
-                    actionType = .shortcutShell(sc.value)
-                    subtitle = sc.value
-                }
-
-                items.append(ActionItem(
-                    id: "shortcut_\(sc.id.uuidString)",
-                    title: sc.name,
-                    subtitle: subtitle,
-                    icon: sc.type.icon,
-                    shortcut: shortcut,
-                    type: actionType,
-                    autoReplaceSelection: sc.type == .prompt && sc.autoReplaceSelection
+                items.append(ActionGenerator.actionItem(
+                    from: sc,
+                    clipboardText: text,
+                    shortcut: shortcut
                 ))
                 shortcut += 1
             }

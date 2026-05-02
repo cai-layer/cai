@@ -19,7 +19,13 @@ struct ActionGenerator {
         var items: [ActionItem] = []
         var shortcut = 1
 
-        // Ask AI (⌘1) — always first, for ALL content types
+        // Pinned custom shortcuts come first, ahead of Ask AI and all built-ins.
+        for sc in settings.shortcuts where sc.pinned {
+            items.append(actionItem(from: sc, clipboardText: text, shortcut: shortcut))
+            shortcut += 1
+        }
+
+        // Ask AI — first built-in.
         items.append(ActionItem(
             id: "custom_prompt",
             title: "Ask AI",
@@ -466,5 +472,40 @@ struct ActionGenerator {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
         let match = detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
         return match?.url?.absoluteString
+    }
+
+    /// Converts a `CaiShortcut` into an `ActionItem` for the action list.
+    /// Shared by `generateActions` (pinned shortcuts) and `ActionListWindow.filteredActions`
+    /// (filter-to-reveal) so the two paths stay in sync.
+    static func actionItem(
+        from sc: CaiShortcut,
+        clipboardText: String,
+        shortcut: Int
+    ) -> ActionItem {
+        let actionType: ActionType
+        let subtitle: String
+        switch sc.type {
+        case .prompt:
+            actionType = .llmAction(.custom(sc.value))
+            subtitle = sc.value
+        case .url:
+            actionType = .shortcutURL(sc.value)
+            let preview = String(clipboardText.prefix(20))
+            let suffix = clipboardText.count > 20 ? "…" : ""
+            subtitle = sc.value.replacingOccurrences(of: "%s", with: preview + suffix)
+        case .shell:
+            actionType = .shortcutShell(sc.value)
+            subtitle = sc.value
+        }
+
+        return ActionItem(
+            id: "shortcut_\(sc.id.uuidString)",
+            title: sc.name,
+            subtitle: subtitle,
+            icon: sc.type.icon,
+            shortcut: shortcut,
+            type: actionType,
+            autoReplaceSelection: sc.type == .prompt && sc.autoReplaceSelection
+        )
     }
 }

@@ -229,6 +229,7 @@ actor OutputDestinationService {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-c", resolved]
+        process.environment = Self.shellEnvironment()
 
         // Pass text as stdin
         let inputPipe = Pipe()
@@ -337,5 +338,21 @@ actor OutputDestinationService {
             context: context,
             sourceBundleId: sourceBundleId
         )
+    }
+
+    /// Environment for `/bin/zsh -c` subprocesses. Non-interactive zsh doesn't
+    /// source `.zshrc`, so Homebrew bin dirs are off PATH by default — every
+    /// shell shortcut/destination that calls `gh`, `jq`, `kubectl`, etc. fails
+    /// with "command not found" until the user hardcodes an absolute path.
+    /// Prepending the standard Homebrew paths fixes the 90% case without
+    /// pulling in the user's full dotfile state (which would be slow and
+    /// non-deterministic). Tools managed by nvm/pyenv/conda still need
+    /// absolute paths or wrappers.
+    static func shellEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let extraPaths = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin"
+        let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = "\(extraPaths):\(currentPath)"
+        return env
     }
 }

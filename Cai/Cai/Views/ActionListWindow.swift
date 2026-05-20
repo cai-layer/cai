@@ -1863,6 +1863,10 @@ struct ActionListWindow: View {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-c", resolved]
+        // Prepend Homebrew paths to PATH — non-interactive zsh doesn't source
+        // .zshrc, so gh/jq/kubectl etc. are otherwise unreachable without
+        // hardcoded absolute paths. See `OutputDestinationService.shellEnvironment`.
+        process.environment = OutputDestinationService.shellEnvironment()
 
         // Pass text as stdin
         let inputPipe = Pipe()

@@ -50,7 +50,7 @@ struct GenerationConfig {
         case .translate:
             return GenerationConfig(temperature: 0.0, topP: 0.9, maxTokens: 800, repetitionPenalty: nil)
         case .proofread:
-            return GenerationConfig(temperature: 0.0, topP: 0.9, maxTokens: 800, repetitionPenalty: nil)
+            return GenerationConfig(temperature: 0.0, topP: 0.9, maxTokens: 16384, repetitionPenalty: nil)
         case .define:
             return GenerationConfig(temperature: 0.1, topP: 0.9, maxTokens: 300, repetitionPenalty: nil)
         case .summarize:
@@ -60,7 +60,7 @@ struct GenerationConfig {
         case .reply:
             return GenerationConfig(temperature: 0.5, topP: 0.9, maxTokens: 500, repetitionPenalty: nil)
         case .custom:
-            return GenerationConfig(temperature: 0.6, topP: 0.95, maxTokens: 1024, repetitionPenalty: nil)
+            return GenerationConfig(temperature: 0.6, topP: 0.95, maxTokens: 16384, repetitionPenalty: nil)
         }
     }
 }
@@ -498,14 +498,14 @@ actor LLMService {
         let body = ChatRequest(
             model: modelToUse,
             messages: messages,
-            temperature: 0.3,
-            max_tokens: 1024
+            temperature: Double(config.temperature),
+            max_tokens: config.maxTokens
         )
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
+        request.timeoutInterval = 60
         request.httpBody = try JSONEncoder().encode(body)
         await applyAuth(to: &request)
 

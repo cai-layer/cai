@@ -495,12 +495,7 @@ actor LLMService {
             }
         }
 
-        let body = ChatRequest(
-            model: modelToUse,
-            messages: messages,
-            temperature: Double(config.temperature),
-            max_tokens: config.maxTokens
-        )
+        let body = ChatRequest.from(config: config, messages: messages, model: modelToUse)
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -944,11 +939,26 @@ actor LLMService {
 
 // MARK: - API Types
 
-private struct ChatRequest: Encodable {
+/// Internal (not private) so tests can verify request construction and encoding.
+/// Use `ChatRequest.from(config:messages:model:)` to build — never construct
+/// inline with hardcoded values (regression guard for #26).
+struct ChatRequest: Encodable {
     let model: String
     let messages: [ChatMessage]
     let temperature: Double
     let max_tokens: Int
+
+    /// Build an OpenAI-compatible request honoring the caller's `GenerationConfig`.
+    /// Regression guard for #26: temperature and max_tokens must come from `config`,
+    /// not hardcoded at the call site.
+    static func from(config: GenerationConfig, messages: [ChatMessage], model: String) -> ChatRequest {
+        ChatRequest(
+            model: model,
+            messages: messages,
+            temperature: Double(config.temperature),
+            max_tokens: config.maxTokens
+        )
+    }
 }
 
 private struct ChatResponse: Decodable {

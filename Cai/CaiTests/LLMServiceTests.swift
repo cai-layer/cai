@@ -413,4 +413,78 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertEqual(json["max_tokens"] as? Int, 512)
     }
 
+    // MARK: - Cloud (OpenAI-compatible) Request Types
+
+    func testChatRequestFromConfigForwardsTemperatureAndMaxTokens() throws {
+        // Regression guard for #26 (https://github.com/cai-layer/cai/issues/26).
+        // The cloud OpenAI-compatible branch previously hardcoded
+        // temperature: 0.3 and max_tokens: 1024 instead of using the caller's
+        // GenerationConfig. The factory must forward both values verbatim.
+        let config = GenerationConfig(
+            temperature: 0.7,
+            topP: 0.9,
+            maxTokens: 4096,
+            repetitionPenalty: nil
+        )
+        let messages = [ChatMessage(role: "user", content: "Hello")]
+
+        let request = ChatRequest.from(config: config, messages: messages, model: "openrouter/auto")
+
+        XCTAssertEqual(request.model, "openrouter/auto")
+        XCTAssertEqual(request.temperature, 0.7, accuracy: 0.0001,
+                       "temperature must come from config, not hardcoded")
+        XCTAssertEqual(request.max_tokens, 4096,
+                       "max_tokens must come from config, not hardcoded")
+        XCTAssertEqual(request.messages.count, 1)
+        XCTAssertEqual(request.messages.first?.role, "user")
+    }
+
+    func testChatRequestFromConfigUsesProofreadActionDefaults() throws {
+        // Verifies the factory composes correctly with GenerationConfig.forAction().
+        // Pre-fix, this combination would have been silently downgraded to
+        // temperature: 0.3 / max_tokens: 1024 on the cloud path.
+        let config = GenerationConfig.forAction(.proofread)
+        let request = ChatRequest.from(
+            config: config,
+            messages: [ChatMessage(role: "user", content: "test")],
+            model: "google/gemini-2.5-flash"
+        )
+
+        XCTAssertEqual(request.temperature, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(request.max_tokens, 16384,
+                       ".proofread maxTokens must reach the cloud request")
+    }
+
+    func testChatRequestEncodesAsOpenAICompatibleJSON() throws {
+        // Pin the wire format for OpenAI-compatible /v1/chat/completions endpoints
+        // (OpenRouter, LM Studio, Ollama, custom). A breaking rename here would
+        // silently fail at runtime against every cloud provider.
+        let request = ChatRequest(
+            model: "test-model",
+            messages: [
+                ChatMessage(role: "system", content: "You are helpful."),
+                ChatMessage(role: "user", content: "Hi"),
+            ],
+            temperature: 0.5,
+            max_tokens: 2048
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(json["model"] as? String, "test-model")
+        XCTAssertEqual(json["max_tokens"] as? Int, 2048)
+        // temperature is Double in the struct — encoded as a JSON number
+        let temperature = json["temperature"] as? Double
+        XCTAssertNotNil(temperature)
+        XCTAssertEqual(temperature ?? -1, 0.5, accuracy: 0.0001)
+
+        let messages = json["messages"] as! [[String: Any]]
+        XCTAssertEqual(messages.count, 2)
+        XCTAssertEqual(messages[0]["role"] as? String, "system")
+        XCTAssertEqual(messages[0]["content"] as? String, "You are helpful.")
+        XCTAssertEqual(messages[1]["role"] as? String, "user")
+        XCTAssertEqual(messages[1]["content"] as? String, "Hi")
+    }
+
 }

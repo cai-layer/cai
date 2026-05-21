@@ -24,6 +24,10 @@ struct ResultView: View {
 
     @State private var result: String = ""
     @State private var isLoading: Bool = true
+    /// True from stream start until completion or error. Drives the Esc-label
+    /// switch ("Cancel" while streaming, "Back" once done) so users discover
+    /// they can abort the in-flight LLM call.
+    @State private var isStreaming: Bool = false
     @State private var error: String?
 
     @FocusState private var isFollowUpFocused: Bool
@@ -176,7 +180,7 @@ struct ResultView: View {
 
             // Footer
             HStack {
-                KeyboardHint(key: "Esc", label: "Back")
+                KeyboardHint(key: "Esc", label: isStreaming ? "Cancel" : "Back")
                 Spacer()
                 if !isLoading && error == nil {
                     if showFollowUpInput {
@@ -196,8 +200,10 @@ struct ResultView: View {
             do {
                 if let streamGen = streamGenerator {
                     // Streaming: each chunk is the CUMULATIVE text so far
-                    // (not a delta). Both MLX ChatSession and Apple FoundationModels
+                    // (not a delta). MLX ChatSession, Apple FoundationModels, and
+                    // the cloud SSE path (LLMService.streamWithCloudProvider) all
                     // yield the full response-so-far on each update.
+                    isStreaming = true
                     let stream = try await streamGen()
                     for try await chunk in stream {
                         if isLoading {
@@ -206,6 +212,7 @@ struct ResultView: View {
                         }
                         result = chunk
                     }
+                    isStreaming = false
                     onResult?(result)
                 } else {
                     // Non-streaming: wait for full response
@@ -220,6 +227,7 @@ struct ResultView: View {
                 withAnimation(.easeOut(duration: 0.2)) {
                     self.error = error.localizedDescription
                     isLoading = false
+                    isStreaming = false
                 }
             }
         }

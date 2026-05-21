@@ -466,7 +466,8 @@ final class LLMServiceTests: XCTestCase {
                 ChatMessage(role: "user", content: "Hi"),
             ],
             temperature: 0.5,
-            max_tokens: 2048
+            max_tokens: 2048,
+            stream: nil
         )
 
         let data = try JSONEncoder().encode(request)
@@ -485,6 +486,126 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertEqual(messages[0]["content"] as? String, "You are helpful.")
         XCTAssertEqual(messages[1]["role"] as? String, "user")
         XCTAssertEqual(messages[1]["content"] as? String, "Hi")
+    }
+
+    // MARK: - Cloud Streaming (SSE)
+
+    func testChatRequestStreamingFromSetsStreamTrue() throws {
+        // The streaming factory must set `stream: true` in the JSON body.
+        // OpenAI-compatible servers won't emit SSE without this flag.
+        let config = GenerationConfig.forAction(.custom("polish this"))
+        let request = ChatRequest.streamingFrom(
+            config: config,
+            messages: [ChatMessage(role: "user", content: "Hi")],
+            model: "openrouter/auto"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(json["stream"] as? Bool, true,
+                       "streamingFrom must emit stream:true so SSE is enabled")
+        // Other fields still forwarded (regression guard for #26 continues to apply).
+        XCTAssertEqual(json["max_tokens"] as? Int, 16384)
+        XCTAssertEqual(json["model"] as? String, "openrouter/auto")
+    }
+
+    func testChatRequestFromOmitsStreamKey() throws {
+        // Non-streaming factory must NOT emit a `stream` key at all — keeps the
+        // wire format identical to pre-streaming for non-streaming callers, and
+        // matches the AnthropicRequest pattern of omitting nil fields.
+        let config = GenerationConfig.forAction(.proofread)
+        let request = ChatRequest.from(
+            config: config,
+            messages: [ChatMessage(role: "user", content: "Hi")],
+            model: "google/gemini-2.5-flash"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertNil(json["stream"],
+                     "non-streaming factory must not include `stream` in JSON")
+    }
+
+    // MARK: - SSE Parser
+
+    func testParseSSELineHandlesContentDelta() throws {
+        // Standard OpenAI SSE delta — a single content token.
+        let line = #"data: {"choices":[{"delta":{"content":"Hello"}}]}"#
+        let result = try LLMService.parseSSELine(line)
+        XCTAssertEqual(result, .content("Hello"))
+    }
+
+    func testParseSSELineHandlesDoneSentinel() throws {
+        // OpenAI marks end-of-stream with `data: [DONE]`. Parser must recognize it
+        // so the streaming function can finish cleanly.
+        let result = try LLMService.parseSSELine("data: [DONE]")
+        XCTAssertEqual(result, .done)
+    }
+
+    func testParseSSELineSkipsEmptyLine() throws {
+        // SSE separates events with blank lines — those must be silently skipped.
+        XCTAssertEqual(try LLMService.parseSSELine(""), .skip)
+        XCTAssertEqual(try LLMService.parseSSELine("   "), .skip)
+    }
+
+    func testParseSSELineSkipsLineWithoutDataPrefix() throws {
+        // Comments (lines starting with `:`) and `event:` lines are valid SSE
+        // but we don't use them — skip without error.
+        XCTAssertEqual(try LLMService.parseSSELine(": ping"), .skip)
+        XCTAssertEqual(try LLMService.parseSSELine("event: message"), .skip)
+        XCTAssertEqual(try LLMService.parseSSELine("id: 42"), .skip)
+    }
+
+    func testParseSSELineSkipsRoleOnlyDelta() throws {
+        // OpenAI's first SSE event in a stream carries only the role, no content.
+        // Must not error and must not yield empty content.
+        let line = #"data: {"choices":[{"delta":{"role":"assistant"}}]}"#
+        let result = try LLMService.parseSSELine(line)
+        XCTAssertEqual(result, .skip,
+                       "role-only deltas (no content field) must be skipped")
+    }
+
+    func testParseSSELineSkipsEmptyContentDelta() throws {
+        // A delta with content="" should not produce a yield (no visible text).
+        let line = #"data: {"choices":[{"delta":{"content":""}}]}"#
+        let result = try LLMService.parseSSELine(line)
+        XCTAssertEqual(result, .skip)
+    }
+
+    func testParseSSELineThrowsOnMalformedJSON() {
+        // Defensive: a malformed `data:` line should throw, not corrupt the stream.
+        let line = "data: {this is not json}"
+        XCTAssertThrowsError(try LLMService.parseSSELine(line)) { error in
+            guard case LLMError.invalidResponse = error else {
+                XCTFail("expected LLMError.invalidResponse, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testParseSSELineHandlesDataPrefixWithoutSpace() throws {
+        // The SSE spec allows `data:foo` (no space) or `data: foo`. Both must parse.
+        let line = #"data:{"choices":[{"delta":{"content":"X"}}]}"#
+        let result = try LLMService.parseSSELine(line)
+        XCTAssertEqual(result, .content("X"))
+    }
+
+    func testParseSSELineHandlesNullContentField() throws {
+        // Some providers emit `"content": null` instead of omitting the field.
+        // Must be treated identically to a role-only delta.
+        let line = #"data: {"choices":[{"delta":{"content":null}}]}"#
+        let result = try LLMService.parseSSELine(line)
+        XCTAssertEqual(result, .skip)
+    }
+
+    func testParseSSELineHandlesEmptyChoicesArray() throws {
+        // Some providers send a final SSE event with empty choices (e.g. usage stats).
+        // No content → skip without error.
+        let line = #"data: {"choices":[]}"#
+        let result = try LLMService.parseSSELine(line)
+        XCTAssertEqual(result, .skip)
     }
 
 }

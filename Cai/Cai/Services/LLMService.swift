@@ -77,6 +77,28 @@ actor LLMService {
     /// Used in generate() requests — some providers (LM Studio) require it.
     private var cachedModelName: String?
 
+    /// Resolves the model identifier to send in `ChatRequest.model` for an
+    /// OpenAI-compatible cloud provider. OpenRouter has a dedicated slug field
+    /// (auto-detect against `/v1/models` would pick a random first model from
+    /// hundreds); LM Studio / Ollama / custom URL use the user's `modelName`
+    /// or fall back to the cached autodetect.
+    /// Single source of truth for both `generateWithMessages` and
+    /// `streamWithCloudProvider`.
+    private func resolveCloudModel(provider: CaiSettings.ModelProvider) async -> String {
+        if provider == .openrouter {
+            let slug = await MainActor.run { CaiSettings.shared.openRouterModelName }
+            return slug.isEmpty ? CaiSettings.defaultOpenRouterModel : slug
+        }
+        let userModel = await MainActor.run { CaiSettings.shared.modelName }
+        if !userModel.isEmpty {
+            return userModel
+        }
+        if cachedModelName == nil {
+            _ = await checkStatus()
+        }
+        return cachedModelName ?? ""
+    }
+
     /// Applies the API key as a Bearer token if one is configured.
     /// Picks the right key per provider so OpenRouter's key doesn't clobber
     /// a local LM Studio / Ollama setup (and vice versa).
@@ -476,25 +498,7 @@ actor LLMService {
             throw LLMError.invalidURL
         }
 
-        // Use user-specified model name if set, otherwise auto-detect.
-        // OpenRouter has its own dedicated slug field since auto-detect against
-        // their /v1/models (hundreds of entries) would pick a random first model.
-        let modelToUse: String
-        if provider == .openrouter {
-            let slug = await MainActor.run { CaiSettings.shared.openRouterModelName }
-            modelToUse = slug.isEmpty ? CaiSettings.defaultOpenRouterModel : slug
-        } else {
-            let userModel = await MainActor.run { CaiSettings.shared.modelName }
-            if !userModel.isEmpty {
-                modelToUse = userModel
-            } else {
-                if cachedModelName == nil {
-                    _ = await checkStatus()
-                }
-                modelToUse = cachedModelName ?? ""
-            }
-        }
-
+        let modelToUse = await resolveCloudModel(provider: provider)
         let body = ChatRequest.from(config: config, messages: messages, model: modelToUse)
 
         var request = URLRequest(url: url)
@@ -641,12 +645,195 @@ actor LLMService {
         }
         #endif
 
-        // External providers (LM Studio, Ollama, custom): wrap full response as single-element stream
-        let fullResponse = try await generateWithMessages(messages, config: config)
-        return AsyncThrowingStream { continuation in
-            continuation.yield(fullResponse)
-            continuation.finish()
+        // Anthropic — SSE format differs (event types like content_block_delta).
+        // Wrapped as single-element stream for now; real streaming is a follow-up PR.
+        if provider == .anthropic {
+            let fullResponse = try await generateWithMessages(messages, config: config)
+            return AsyncThrowingStream { continuation in
+                continuation.yield(fullResponse)
+                continuation.finish()
+            }
         }
+
+        // OpenAI-compatible providers (OpenRouter, LM Studio, Ollama, custom URL): real SSE streaming.
+        return try await streamWithCloudProvider(messages, config: config)
+    }
+
+    // MARK: - Cloud SSE Streaming (OpenAI-compatible)
+
+    /// Streams a chat completion from an OpenAI-compatible endpoint via SSE.
+    /// Yields **cumulative** text on every chunk (matches Apple FM's contract,
+    /// keeps `ResultView.swift:203` unchanged: `result = chunk`).
+    ///
+    /// Errors during the request → throws before yielding anything.
+    /// Errors mid-stream → `continuation.finish(throwing:)` after partial yields.
+    /// Task cancellation → cancels the underlying URLSession task (via Swift's
+    /// async cancellation propagation through `URLSession.bytes`).
+    private func streamWithCloudProvider(
+        _ messages: [ChatMessage],
+        config: GenerationConfig
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
+        guard !baseURL.isEmpty,
+              baseURL.hasPrefix("http"),
+              let url = URL(string: "\(baseURL)/v1/chat/completions") else {
+            throw LLMError.invalidURL
+        }
+
+        let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+        let modelToUse = await resolveCloudModel(provider: provider)
+        let body = ChatRequest.streamingFrom(config: config, messages: messages, model: modelToUse)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+        request.httpBody = try JSONEncoder().encode(body)
+        await applyAuth(to: &request)
+
+        CrashReportingService.shared.addBreadcrumb(
+            category: "llm",
+            message: "cloud stream started: \(modelToUse)",
+            level: .info
+        )
+
+        // Open the byte stream + validate HTTP status before yielding any chunks.
+        // bytes(for:) is the first use of this API in Cai — Swift cancellation
+        // propagates through it to the URLSession task automatically.
+        let bytesResult: (URLSession.AsyncBytes, URLResponse)
+        do {
+            bytesResult = try await URLSession.shared.bytes(for: request)
+        } catch let urlError as URLError {
+            CrashReportingService.shared.addBreadcrumb(
+                category: "llm",
+                message: "LLM stream request failed: \(urlError.localizedDescription)",
+                level: .error
+            )
+            switch urlError.code {
+            case .timedOut:
+                throw LLMError.timeout
+            case .cannotConnectToHost, .networkConnectionLost, .cannotFindHost:
+                throw LLMError.connectionFailed
+            default:
+                throw LLMError.connectionFailed
+            }
+        }
+        let (bytes, response) = bytesResult
+
+        guard let http = response as? HTTPURLResponse else {
+            throw LLMError.invalidResponse
+        }
+
+        guard http.statusCode == 200 else {
+            // Drain whatever body the server sent (often a short JSON error).
+            // Bounded read so a misbehaving server can't pin us forever.
+            var errorBody = Data()
+            do {
+                for try await byte in bytes {
+                    errorBody.append(byte)
+                    if errorBody.count >= 4096 { break }
+                }
+            } catch {
+                // ignore — we already know the status is non-200
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw LLMError.serverError(http.statusCode, "Authentication failed — check your API key in Settings → Model Provider.")
+            }
+            let bodyString = String(data: errorBody, encoding: .utf8) ?? "Unknown error"
+            throw LLMError.serverError(http.statusCode, bodyString)
+        }
+
+        return AsyncThrowingStream { continuation in
+            let consumerTask = Task {
+                do {
+                    var accumulated = ""
+                    var sawAnyContent = false
+                    var loggedFirstChunk = false
+
+                    for try await line in bytes.lines {
+                        switch try Self.parseSSELine(line) {
+                        case .skip:
+                            continue
+                        case .done:
+                            if !sawAnyContent {
+                                continuation.finish(throwing: LLMError.emptyResponse)
+                                return
+                            }
+                            continuation.finish()
+                            return
+                        case .content(let text):
+                            accumulated += text
+                            sawAnyContent = true
+                            if !loggedFirstChunk {
+                                loggedFirstChunk = true
+                                CrashReportingService.shared.addBreadcrumb(
+                                    category: "llm",
+                                    message: "cloud stream first chunk",
+                                    level: .info
+                                )
+                            }
+                            continuation.yield(accumulated)
+                        }
+                    }
+
+                    // Stream ended without an explicit [DONE] sentinel.
+                    // Treat as success if we got any content, otherwise emptyResponse.
+                    if sawAnyContent {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(throwing: LLMError.emptyResponse)
+                    }
+                } catch {
+                    CrashReportingService.shared.addBreadcrumb(
+                        category: "llm",
+                        message: "cloud stream failed: \(error.localizedDescription)",
+                        level: .error
+                    )
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            // Propagate consumer cancellation (e.g. ResultView dismissal) to the
+            // URLSession byte stream.
+            continuation.onTermination = { _ in
+                consumerTask.cancel()
+            }
+        }
+    }
+
+    /// Pure parser for a single OpenAI-compatible SSE line. Separated from the
+    /// HTTP integration so it can be unit-tested without mocking URLSession.
+    ///
+    /// Returns:
+    /// - `.skip` for empty lines, lines without `data:` prefix, role-only deltas,
+    ///   or any delta whose `content` is missing/empty.
+    /// - `.done` for the `data: [DONE]` sentinel.
+    /// - `.content(text)` for a content delta.
+    ///
+    /// Throws `LLMError.invalidResponse` if a `data:` line carries malformed JSON.
+    static func parseSSELine(_ line: String) throws -> SSEParseResult {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return .skip }
+        guard trimmed.hasPrefix("data:") else { return .skip }
+        // Strip "data:" and any single optional space (SSE spec allows "data: " or "data:")
+        var payload = Substring(trimmed.dropFirst("data:".count))
+        if payload.first == " " { payload = payload.dropFirst() }
+
+        if payload == "[DONE]" { return .done }
+
+        guard let data = payload.data(using: .utf8) else {
+            throw LLMError.invalidResponse
+        }
+        let chunk: OpenAIStreamingChunk
+        do {
+            chunk = try JSONDecoder().decode(OpenAIStreamingChunk.self, from: data)
+        } catch {
+            throw LLMError.invalidResponse
+        }
+        guard let content = chunk.choices.first?.delta.content, !content.isEmpty else {
+            return .skip
+        }
+        return .content(content)
     }
 
     // MARK: - Anthropic (Claude API)
@@ -940,15 +1127,32 @@ actor LLMService {
 // MARK: - API Types
 
 /// Internal (not private) so tests can verify request construction and encoding.
-/// Use `ChatRequest.from(config:messages:model:)` to build — never construct
-/// inline with hardcoded values (regression guard for #26).
+/// Use `ChatRequest.from(config:messages:model:)` or `.streamingFrom(...)` to build —
+/// never construct inline with hardcoded values (regression guard for #26).
 struct ChatRequest: Encodable {
     let model: String
     let messages: [ChatMessage]
     let temperature: Double
     let max_tokens: Int
+    /// nil for non-streaming (key omitted from JSON), `true` for SSE streaming.
+    let stream: Bool?
 
-    /// Build an OpenAI-compatible request honoring the caller's `GenerationConfig`.
+    private enum CodingKeys: String, CodingKey {
+        case model, messages, temperature, max_tokens, stream
+    }
+
+    /// Custom encode so `stream` is omitted from JSON when nil — keeps the
+    /// non-streaming wire format identical to before streaming was added.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(model, forKey: .model)
+        try c.encode(messages, forKey: .messages)
+        try c.encode(temperature, forKey: .temperature)
+        try c.encode(max_tokens, forKey: .max_tokens)
+        try c.encodeIfPresent(stream, forKey: .stream)
+    }
+
+    /// Build a non-streaming OpenAI-compatible request honoring the caller's `GenerationConfig`.
     /// Regression guard for #26: temperature and max_tokens must come from `config`,
     /// not hardcoded at the call site.
     static func from(config: GenerationConfig, messages: [ChatMessage], model: String) -> ChatRequest {
@@ -956,9 +1160,44 @@ struct ChatRequest: Encodable {
             model: model,
             messages: messages,
             temperature: Double(config.temperature),
-            max_tokens: config.maxTokens
+            max_tokens: config.maxTokens,
+            stream: nil
         )
     }
+
+    /// Build a streaming OpenAI-compatible request (`stream: true`).
+    /// Used by `streamWithCloudProvider` for SSE responses.
+    static func streamingFrom(config: GenerationConfig, messages: [ChatMessage], model: String) -> ChatRequest {
+        ChatRequest(
+            model: model,
+            messages: messages,
+            temperature: Double(config.temperature),
+            max_tokens: config.maxTokens,
+            stream: true
+        )
+    }
+}
+
+/// SSE event payload from OpenAI-compatible streaming endpoints.
+/// Each `data:` line carries one of these (except `[DONE]`, which is a sentinel).
+private struct OpenAIStreamingChunk: Decodable {
+    struct Choice: Decodable {
+        struct Delta: Decodable {
+            /// Optional — first event of a stream usually carries only `role`,
+            /// tool-call deltas carry only `tool_calls`. Skip those without erroring.
+            let content: String?
+        }
+        let delta: Delta
+    }
+    let choices: [Choice]
+}
+
+/// Result of parsing a single SSE `data:` line (or any other line) from an
+/// OpenAI-compatible stream. Internal (not private) so unit tests can switch on it.
+enum SSEParseResult: Equatable {
+    case skip                 // empty line, missing `data:` prefix, or role-only/tool-only delta
+    case done                 // [DONE] sentinel — clean end of stream
+    case content(String)      // a content delta carrying visible text
 }
 
 private struct ChatResponse: Decodable {

@@ -864,79 +864,123 @@ struct ActionListWindow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .onAppear { fetchCurrentModel() }
+        // Re-fetch when any of the inputs that drive `resolvedChipModelName`
+        // change, so the chip updates live as the user edits Settings instead
+        // of waiting for the next Cai invocation.
+        .onChange(of: settings.modelProvider) { fetchCurrentModel() }
+        .onChange(of: settings.builtInModelId) { fetchCurrentModel() }
+        .onChange(of: settings.anthropicModelName) { fetchCurrentModel() }
+        .onChange(of: settings.openRouterModelName) { fetchCurrentModel() }
+        .onChange(of: settings.modelName) { fetchCurrentModel() }
     }
 
     private var modelChipView: some View {
-        Menu {
-            if settings.modelProvider == .builtIn {
-                // Built-in MLX: show curated models
-                ForEach(ModelCatalog.curatedModels, id: \.id) { model in
-                    Button(action: {
-                        guard model.id != settings.builtInModelId else { return }
-                        switchBuiltInModel(to: model.id, displayName: model.name)
-                    }) {
-                        HStack {
-                            Text("\(model.name) (\(model.size))")
-                            if model.id == settings.builtInModelId {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } else {
-                // External provider: list models from server API
-                if availableModels.isEmpty {
-                    Text("Loading models…")
-                } else {
-                    ForEach(availableModels, id: \.self) { model in
-                        Button(action: {
-                            settings.modelName = model
-                            currentModelName = shortenModelName(model)
-                        }) {
-                            HStack {
-                                Text(model)
-                                if model == resolvedFullModelName() {
-                                    Image(systemName: "checkmark")
+        // The chip is a quick-switch picker for providers with a small known
+        // model list (built-in MLX = curated catalog; LM Studio / Ollama = the
+        // local server's `/v1/models` response). For everything else, model
+        // selection happens only in Settings:
+        //   - Apple Intelligence: no choice to make
+        //   - Anthropic: no `/v1/models` endpoint, picker would always say "Loading…"
+        //   - OpenRouter: 400+ models, picker is unusable; also stored in a
+        //     dedicated `openRouterModelName` slot that this chip can't safely
+        //     write to without duplicating the Settings UI
+        //   - Custom: too provider-specific
+        // For those providers the chip is display-only — same label, no menu.
+        let providerSupportsChipPicker = (
+            settings.modelProvider == .builtIn
+            || settings.modelProvider == .lmstudio
+            || settings.modelProvider == .ollama
+        )
+
+        return Group {
+            if providerSupportsChipPicker {
+                Menu {
+                    if settings.modelProvider == .builtIn {
+                        // Built-in MLX: show curated models
+                        ForEach(ModelCatalog.curatedModels, id: \.id) { model in
+                            Button(action: {
+                                guard model.id != settings.builtInModelId else { return }
+                                switchBuiltInModel(to: model.id, displayName: model.name)
+                            }) {
+                                HStack {
+                                    Text("\(model.name) (\(model.size))")
+                                    if model.id == settings.builtInModelId {
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        // LM Studio / Ollama: list models from the local server.
+                        // These both use the shared `settings.modelName` slot.
+                        if availableModels.isEmpty {
+                            Text("Loading models…")
+                        } else {
+                            ForEach(availableModels, id: \.self) { model in
+                                Button(action: {
+                                    settings.modelName = model
+                                    currentModelName = shortenModelName(model)
+                                }) {
+                                    HStack {
+                                        Text(model)
+                                        if model == resolvedFullModelName() {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                            Divider()
+                            Button("Auto-detect") {
+                                settings.modelName = ""
+                                Task { await refreshCurrentModel() }
+                            }
+                        }
                     }
-
-                    Divider()
-
-                    Button("Auto-detect") {
-                        settings.modelName = ""
-                        Task { await refreshCurrentModel() }
-                    }
+                } label: {
+                    chipLabel(showsChevron: true)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            } else {
+                // Read-only label for providers without a chip picker
+                // (Apple Intelligence, Anthropic, OpenRouter, Custom).
+                chipLabel(showsChevron: false)
+                    .fixedSize()
+            }
+        }
+        .onAppear {
+            Task {
+                // LM Studio / Ollama still need the menu's model list; built-in
+                // uses its curated catalog and doesn't probe the server.
+                if settings.modelProvider == .lmstudio || settings.modelProvider == .ollama {
+                    availableModels = await LLMService.shared.availableModels()
                 }
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "cpu")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundColor(.caiTextSecondary.opacity(0.5))
-                if isSwitchingModel {
-                    Text("Loading…")
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary.opacity(0.6))
-                } else {
-                    Text(currentModelName)
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary.opacity(0.6))
-                }
+        }
+    }
+
+    /// Shared chip label — the `cpu` icon, the model name (or "Loading…" during
+    /// a switch), and an optional chevron. Used by both the Menu (interactive)
+    /// and the read-only display fallback so styling stays in lockstep.
+    private func chipLabel(showsChevron: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "cpu")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+            if isSwitchingModel {
+                Text("Loading…")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+            } else {
+                Text(currentModelName)
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+            }
+            if showsChevron {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 6, weight: .semibold))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onAppear {
-            Task {
-                if settings.modelProvider != .builtIn {
-                    availableModels = await LLMService.shared.availableModels()
-                }
             }
         }
     }
@@ -966,23 +1010,43 @@ struct ActionListWindow: View {
         }
     }
 
+    /// Resolves the chip label for the currently active provider.
+    /// Each provider stores its picked model in a different settings slot
+    /// (`builtInModelId`, `anthropicModelName`, `openRouterModelName`, or the
+    /// shared `modelName` for LM Studio / Ollama / Custom). Reading the shared
+    /// `modelName` for every provider — as the previous implementation did —
+    /// surfaced the stale LM Studio name when the user switched to OpenRouter
+    /// or Anthropic.
+    @MainActor
+    private func resolvedChipModelName(_ status: LLMService.Status) -> String {
+        switch settings.modelProvider {
+        case .builtIn:
+            return settings.builtInModelId
+        case .apple:
+            return status.modelName ?? "Apple Intelligence"
+        case .anthropic:
+            return settings.anthropicModelName
+        case .openrouter:
+            return settings.openRouterModelName
+        case .lmstudio, .ollama, .custom:
+            let userModel = settings.modelName
+            return !userModel.isEmpty ? userModel : (status.modelName ?? "")
+        }
+    }
+
     private func fetchCurrentModel() {
         Task {
             let status = await LLMService.shared.checkStatus()
-            let userModel = settings.modelName
-            let name = !userModel.isEmpty ? userModel : (status.modelName ?? "")
             await MainActor.run {
-                currentModelName = shortenModelName(name)
+                currentModelName = shortenModelName(resolvedChipModelName(status))
             }
         }
     }
 
     private func refreshCurrentModel() async {
         let status = await LLMService.shared.checkStatus()
-        let userModel = await MainActor.run { settings.modelName }
-        let name = !userModel.isEmpty ? userModel : (status.modelName ?? "")
         await MainActor.run {
-            currentModelName = shortenModelName(name)
+            currentModelName = shortenModelName(resolvedChipModelName(status))
         }
     }
 

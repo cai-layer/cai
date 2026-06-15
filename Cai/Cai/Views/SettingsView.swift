@@ -16,6 +16,9 @@ struct SettingsView: View {
 
     /// LLM connection status — checked each time settings opens.
     @State private var llmConnected: Bool? = nil  // nil = checking
+    /// Last connection error from checkStatus, surfaced inline so a misconfigured
+    /// endpoint (wrong port, doubled /v1, auth failure) isn't a silent empty list.
+    @State private var llmStatusError: String? = nil
     /// Available models from the current provider
     @State private var availableModels: [String] = []
     /// Debounce task for LLM status checks (prevents API call storms during typing)
@@ -175,9 +178,19 @@ struct SettingsView: View {
                                             .font(.system(size: 12, design: .monospaced))
                                             .accessibilityLabel("Custom model URL")
 
-                                        Text("OpenAI-compatible endpoint")
+                                        Text("OpenAI-compatible base URL — with or without /v1")
                                             .font(.system(size: 11))
                                             .foregroundColor(.caiTextSecondary)
+
+                                        if !settings.modelURL.isEmpty {
+                                            Text("Reads models from \(settings.modelURL)/v1/models")
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .textSelection(.enabled)
+                                                .accessibilityLabel("Resolved model list URL")
+                                        }
                                     }
 
                                     // Model picker
@@ -204,6 +217,14 @@ struct SettingsView: View {
                                     Text("Select a model or leave on Auto-detect")
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+                                    if llmConnected == false, let err = llmStatusError, !err.isEmpty {
+                                        Text(err)
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.orange)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .accessibilityLabel("Connection error: \(err)")
+                                    }
 
                                     // API Key (optional, for cloud or auth-enabled servers)
                                     HStack(spacing: 6) {
@@ -922,6 +943,7 @@ struct SettingsView: View {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 llmConnected = status.available
+                llmStatusError = status.available ? nil : status.error
             }
         }
     }

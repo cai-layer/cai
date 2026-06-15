@@ -190,6 +190,20 @@ class CaiSettings: ObservableObject {
     /// Transient (not persisted) — set during init if old `cai_builtInModelPath` key exists.
     var needsMLXMigration: Bool = false
 
+    /// Normalizes a user-entered OpenAI-compatible base URL so callers can
+    /// safely append `/v1/...`. Users routinely paste the full base_url ending
+    /// in `/v1` (what the OpenAI SDK, LM Studio, and every tutorial hand them)
+    /// or a reverse-proxy subpath like `/llama/v1`. Without this we'd build
+    /// `.../v1/v1/models` and silently get an empty model list.
+    /// See https://github.com/cai-layer/cai/issues/28.
+    static func normalizedEndpoint(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasSuffix("/") { s.removeLast() }
+        if s.lowercased().hasSuffix("/v1") { s.removeLast(3) }
+        if s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
+
     /// Resolved model base URL based on provider selection
     var modelURL: String {
         switch modelProvider {
@@ -204,7 +218,7 @@ class CaiSettings: ObservableObject {
         case .openrouter:
             return "https://openrouter.ai/api"
         case .custom:
-            return customModelURL
+            return Self.normalizedEndpoint(customModelURL)
         }
     }
 

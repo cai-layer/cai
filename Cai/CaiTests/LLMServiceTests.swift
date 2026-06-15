@@ -608,4 +608,89 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertEqual(result, .skip)
     }
 
+    // MARK: - Endpoint Normalization (issue #28)
+
+    // The endpoint field is a base URL we append `/v1/...` onto. Users paste a
+    // bare host, a full base_url ending in `/v1`, a reverse-proxy subpath, or a
+    // stray trailing slash. All must normalize so we never build `/v1/v1/...`.
+
+    func testNormalizeBareHostUnchanged() {
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("http://127.0.0.1:1234"),
+                       "http://127.0.0.1:1234")
+    }
+
+    func testNormalizeStripsTrailingV1() {
+        // The #28 shape (minus the proxy): user pastes the OpenAI base_url.
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("http://127.0.0.1:1234/v1"),
+                       "http://127.0.0.1:1234")
+    }
+
+    func testNormalizeStripsTrailingV1WithSlash() {
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("http://127.0.0.1:1234/v1/"),
+                       "http://127.0.0.1:1234")
+    }
+
+    func testNormalizePreservesReverseProxySubpath() {
+        // The literal #28 endpoint: http://IP:PORT/llama/v1 must resolve to
+        // /llama/v1/models, not /llama/v1/v1/models.
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("http://10.0.0.5:8080/llama/v1"),
+                       "http://10.0.0.5:8080/llama")
+    }
+
+    func testNormalizeStripsTrailingSlash() {
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("http://127.0.0.1:1234/"),
+                       "http://127.0.0.1:1234")
+    }
+
+    func testNormalizeTrimsWhitespace() {
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("  http://127.0.0.1:1234/v1  "),
+                       "http://127.0.0.1:1234")
+    }
+
+    func testNormalizeIsCaseInsensitiveOnV1() {
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("http://127.0.0.1:1234/V1"),
+                       "http://127.0.0.1:1234")
+    }
+
+    func testNormalizeDoesNotStripBareV1Token() {
+        // A host merely ending in "v1" (no slash separator) must be left alone.
+        XCTAssertEqual(CaiSettings.normalizedEndpoint("http://myv1"),
+                       "http://myv1")
+    }
+
+    func testNormalizedEndpointProducesSingleV1ModelsPath() {
+        // Integration assertion: base + "/v1/models" has exactly one /v1, whatever
+        // the user typed. This is the regression that issue #28 is about.
+        let inputs = [
+            "http://127.0.0.1:1234",
+            "http://127.0.0.1:1234/",
+            "http://127.0.0.1:1234/v1",
+            "http://127.0.0.1:1234/v1/",
+        ]
+        for input in inputs {
+            let resolved = "\(CaiSettings.normalizedEndpoint(input))/v1/models"
+            XCTAssertEqual(resolved, "http://127.0.0.1:1234/v1/models",
+                           "input \(input) must resolve to a single-/v1 models URL")
+        }
+    }
+
+    // MARK: - OpenAI-compatible error body extraction (issue #28)
+
+    func testErrorMessageFromStringBody() {
+        // LM Studio shape: {"error": "Unexpected endpoint or method. (GET /v1/v1/models)"}
+        let json: [String: Any] = ["error": "Unexpected endpoint or method."]
+        XCTAssertEqual(LLMService.errorMessage(from: json), "Unexpected endpoint or method.")
+    }
+
+    func testErrorMessageFromObjectBody() {
+        // OpenAI / OpenRouter shape: {"error": {"message": "...", "type": "..."}}
+        let json: [String: Any] = ["error": ["message": "Invalid API key", "type": "auth_error"]]
+        XCTAssertEqual(LLMService.errorMessage(from: json), "Invalid API key")
+    }
+
+    func testErrorMessageNilWhenAbsent() {
+        XCTAssertNil(LLMService.errorMessage(from: ["data": []]))
+        XCTAssertNil(LLMService.errorMessage(from: nil))
+    }
+
 }

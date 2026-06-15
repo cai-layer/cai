@@ -128,6 +128,17 @@ actor LLMService {
         let error: String?
     }
 
+    /// Extracts a human-readable message from an OpenAI-compatible error body,
+    /// which may be `{"error": "msg"}` (LM Studio) or
+    /// `{"error": {"message": "msg"}}` (OpenAI / OpenRouter). Returns nil when
+    /// the body carries no recognizable error.
+    nonisolated static func errorMessage(from json: [String: Any]?) -> String? {
+        guard let json else { return nil }
+        if let s = json["error"] as? String { return s }
+        if let obj = json["error"] as? [String: Any], let m = obj["message"] as? String { return m }
+        return nil
+    }
+
     /// Checks if the LLM server is reachable and has a loaded model.
     func checkStatus() async -> Status {
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
@@ -206,20 +217,32 @@ actor LLMService {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                return Status(available: false, modelName: nil, error: "Server returned non-200")
+            guard let http = response as? HTTPURLResponse else {
+                return Status(available: false, modelName: nil, error: "Invalid response")
             }
+            guard http.statusCode == 200 else {
+                return Status(available: false, modelName: nil,
+                              error: "Server returned \(http.statusCode) for \(url.path)")
+            }
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             // Extract first model name — required by some providers
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let models = json["data"] as? [[String: Any]],
-               let first = models.first,
-               let modelId = first["id"] as? String {
-                cachedModelName = modelId
-                return Status(available: true, modelName: modelId, error: nil)
+            if let models = json?["data"] as? [[String: Any]] {
+                if let modelId = models.first?["id"] as? String {
+                    cachedModelName = modelId
+                    return Status(available: true, modelName: modelId, error: nil)
+                }
+                // Server is up but no models loaded
+                cachedModelName = nil
+                return Status(available: false, modelName: nil, error: "No models loaded")
             }
-            // Server is up but no models loaded
+            // 200 but no `data` array. Almost always a wrong path — e.g. an
+            // endpoint that already ends in /v1, producing /v1/v1/models, which
+            // some servers (LM Studio) answer 200 with an error body. Surface the
+            // URL and any server error instead of failing silently. See issue #28.
             cachedModelName = nil
-            return Status(available: false, modelName: nil, error: "No models loaded")
+            let detail = Self.errorMessage(from: json) ?? "no model list at \(url.path)"
+            return Status(available: false, modelName: nil,
+                          error: "Unexpected response from server (\(detail)) — check the endpoint URL")
         } catch {
             return Status(available: false, modelName: nil, error: error.localizedDescription)
         }

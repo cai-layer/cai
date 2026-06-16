@@ -83,6 +83,9 @@ class ClipboardHistory: ObservableObject {
 
     private var lastChangeCount: Int = 0
     private var pollTimer: Timer?
+    /// Guards against a slow pasteboard daemon letting two poll ticks run their
+    /// async content reads at the same time. Only mutated on the main thread.
+    private var pollInFlight = false
 
     // MARK: - Pin Persistence
 
@@ -107,52 +110,52 @@ class ClipboardHistory: ObservableObject {
 
     /// Check if the pasteboard has new content.
     ///
-    /// **Threading:** runs on the main thread (timer source). NSPasteboard is
-    /// not thread-safe, and previously dispatching the content reads to a
-    /// background queue (`app.cai.clipboard-history`) raced with main-thread
-    /// reads from `OCRService` / `ClipboardService` during ⌥C, crashing in
-    /// `__NSFastEnumerationMutationHandler` while AppKit was iterating
-    /// pasteboard types. Keeping everything on main eliminates that race.
-    ///
-    /// The cost is a possible runloop hang on a slow `pboardd` or huge
-    /// clipboard, but: (a) `changeCount` is cheap and short-circuits when
-    /// nothing changed; (b) actual content reads (`string(forType:)` /
-    /// Vision OCR) only fire when the clipboard truly changed (rare during
-    /// active use). If hangs become a real problem, the right next step is
-    /// a process-wide pasteboard lock — not another concurrent reader.
+    /// **Threading:** the timer fires on the main thread; the cheap `changeCount`
+    /// probe stays here (it is cached and does not iterate the items array). When
+    /// the count moves, the actual content reads (`string(forType:)` / Vision OCR)
+    /// run off the main thread on `PasteboardQueue`, so a slow `pboardd` or a huge
+    /// clipboard can no longer hang the runloop, and they are serialized against
+    /// the ⌥C path and paste-back — a single reader at a time, which is what the
+    /// previous "everything on main" workaround was protecting against (two
+    /// concurrent readers crashed in `__NSFastEnumerationMutationHandler`).
     private func checkForChanges() {
-        let pasteboard = NSPasteboard.general
-        let currentCount = pasteboard.changeCount
+        let currentCount = NSPasteboard.general.changeCount
 
-        guard currentCount != lastChangeCount else { return }
+        guard currentCount != lastChangeCount, !pollInFlight else { return }
         lastChangeCount = currentCount
+        pollInFlight = true
 
-        // 1. Image file on clipboard (e.g. Finder copy) — OCR takes priority over filename text.
-        if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
-            addEntry(ocrText, isImage: true)
-            return
-        }
+        Task { @MainActor in
+            defer { self.pollInFlight = false }
 
-        // 2. Try text.
-        if let text = pasteboard.string(forType: .string) {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                addEntry(trimmed)
+            // 1. Image file on clipboard (e.g. Finder copy) — OCR takes priority over filename text.
+            if let ocrText = await OCRService.shared.extractTextFromClipboardImageFile() {
+                self.addEntry(ocrText, isImage: true)
                 return
             }
-        }
 
-        // 3. Image data on clipboard (no file, no text) — OCR.
-        if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
-            addEntry(ocrText, isImage: true)
+            // 2. Try text.
+            if let text = await PasteboardQueue.shared.read({ NSPasteboard.general.string(forType: .string) }) {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    self.addEntry(trimmed)
+                    return
+                }
+            }
+
+            // 3. Image data on clipboard (no file, no text) — OCR.
+            if let ocrText = await OCRService.shared.extractTextFromClipboardImage() {
+                self.addEntry(ocrText, isImage: true)
+            }
         }
     }
 
-    /// Manually record a clipboard entry (called from ClipboardService after copy)
-    func recordCurrentClipboard() {
-        let pasteboard = NSPasteboard.general
-        lastChangeCount = pasteboard.changeCount
-        guard let text = pasteboard.string(forType: .string) else { return }
+    /// Record a clipboard entry the caller already read (called from the ⌥C path
+    /// after `ClipboardService.readClipboard`). Takes the text directly to avoid
+    /// a redundant pasteboard read on the hot path. `changeCount` is cheap, so it
+    /// stays on the main thread.
+    func recordCurrentClipboard(_ text: String) {
+        lastChangeCount = NSPasteboard.general.changeCount
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         addEntry(trimmed)
@@ -196,12 +199,20 @@ class ClipboardHistory: ObservableObject {
         }
     }
 
-    /// Copy a history entry back to the clipboard
+    /// Copy a history entry back to the clipboard. Routed through PasteboardQueue
+    /// so the write can't race a concurrent read/paste-back. Fire-and-forget, so
+    /// the call site stays synchronous.
     func copyEntry(_ entry: Entry) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(entry.text, forType: .string)
-        lastChangeCount = pasteboard.changeCount  // Don't re-record this as a new entry
+        PasteboardQueue.shared.write {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(entry.text, forType: .string)
+            let newCount = pasteboard.changeCount
+            // Update the poll's baseline on main so it doesn't re-record this copy.
+            DispatchQueue.main.async { [weak self] in
+                self?.lastChangeCount = newCount
+            }
+        }
     }
 
     // MARK: - Pinning

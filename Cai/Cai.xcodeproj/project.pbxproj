@@ -61,6 +61,7 @@
 		CAI00143 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00144 /* ShortcutRecorderView.swift */; };
 		CAI00145 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00146 /* KeychainHelper.swift */; };
 		CAI00147 /* OCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00148 /* OCRService.swift */; };
+		CAI00522 /* PasteboardQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00523 /* PasteboardQueue.swift */; };
 		CAI00150 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00151 /* Sparkle */; };
 		CAI00160 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00161 /* Yams */; };
 		CAI00163 /* ExtensionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00164 /* ExtensionParser.swift */; };
@@ -163,6 +164,7 @@
 		CAI00144 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
 		CAI00146 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		CAI00148 /* OCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRService.swift; sourceTree = "<group>"; };
+		CAI00523 /* PasteboardQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardQueue.swift; sourceTree = "<group>"; };
 		CAI00164 /* ExtensionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionParser.swift; sourceTree = "<group>"; };
 		CAI00165 /* GitHubIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubIcon.swift; sourceTree = "<group>"; };
 		CAI00168 /* ExtensionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionService.swift; sourceTree = "<group>"; };
@@ -275,6 +277,7 @@
 				CAI00139 /* CrashReportingService.swift */,
 				CAI00146 /* KeychainHelper.swift */,
 				CAI00148 /* OCRService.swift */,
+				CAI00523 /* PasteboardQueue.swift */,
 				CAI00164 /* ExtensionParser.swift */,
 				CAI00168 /* ExtensionService.swift */,
 				CAI00183 /* MCPClientService.swift */,
@@ -530,6 +533,7 @@
 				CAI00138 /* CrashReportingService.swift in Sources */,
 				CAI00145 /* KeychainHelper.swift in Sources */,
 				CAI00147 /* OCRService.swift in Sources */,
+				CAI00522 /* PasteboardQueue.swift in Sources */,
 				CAI00163 /* ExtensionParser.swift in Sources */,
 				CAI00166 /* GitHubIcon.swift in Sources */,
 				CAI00196 /* LinearIcon.swift in Sources */,

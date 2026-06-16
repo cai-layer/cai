@@ -201,7 +201,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Use whatever is already on the clipboard — don't simulate Cmd+C
         // because by the time the user clicks this menu item, the frontmost
         // app is Cai itself (or the menu bar), not the app with selected text.
-        openWithClipboard()
+        Task { @MainActor in await openWithClipboard() }
     }
 
     func showShortcutsWindow() {
@@ -297,16 +297,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// `sourceApp` is the display name ("Terminal"). `sourceBundleId` is the canonical
     /// key ("com.apple.Terminal") used by `ContextSnippetsManager` to match per-app
     /// snippets. Both are captured at hotkey time before Cmd+C simulation steals focus.
-    private func openWithClipboard(sourceApp: String? = nil, sourceBundleId: String? = nil) {
+    @MainActor
+    private func openWithClipboard(sourceApp: String? = nil, sourceBundleId: String? = nil) async {
+        // Pasteboard reads run off the main thread via PasteboardQueue, so a slow
+        // daemon (Universal Clipboard, huge item) can't freeze the runloop. The
+        // window still shows after the read completes; the difference is the app
+        // stays responsive while waiting.
+
         // 1. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
         //    Must come before text check: Finder puts both file URL and path text on the pasteboard,
         //    so readClipboard() would match the path string and skip OCR.
-        if let ocrText = OCRService.shared.extractTextFromClipboardImageFile() {
+        if let ocrText = await OCRService.shared.extractTextFromClipboardImageFile() {
             showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp, sourceBundleId: sourceBundleId)
 
         // 2. Text found
-        } else if let content = clipboardService.readClipboard() {
-            clipboardHistory.recordCurrentClipboard()
+        } else if let content = await clipboardService.readClipboard() {
+            clipboardHistory.recordCurrentClipboard(content)
 
             // No clamping here: ClipboardHistory already stores only the first
             // `maxTextLength` (10K) chars for its own UI, and `LLMService.truncateMessages`
@@ -326,17 +332,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             )
 
         // 3. Image data on clipboard (e.g. Preview copy, screenshot to clipboard) — OCR it
-        } else if let ocrText = OCRService.shared.extractTextFromClipboardImage() {
+        } else if let ocrText = await OCRService.shared.extractTextFromClipboardImage() {
             showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp, sourceBundleId: sourceBundleId)
 
-        // 4. Image present but OCR found no text — still open window
-        } else if OCRService.shared.hasImageOnClipboard() || OCRService.shared.hasImageFileOnClipboard() {
-            print("No text found in clipboard image — opening window")
-            showEmptyWindow(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
-
-        // 5. Nothing on clipboard — still open window
+        // 4/5. No text. Open an empty window either way; the image probes only
+        //      pick which log line to print.
         } else {
-            print("Clipboard is empty — opening window")
+            let hasImage = await OCRService.shared.hasImageOnClipboard()
+            let hasImageFile = await OCRService.shared.hasImageFileOnClipboard()
+            if hasImage || hasImageFile {
+                print("No text found in clipboard image — opening window")
+            } else {
+                print("Clipboard is empty — opening window")
+            }
             showEmptyWindow(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
         }
     }
@@ -571,7 +579,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // If nothing is selected, Cmd+C is a no-op and we fall back to
         // whatever is already on the clipboard.
         clipboardService.copySelectedText { [weak self] in
-            self?.openWithClipboard(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
+            Task { @MainActor in
+                await self?.openWithClipboard(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
+            }
         }
     }
 

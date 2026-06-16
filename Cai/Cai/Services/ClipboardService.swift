@@ -119,7 +119,11 @@ class ClipboardService {
     /// Requirements: Accessibility permission, App Sandbox disabled. Keycode
     /// for V is 9 (kVK_ANSI_V).
     func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping (PasteOutcome) -> Void) {
-        let pasteboard = NSPasteboard.general
+        // Completion always fires on main — callers update UI from it. Defined
+        // first so every exit (including the preflight failure) routes through it.
+        let finish: (PasteOutcome) -> Void = { outcome in
+            DispatchQueue.main.async { completion(outcome) }
+        }
 
         // Preflight: without accessibility, CGEventSource builds fine but the
         // posted event is silently dropped. Call AXIsProcessTrusted() directly
@@ -128,10 +132,13 @@ class ClipboardService {
         // so recently-revoked permission can still read as granted.
         guard AXIsProcessTrusted() else {
             print("❌ Paste aborted — accessibility permission missing")
-            completion(.failed)
+            finish(.failed)
             return
         }
 
+        // Frontmost detection and app activation are AppKit-main-affine, so
+        // resolve them here on the calling thread (always main). Only the
+        // pasteboard byte ops below run on the serial queue.
         let frontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let caiBundleId = Bundle.main.bundleIdentifier
         let sourceIsFrontmost = bundleId != nil && bundleId == frontmostBundleId
@@ -141,10 +148,13 @@ class ClipboardService {
         // force-activate the source (would leak AI output into the wrong
         // context, e.g. Slack DM with the wrong person). Copy instead.
         if !sourceIsFrontmost && !caiIsFrontmost && bundleId != nil {
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            print("📋 User moved from \(bundleId ?? "nil") to \(frontmostBundleId ?? "unknown"); copied for manual paste")
-            completion(.copiedForManualPaste)
+            PasteboardQueue.shared.write {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(text, forType: .string)
+                print("📋 User moved from \(bundleId ?? "nil") to \(frontmostBundleId ?? "unknown"); copied for manual paste")
+                finish(.copiedForManualPaste)
+            }
             return
         }
 
@@ -162,7 +172,15 @@ class ClipboardService {
             activationDelay = 0
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + activationDelay) {
+        // Snapshot -> set -> Cmd+V -> conditional restore runs as ONE serial-queue
+        // block, holding the pasteboard lane from snapshot through restore so a
+        // second concurrent paste-back can't interleave and clobber the clipboard.
+        PasteboardQueue.shared.write {
+            if activationDelay > 0 {
+                Thread.sleep(forTimeInterval: activationDelay)
+            }
+
+            let pasteboard = NSPasteboard.general
             let snapshot = PasteboardSnapshot(pasteboard)
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
@@ -173,7 +191,7 @@ class ClipboardService {
                   let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: 9, keyDown: false) else {
                 print("❌ Failed to create CGEvent for paste")
                 snapshot.restore(to: pasteboard)
-                completion(.failed)
+                finish(.failed)
                 return
             }
 
@@ -184,16 +202,15 @@ class ClipboardService {
 
             print("⌨️ Posted Cmd+V via CGEvent to \(bundleId ?? "frontmost app")")
 
-            // Fire completion immediately so the caller can dismiss UI. Run the
-            // snapshot restore detached — 400ms is enough for fast apps (~50ms)
-            // through slow Electron (~200ms). Skip the restore if changeCount
-            // moved (another process wrote during the window).
-            completion(.pasted)
+            // Fire completion immediately so the caller can dismiss UI, then keep
+            // holding the lane through the restore window. 400ms is enough for
+            // fast apps (~50ms) through slow Electron (~200ms). Skip the restore
+            // if changeCount moved (another process wrote during the window).
+            finish(.pasted)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if pasteboard.changeCount == ourChangeCount {
-                    snapshot.restore(to: pasteboard)
-                }
+            Thread.sleep(forTimeInterval: 0.4)
+            if pasteboard.changeCount == ourChangeCount {
+                snapshot.restore(to: pasteboard)
             }
         }
     }
@@ -235,10 +252,14 @@ class ClipboardService {
 
     /// Reads text content from the system clipboard
     /// - Returns: Trimmed text content, or nil if clipboard is empty or doesn't contain text
-    func readClipboard() -> String? {
-        let pasteboard = NSPasteboard.general
+    ///
+    /// Runs the read on `PasteboardQueue` (off the main thread) so a slow
+    /// pasteboard daemon — e.g. Universal Clipboard fetching a paired-device
+    /// copy — can't freeze the ⌥C hot path.
+    func readClipboard() async -> String? {
+        let content = await PasteboardQueue.shared.read { NSPasteboard.general.string(forType: .string) }
 
-        guard let content = pasteboard.string(forType: .string) else {
+        guard let content else {
             print("📋 Clipboard is empty or doesn't contain text")
             return nil
         }

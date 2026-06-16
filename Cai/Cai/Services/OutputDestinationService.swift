@@ -31,9 +31,9 @@ actor OutputDestinationService {
         case .pasteBack:
             try await executePasteBack(text: text, sourceBundleId: sourceBundleId)
         case .clipboardCopy:
-            // Trivial sync write — bounce to MainActor since NSPasteboard is
-            // documented as main-thread-bound for write coalescing.
-            await MainActor.run {
+            // Route through PasteboardQueue so the write serializes with every
+            // other pasteboard op (no concurrent access with reads/paste-back).
+            PasteboardQueue.shared.write {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }

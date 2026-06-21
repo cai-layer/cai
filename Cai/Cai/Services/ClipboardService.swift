@@ -1,6 +1,14 @@
 import AppKit
 import Carbon
 
+/// Fully-resolved clipboard content for the ⌥C / history-poll detection path,
+/// in priority order. Produced from ONE atomic pasteboard snapshot.
+enum ClipboardContent {
+    case imageText(String)      // OCR text from an image file OR image data
+    case text(String)           // trimmed, non-empty plain text
+    case empty(hadImage: Bool)  // nothing usable; hadImage only picks the log line
+}
+
 class ClipboardService {
     static let shared = ClipboardService()
 
@@ -119,7 +127,11 @@ class ClipboardService {
     /// Requirements: Accessibility permission, App Sandbox disabled. Keycode
     /// for V is 9 (kVK_ANSI_V).
     func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping (PasteOutcome) -> Void) {
-        let pasteboard = NSPasteboard.general
+        // Completion always fires on main — callers update UI from it. Defined
+        // first so every exit (including the preflight failure) routes through it.
+        let finish: (PasteOutcome) -> Void = { outcome in
+            DispatchQueue.main.async { completion(outcome) }
+        }
 
         // Preflight: without accessibility, CGEventSource builds fine but the
         // posted event is silently dropped. Call AXIsProcessTrusted() directly
@@ -128,10 +140,13 @@ class ClipboardService {
         // so recently-revoked permission can still read as granted.
         guard AXIsProcessTrusted() else {
             print("❌ Paste aborted — accessibility permission missing")
-            completion(.failed)
+            finish(.failed)
             return
         }
 
+        // Frontmost detection and app activation are AppKit-main-affine, so
+        // resolve them here on the calling thread (always main). Only the
+        // pasteboard byte ops below run on the serial queue.
         let frontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let caiBundleId = Bundle.main.bundleIdentifier
         let sourceIsFrontmost = bundleId != nil && bundleId == frontmostBundleId
@@ -141,10 +156,13 @@ class ClipboardService {
         // force-activate the source (would leak AI output into the wrong
         // context, e.g. Slack DM with the wrong person). Copy instead.
         if !sourceIsFrontmost && !caiIsFrontmost && bundleId != nil {
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            print("📋 User moved from \(bundleId ?? "nil") to \(frontmostBundleId ?? "unknown"); copied for manual paste")
-            completion(.copiedForManualPaste)
+            PasteboardQueue.shared.write {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(text, forType: .string)
+                print("📋 User moved from \(bundleId ?? "nil") to \(frontmostBundleId ?? "unknown"); copied for manual paste")
+                finish(.copiedForManualPaste)
+            }
             return
         }
 
@@ -162,7 +180,15 @@ class ClipboardService {
             activationDelay = 0
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + activationDelay) {
+        // Snapshot -> set -> Cmd+V -> conditional restore runs as ONE serial-queue
+        // block, holding the pasteboard lane from snapshot through restore so a
+        // second concurrent paste-back can't interleave and clobber the clipboard.
+        PasteboardQueue.shared.write {
+            if activationDelay > 0 {
+                Thread.sleep(forTimeInterval: activationDelay)
+            }
+
+            let pasteboard = NSPasteboard.general
             let snapshot = PasteboardSnapshot(pasteboard)
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
@@ -173,7 +199,7 @@ class ClipboardService {
                   let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: 9, keyDown: false) else {
                 print("❌ Failed to create CGEvent for paste")
                 snapshot.restore(to: pasteboard)
-                completion(.failed)
+                finish(.failed)
                 return
             }
 
@@ -184,16 +210,15 @@ class ClipboardService {
 
             print("⌨️ Posted Cmd+V via CGEvent to \(bundleId ?? "frontmost app")")
 
-            // Fire completion immediately so the caller can dismiss UI. Run the
-            // snapshot restore detached — 400ms is enough for fast apps (~50ms)
-            // through slow Electron (~200ms). Skip the restore if changeCount
-            // moved (another process wrote during the window).
-            completion(.pasted)
+            // Fire completion immediately so the caller can dismiss UI, then keep
+            // holding the lane through the restore window. 400ms is enough for
+            // fast apps (~50ms) through slow Electron (~200ms). Skip the restore
+            // if changeCount moved (another process wrote during the window).
+            finish(.pasted)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if pasteboard.changeCount == ourChangeCount {
-                    snapshot.restore(to: pasteboard)
-                }
+            Thread.sleep(forTimeInterval: 0.4)
+            if pasteboard.changeCount == ourChangeCount {
+                snapshot.restore(to: pasteboard)
             }
         }
     }
@@ -235,10 +260,14 @@ class ClipboardService {
 
     /// Reads text content from the system clipboard
     /// - Returns: Trimmed text content, or nil if clipboard is empty or doesn't contain text
-    func readClipboard() -> String? {
-        let pasteboard = NSPasteboard.general
+    ///
+    /// Runs the read on `PasteboardQueue` (off the main thread) so a slow
+    /// pasteboard daemon — e.g. Universal Clipboard fetching a paired-device
+    /// copy — can't freeze the ⌥C hot path.
+    func readClipboard() async -> String? {
+        let content = await PasteboardQueue.shared.read { NSPasteboard.general.string(forType: .string) }
 
-        guard let content = pasteboard.string(forType: .string) else {
+        guard let content else {
             print("📋 Clipboard is empty or doesn't contain text")
             return nil
         }
@@ -254,5 +283,56 @@ class ClipboardService {
         // API keys, or other secrets that must never leave the process.
         print("📋 Clipboard read: \(trimmed.count) chars")
         return trimmed
+    }
+
+    /// Reads everything the detection path needs in ONE PasteboardQueue hop, then
+    /// resolves it (OCR + disk image load) OFF the lane. Replaces the previous
+    /// chain of separate async reads, which weren't atomic — a write landing
+    /// between them let the ⌥C window / history poll act on a mix of two clipboard
+    /// states. Returns the resolved content plus the `changeCount` observed in the
+    /// same snapshot, so callers set their poll baseline from the same read.
+    func readClipboardContent() async -> (content: ClipboardContent, changeCount: Int) {
+        // Capture raw materials in a SINGLE lane occupancy — pasteboard reads only.
+        // No OCR, no disk I/O, and no nested PasteboardQueue call (re-entering the
+        // serial queue would self-deadlock).
+        let capture: RawClipboardCapture = await PasteboardQueue.shared.read {
+            let pb = NSPasteboard.general
+            let fileURLs = (pb.readObjects(forClasses: [NSURL.self], options: [
+                NSPasteboard.ReadingOptionKey.urlReadingFileURLsOnly: true
+            ]) as? [URL]) ?? []
+            return RawClipboardCapture(
+                fileURLs: fileURLs,
+                text: pb.string(forType: .string),
+                image: NSImage(pasteboard: pb),
+                changeCount: pb.changeCount
+            )
+        }
+
+        // Resolve OFF the lane, preserving the original priority: image file
+        // (OCR; nil → fall through, since Finder puts BOTH a file URL and the path
+        // string) > plain text > image data > empty.
+        if let ocrText = OCRService.shared.ocrImageFiles(capture.fileURLs) {
+            return (.imageText(ocrText), capture.changeCount)
+        }
+        if let raw = capture.text {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return (.text(trimmed), capture.changeCount)
+            }
+        }
+        if let image = capture.image, let ocrText = OCRService.shared.ocrImage(image) {
+            return (.imageText(ocrText), capture.changeCount)
+        }
+        let hadImage = capture.image != nil
+            || capture.fileURLs.contains { OCRService.imageExtensions.contains($0.pathExtension.lowercased()) }
+        return (.empty(hadImage: hadImage), capture.changeCount)
+    }
+
+    /// Raw clipboard materials captured in one lane occupancy, resolved off-lane.
+    private struct RawClipboardCapture {
+        let fileURLs: [URL]
+        let text: String?
+        let image: NSImage?
+        let changeCount: Int
     }
 }

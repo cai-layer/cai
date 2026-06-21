@@ -118,8 +118,12 @@ struct SystemActions {
     // MARK: - Clipboard
 
     static func copyToClipboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        // Routed through PasteboardQueue so the write serializes against every
+        // other pasteboard op. Fire-and-forget keeps this call site synchronous.
+        PasteboardQueue.shared.write {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+        }
     }
 }

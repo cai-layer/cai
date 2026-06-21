@@ -7,38 +7,19 @@ class OCRService {
     static let shared = OCRService()
     private init() {}
 
-    /// Attempts to read an image from the clipboard and extract text via Vision OCR.
-    /// Returns the extracted text, or nil if no image is found or no text is recognized.
-    /// Supports all image formats macOS handles: PNG, JPEG, TIFF, HEIC, BMP, GIF, WebP, etc.
-    func extractTextFromClipboardImage() -> String? {
-        let pasteboard = NSPasteboard.general
+    /// Image file extensions OCR can load. Single source of truth, shared with the
+    /// clipboard reader's file-URL filter (`ClipboardService.readClipboardContent`).
+    static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "tiff", "tif", "heic", "heif", "bmp", "gif", "webp"
+    ]
 
-        // NSImage(pasteboard:) handles all image formats macOS supports
-        guard let image = NSImage(pasteboard: pasteboard),
-              let cgImage = cgImage(from: image) else {
-            return nil
-        }
-
-        return performOCR(on: cgImage)
-    }
-
-    /// Checks if the clipboard contains a file URL pointing to an image file (e.g. Finder copy).
-    /// If so, loads the image and performs OCR. Returns nil if not an image file or no text found.
-    func extractTextFromClipboardImageFile() -> String? {
-        let pasteboard = NSPasteboard.general
-
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
-            NSPasteboard.ReadingOptionKey.urlReadingFileURLsOnly: true
-        ]) as? [URL] else {
-            return nil
-        }
-
-        let imageExtensions: Set<String> = [
-            "png", "jpg", "jpeg", "tiff", "tif", "heic", "heif", "bmp", "gif", "webp"
-        ]
-
+    /// OCRs the first loadable image file in `urls`, returning its recognized text
+    /// (or nil if none qualify or no text is found). Pure CPU + disk work, no
+    /// pasteboard access — run it OFF the PasteboardQueue lane after the URLs have
+    /// been captured, so Vision/disk I/O don't occupy the shared lane.
+    func ocrImageFiles(_ urls: [URL]) -> String? {
         for url in urls {
-            guard imageExtensions.contains(url.pathExtension.lowercased()),
+            guard Self.imageExtensions.contains(url.pathExtension.lowercased()),
                   let image = NSImage(contentsOf: url),
                   let cgImg = cgImage(from: image) else {
                 continue
@@ -50,28 +31,14 @@ class OCRService {
 
             return performOCR(on: cgImg)
         }
-
         return nil
     }
 
-    /// Lightweight check: is there an image on the clipboard? (No OCR performed)
-    /// Used for the "No text found in image" toast path.
-    func hasImageOnClipboard() -> Bool {
-        return NSImage(pasteboard: NSPasteboard.general) != nil
-    }
-
-    /// Lightweight check: is there an image file URL on the clipboard? (No OCR performed)
-    func hasImageFileOnClipboard() -> Bool {
-        guard let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [
-            NSPasteboard.ReadingOptionKey.urlReadingFileURLsOnly: true
-        ]) as? [URL] else {
-            return false
-        }
-
-        let imageExtensions: Set<String> = [
-            "png", "jpg", "jpeg", "tiff", "tif", "heic", "heif", "bmp", "gif", "webp"
-        ]
-        return urls.contains { imageExtensions.contains($0.pathExtension.lowercased()) }
+    /// OCRs an already-captured image. Pure CPU work, no pasteboard access — run
+    /// it OFF the PasteboardQueue lane.
+    func ocrImage(_ image: NSImage) -> String? {
+        guard let cgImage = cgImage(from: image) else { return nil }
+        return performOCR(on: cgImage)
     }
 
     // MARK: - Private

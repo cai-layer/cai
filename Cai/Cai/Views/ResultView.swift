@@ -32,6 +32,9 @@ struct ResultView: View {
 
     @FocusState private var isFollowUpFocused: Bool
 
+    /// Drives the follow-up footer hint live when "Press Return to send" toggles.
+    @ObservedObject private var settings = CaiSettings.shared
+
     /// Async generator that produces the result string (non-streaming fallback).
     let generator: () async throws -> String
     /// Optional streaming generator — tokens appear progressively. Used for built-in MLX provider.
@@ -184,7 +187,7 @@ struct ResultView: View {
                 Spacer()
                 if !isLoading && error == nil {
                     if showFollowUpInput {
-                        KeyboardHint(key: "\u{2318}\u{21B5}", label: "Submit")
+                        PromptSubmitHint(pressReturnToSend: settings.pressReturnToSend)
                     } else {
                         if isFollowUpEnabled {
                             KeyboardHint(key: "\u{21E5}", label: "Follow up")
@@ -234,11 +237,15 @@ struct ResultView: View {
         .onChange(of: showFollowUpInput) { _, showing in
             if showing {
                 WindowController.passThrough = true
+                // The follow-up is an Ask AI composer too, so honor "Press Return
+                // to send" here exactly as in the initial Ask AI box.
+                WindowController.submitScreenActive = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     isFollowUpFocused = true
                 }
             } else {
                 WindowController.passThrough = false
+                WindowController.submitScreenActive = false
                 isFollowUpFocused = false
             }
         }

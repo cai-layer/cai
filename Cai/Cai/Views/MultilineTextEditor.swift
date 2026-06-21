@@ -266,6 +266,31 @@ private final class ForwardingTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
+    /// When "Return to submit" is enabled, a bare Return commits the form just
+    /// like ⌘⏎ (Shift/Option/Control+Return still insert a newline). Uses the same
+    /// `WindowController.returnSubmitsPrompt` predicate as the floating-window
+    /// composer, so the rule is identical everywhere. `submitScreenActive: true`
+    /// because reaching here means we have an `onCommit` to fire.
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36, let onCommit = onCommit {  // Return
+            // ⌘⏎ always commits; a bare Return commits when "Return to submit" is on.
+            // (Shift/Option/Control+Return fall through to insert a newline.) ⌘⏎ is
+            // normally caught by performKeyEquivalent, but handle it here too so it
+            // works even if that path is pre-empted.
+            let onlyCommand = event.modifierFlags.intersection([.shift, .option, .control, .command]) == [.command]
+            let bareSubmit = WindowController.returnSubmitsPrompt(
+                pressReturnToSend: CaiSettings.shared.pressReturnToSend,
+                submitScreenActive: true,
+                modifiers: event.modifierFlags
+            )
+            if onlyCommand || bareSubmit {
+                onCommit()
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
+
     /// Esc → fire onCancel callback directly. Same rationale as ⌘⏎: the
     /// SwiftUI shortcut chain was being intercepted by Cai's window-level
     /// Esc handler before the form's Cancel button could see it.

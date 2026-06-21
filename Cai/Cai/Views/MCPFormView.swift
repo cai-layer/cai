@@ -58,6 +58,9 @@ struct MCPFormView: View {
 
     @FocusState private var focusedField: String?
 
+    /// Drives the footer submit hint live when "Return to submit" toggles.
+    @ObservedObject private var settings = CaiSettings.shared
+
     var body: some View {
         VStack(spacing: 0) {
             headerView
@@ -78,9 +81,13 @@ struct MCPFormView: View {
         }
         .onAppear {
             WindowController.passThrough = true
+            // This form submits on ⌘⏎ via handleCmdEnter → caiMCPFormSubmit, so it
+            // opts into "Return to submit": a bare Return submits when enabled.
+            WindowController.submitScreenActive = true
         }
         .onDisappear {
             WindowController.passThrough = false
+            WindowController.submitScreenActive = false
             Self.pickerDropdownOpen = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .caiMCPFormSubmit)) { _ in
@@ -939,7 +946,7 @@ struct MCPFormView: View {
 
             HStack(spacing: 12) {
                 KeyboardHint(key: "Esc", label: "Back")
-                KeyboardHint(key: "⌘↩", label: commentOnIssue != nil ? "Add Comment" : actionConfig.confirmLabel)
+                KeyboardHint(key: settings.pressReturnToSend ? "↩" : "⌘↩", label: commentOnIssue != nil ? "Add Comment" : actionConfig.confirmLabel)
             }
         }
         .padding(.horizontal, 16)

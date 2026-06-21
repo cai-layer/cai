@@ -31,6 +31,14 @@ class WindowController: NSObject, ObservableObject {
     /// When true, printable keys update the filter text on selectionState.
     /// Set to true only when the action list screen is active.
     static var acceptsFilterInput = true
+
+    /// True when the active floating-window screen submits via the central key
+    /// monitor on a bare Return — the Ask AI box, the result follow-up, and the
+    /// MCP connector form. Combined with the global `pressReturnToSend` setting,
+    /// a bare Return submits instead of inserting a newline. Form editors built on
+    /// `MultilineTextEditor` (Destinations / Shortcuts / inline edit) honor the same
+    /// setting through `ForwardingTextView` rather than this flag.
+    static var submitScreenActive = false
     private var window: NSWindow?
     private var toastWindow: NSWindow?
     private var actions: [ActionItem] = []
@@ -46,6 +54,7 @@ class WindowController: NSObject, ObservableObject {
     private var cachedWindow: NSWindow?
     private var cachedText: String?
     private var cachedPassThrough: Bool = false
+    private var cachedSubmitScreenActive: Bool = false
     private var cachedDismissTime: Date?
     private var cacheCleanupTimer: Timer?
     private static let resumeTimeout: TimeInterval = 7
@@ -200,9 +209,11 @@ class WindowController: NSObject, ObservableObject {
             self.window = cached
             self.currentText = cachedText  // Restore so next hideWindow() can re-cache it
             Self.passThrough = cachedPassThrough
+            Self.submitScreenActive = cachedSubmitScreenActive
             self.cachedWindow = nil
             self.cachedText = nil
             self.cachedPassThrough = false
+            self.cachedSubmitScreenActive = false
             self.cachedDismissTime = nil
             cacheCleanupTimer?.invalidate()
             cacheCleanupTimer = nil
@@ -347,6 +358,7 @@ class WindowController: NSObject, ObservableObject {
             cachedWindow = window
             cachedText = currentText
             cachedPassThrough = Self.passThrough
+            cachedSubmitScreenActive = Self.submitScreenActive
             cachedDismissTime = Date()
 
             // Auto-destroy the cache after the resume timeout
@@ -356,6 +368,7 @@ class WindowController: NSObject, ObservableObject {
             }
         }
         Self.passThrough = false
+        Self.submitScreenActive = false
         Self.acceptsFilterInput = true
         window = nil
         currentText = nil
@@ -433,6 +446,11 @@ class WindowController: NSObject, ObservableObject {
         cachedWindow = nil
         cachedText = nil
         cachedDismissTime = nil
+        // Reset the cached screen-state flags too. The resume path only reads them
+        // when cachedWindow != nil (now nil), but don't leave them stale-true where
+        // a future code path could apply them to an unrelated window.
+        cachedPassThrough = false
+        cachedSubmitScreenActive = false
         cacheCleanupTimer?.invalidate()
         cacheCleanupTimer = nil
     }
@@ -469,6 +487,18 @@ class WindowController: NSObject, ObservableObject {
 
     // MARK: - Keyboard Handling
 
+    /// Whether a Return keypress should submit the active screen instead of
+    /// inserting a newline. Only a *bare* Return submits — any modifier (Shift,
+    /// Option, Control) inserts a newline. Cmd+Return is handled separately and
+    /// always submits. Shared by the window key monitor and `ForwardingTextView`
+    /// (the form editors) so the rule is identical everywhere. Pure and isolated
+    /// from the view so the decision is unit-testable.
+    static func returnSubmitsPrompt(pressReturnToSend: Bool, submitScreenActive: Bool, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard submitScreenActive, pressReturnToSend else { return false }
+        // CapsLock is intentionally ignored — only intentional modifiers block submit.
+        return modifiers.intersection([.shift, .option, .control, .command]).isEmpty
+    }
+
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
         // ESC — post a "back" notification; the SwiftUI view decides
         // whether to go back to action list or dismiss entirely.
@@ -480,13 +510,18 @@ class WindowController: NSObject, ObservableObject {
             return true
         }
 
-        // Cmd+Return — always captured (submit in custom prompt, or copy result)
+        // Cmd+Return — captured only on screens that submit through this monitor
+        // (Ask AI, follow-up, MCP form). On the other text-input screens — the form
+        // editors built on MultilineTextEditor (Destinations / Shortcuts / inline
+        // edit) — let it flow to the responder chain so the form's own ⌘⏎ handler
+        // (ForwardingTextView / the Save button shortcut) fires instead of being
+        // swallowed here into a no-op.
         if event.keyCode == 36 && event.modifierFlags.contains(.command) {
-            NotificationCenter.default.post(
-                name: .caiCmdEnterPressed,
-                object: nil
-            )
-            return true
+            if Self.submitScreenActive {
+                NotificationCenter.default.post(name: .caiCmdEnterPressed, object: nil)
+                return true
+            }
+            return false
         }
 
         // Tab — trigger follow-up mode (only when no text editor is active)
@@ -501,11 +536,25 @@ class WindowController: NSObject, ObservableObject {
             return true
         }
 
-        // When a text editor is active, let plain Return and arrows pass through
-        // (Return adds newlines, arrows move cursor)
+        // When a text editor is active, plain Return normally inserts a newline
+        // and arrows move the cursor — let those pass through. Exception: in the
+        // Ask AI composer with "Press Return to send" on, a plain Return (no
+        // Shift) submits instead, and Shift+Return inserts the newline. Cmd+Return
+        // is handled above and always submits.
         if Self.passThrough {
-            if event.keyCode == 126 || event.keyCode == 125 || event.keyCode == 36 {
-                return false
+            if event.keyCode == 36 {  // Return
+                if Self.returnSubmitsPrompt(
+                    pressReturnToSend: CaiSettings.shared.pressReturnToSend,
+                    submitScreenActive: Self.submitScreenActive,
+                    modifiers: event.modifierFlags
+                ) {
+                    NotificationCenter.default.post(name: .caiCmdEnterPressed, object: nil)
+                    return true  // submit — swallow so no newline is inserted
+                }
+                return false  // newline (modified Return, setting off, or another screen)
+            }
+            if event.keyCode == 126 || event.keyCode == 125 {
+                return false  // arrows move the cursor
             }
         }
 

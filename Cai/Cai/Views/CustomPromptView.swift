@@ -20,6 +20,7 @@ struct CustomPromptView: View {
     let onSubmit: (String) -> Void
 
     @FocusState private var isPromptFocused: Bool
+    @ObservedObject private var settings = CaiSettings.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -99,10 +100,12 @@ struct CustomPromptView: View {
             Divider()
                 .background(Color.caiDivider)
 
-            // Footer
+            // Footer — submit hint reflects the active mode live (the @Published
+            // setting drives a re-render). Shared with ResultView's follow-up
+            // footer via PromptSubmitHint so the two can't drift.
             HStack(spacing: 12) {
                 KeyboardHint(key: "Esc", label: "Back")
-                KeyboardHint(key: "⌘↵", label: "Submit")
+                PromptSubmitHint(pressReturnToSend: settings.pressReturnToSend)
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -110,13 +113,19 @@ struct CustomPromptView: View {
         }
         .onAppear {
             WindowController.passThrough = true
+            WindowController.submitScreenActive = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isPromptFocused = true
             }
         }
         .onDisappear {
             WindowController.passThrough = false
+            WindowController.submitScreenActive = false
         }
+        // Fires on Cmd+Return, or on a bare Return when "Press Return to send" is on.
+        // Safe to act unconditionally: this view is only mounted while the composer
+        // is the active screen, so the other .caiCmdEnterPressed listener
+        // (ActionListWindow.handleCmdEnter) no-ops here.
         .onReceive(NotificationCenter.default.publisher(for: .caiCmdEnterPressed)) { _ in
             let trimmed = state.promptText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }

@@ -32,6 +32,7 @@ class CaiSettings: ObservableObject {
         static let hotKeyCombo = "cai_hotKeyCombo"
         static let aboutYou = "cai_aboutYou"
         static let clipboardHistorySize = "cai_clipboardHistorySize"
+        static let pressReturnToSend = "cai_pressReturnToSend"
         static let installedExtensions = "cai_installedExtensions"
         static let hiddenBuiltInActions = "cai_hiddenBuiltInActions"
         static let appearance = "cai_appearance"
@@ -183,6 +184,15 @@ class CaiSettings: ObservableObject {
         didSet {
             defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
             updateLaunchAtLogin(launchAtLogin)
+        }
+    }
+
+    /// When true, Return submits the Ask AI prompt and Shift+Return inserts a
+    /// newline. Default false (Cmd+Return submits, plain Return inserts a newline).
+    /// Cmd+Return always submits in both modes. Scoped to the Ask AI panel.
+    @Published var pressReturnToSend: Bool {
+        didSet {
+            defaults.set(pressReturnToSend, forKey: Keys.pressReturnToSend)
         }
     }
 
@@ -410,6 +420,8 @@ class CaiSettings: ObservableObject {
 
         self.crashReportingEnabled = defaults.bool(forKey: Keys.crashReportingEnabled)
         self.crashReportingPromptShown = defaults.bool(forKey: Keys.crashReportingPromptShown)
+
+        self.pressReturnToSend = defaults.bool(forKey: Keys.pressReturnToSend)
 
         self.hotKeyComboDict = defaults.dictionary(forKey: Keys.hotKeyCombo) as? [String: Int]
         self.aboutYou = defaults.string(forKey: Keys.aboutYou) ?? ""

@@ -269,6 +269,7 @@ struct SettingsView: View {
                             .onChange(of: settings.customModelURL) { forceCheckLLMStatus(); fetchAvailableModels() }
                             .onChange(of: settings.modelName) { forceCheckLLMStatus() }
                         }
+
                     }
 
                     // MARK: Extensions Group
@@ -494,33 +495,28 @@ struct SettingsView: View {
 
                         settingsDivider
 
-                        HStack {
-                            Text("Launch at Login")
-                                .font(.system(size: 12))
-                                .foregroundColor(.caiTextPrimary)
-                            Spacer()
-                            Toggle("", isOn: $settings.launchAtLogin)
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
-                                .tint(.caiPrimary)
-                                .labelsHidden()
-                        }
-                        .accessibilityLabel("Launch Cai at login")
+                        settingsToggleRow(
+                            "Launch at Login",
+                            isOn: $settings.launchAtLogin,
+                            accessibilityLabel: "Launch Cai at login"
+                        )
 
                         settingsDivider
 
-                        HStack {
-                            Text("Crash Reports")
-                                .font(.system(size: 12))
-                                .foregroundColor(.caiTextPrimary)
-                            Spacer()
-                            Toggle("", isOn: $settings.crashReportingEnabled)
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
-                                .tint(.caiPrimary)
-                                .labelsHidden()
-                        }
-                        .accessibilityLabel("Send crash reports to help improve Cai")
+                        settingsToggleRow(
+                            "Crash Reports",
+                            isOn: $settings.crashReportingEnabled,
+                            accessibilityLabel: "Send crash reports to help improve Cai"
+                        )
+
+                        settingsDivider
+
+                        settingsToggleRow(
+                            "Return to submit",
+                            subtitle: "↵ to submit · ⇧↵ for a new line",
+                            isOn: $settings.pressReturnToSend,
+                            accessibilityLabel: "Use Return to submit; Shift-Return inserts a new line"
+                        )
 
                         settingsDivider
 
@@ -1050,6 +1046,32 @@ struct SettingsView: View {
     /// Lightweight divider between sections within a group.
     private var settingsDivider: some View {
         Divider().opacity(0.3).padding(.vertical, 8)
+    }
+
+    /// A standard settings toggle row: leading label, trailing mini switch.
+    /// The accessibility label sits on the Toggle itself (not the row) so VoiceOver
+    /// announces the control with a name — a bare `Toggle("", …).labelsHidden()`
+    /// otherwise reads as an unnamed switch.
+    private func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>, accessibilityLabel: String) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundColor(.caiTextPrimary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                }
+            }
+            Spacer()
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(.caiPrimary)
+                .labelsHidden()
+                .accessibilityLabel(accessibilityLabel)
+        }
     }
 
     /// Individual settings section with title header and optional status badge.

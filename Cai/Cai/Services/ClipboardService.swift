@@ -1,6 +1,14 @@
 import AppKit
 import Carbon
 
+/// Fully-resolved clipboard content for the ⌥C / history-poll detection path,
+/// in priority order. Produced from ONE atomic pasteboard snapshot.
+enum ClipboardContent {
+    case imageText(String)      // OCR text from an image file OR image data
+    case text(String)           // trimmed, non-empty plain text
+    case empty(hadImage: Bool)  // nothing usable; hadImage only picks the log line
+}
+
 class ClipboardService {
     static let shared = ClipboardService()
 
@@ -275,5 +283,56 @@ class ClipboardService {
         // API keys, or other secrets that must never leave the process.
         print("📋 Clipboard read: \(trimmed.count) chars")
         return trimmed
+    }
+
+    /// Reads everything the detection path needs in ONE PasteboardQueue hop, then
+    /// resolves it (OCR + disk image load) OFF the lane. Replaces the previous
+    /// chain of separate async reads, which weren't atomic — a write landing
+    /// between them let the ⌥C window / history poll act on a mix of two clipboard
+    /// states. Returns the resolved content plus the `changeCount` observed in the
+    /// same snapshot, so callers set their poll baseline from the same read.
+    func readClipboardContent() async -> (content: ClipboardContent, changeCount: Int) {
+        // Capture raw materials in a SINGLE lane occupancy — pasteboard reads only.
+        // No OCR, no disk I/O, and no nested PasteboardQueue call (re-entering the
+        // serial queue would self-deadlock).
+        let capture: RawClipboardCapture = await PasteboardQueue.shared.read {
+            let pb = NSPasteboard.general
+            let fileURLs = (pb.readObjects(forClasses: [NSURL.self], options: [
+                NSPasteboard.ReadingOptionKey.urlReadingFileURLsOnly: true
+            ]) as? [URL]) ?? []
+            return RawClipboardCapture(
+                fileURLs: fileURLs,
+                text: pb.string(forType: .string),
+                image: NSImage(pasteboard: pb),
+                changeCount: pb.changeCount
+            )
+        }
+
+        // Resolve OFF the lane, preserving the original priority: image file
+        // (OCR; nil → fall through, since Finder puts BOTH a file URL and the path
+        // string) > plain text > image data > empty.
+        if let ocrText = OCRService.shared.ocrImageFiles(capture.fileURLs) {
+            return (.imageText(ocrText), capture.changeCount)
+        }
+        if let raw = capture.text {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return (.text(trimmed), capture.changeCount)
+            }
+        }
+        if let image = capture.image, let ocrText = OCRService.shared.ocrImage(image) {
+            return (.imageText(ocrText), capture.changeCount)
+        }
+        let hadImage = capture.image != nil
+            || capture.fileURLs.contains { OCRService.imageExtensions.contains($0.pathExtension.lowercased()) }
+        return (.empty(hadImage: hadImage), capture.changeCount)
+    }
+
+    /// Raw clipboard materials captured in one lane occupancy, resolved off-lane.
+    private struct RawClipboardCapture {
+        let fileURLs: [URL]
+        let text: String?
+        let image: NSImage?
+        let changeCount: Int
     }
 }

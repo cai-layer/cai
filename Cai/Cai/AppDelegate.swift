@@ -299,20 +299,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// snippets. Both are captured at hotkey time before Cmd+C simulation steals focus.
     @MainActor
     private func openWithClipboard(sourceApp: String? = nil, sourceBundleId: String? = nil) async {
-        // Pasteboard reads run off the main thread via PasteboardQueue, so a slow
-        // daemon (Universal Clipboard, huge item) can't freeze the runloop. The
-        // window still shows after the read completes; the difference is the app
-        // stays responsive while waiting.
+        // One atomic snapshot off the main thread (PasteboardQueue), then resolve
+        // off the lane. A slow daemon (Universal Clipboard, huge item) can't freeze
+        // the runloop, and detection sees a single consistent clipboard state
+        // rather than a mix from several separate reads.
+        let (content, changeCount) = await clipboardService.readClipboardContent()
 
-        // 1. Image file on clipboard (e.g. Finder copy of a .png/.jpg) — OCR it
-        //    Must come before text check: Finder puts both file URL and path text on the pasteboard,
-        //    so readClipboard() would match the path string and skip OCR.
-        if let ocrText = await OCRService.shared.extractTextFromClipboardImageFile() {
+        switch content {
+        // Image (file OCR or image data). For a Finder copy the file URL wins over
+        // the path string; if OCR finds no text, readClipboardContent falls through
+        // to the path text, so we never land here with empty OCR.
+        case .imageText(let ocrText):
             showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp, sourceBundleId: sourceBundleId)
 
-        // 2. Text found
-        } else if let content = await clipboardService.readClipboard() {
-            clipboardHistory.recordCurrentClipboard(content)
+        // Text found.
+        case .text(let text):
+            clipboardHistory.recordCurrentClipboard(text, changeCount: changeCount)
 
             // No clamping here: ClipboardHistory already stores only the first
             // `maxTextLength` (10K) chars for its own UI, and `LLMService.truncateMessages`
@@ -320,31 +322,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // LLM cap from ever engaging and silently cut useful context for long
             // summaries. The action list header surfaces a subtle "X chars → 50K
             // for AI" note when the clipboard exceeds the LLM cap.
-            let detection = contentDetector.detect(content)
+            let detection = contentDetector.detect(text)
             print("Detected: \(detection.type.rawValue) (confidence: \(detection.confidence))")
             CrashReportingService.shared.addBreadcrumb(category: "content", message: "Detected: \(detection.type.rawValue)")
 
             windowController.showActionWindow(
-                text: content,
+                text: text,
                 detection: detection,
                 sourceApp: sourceApp,
                 sourceBundleId: sourceBundleId
             )
 
-        // 3. Image data on clipboard (e.g. Preview copy, screenshot to clipboard) — OCR it
-        } else if let ocrText = await OCRService.shared.extractTextFromClipboardImage() {
-            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp, sourceBundleId: sourceBundleId)
-
-        // 4/5. No text. Open an empty window either way; the image probes only
-        //      pick which log line to print.
-        } else {
-            let hasImage = await OCRService.shared.hasImageOnClipboard()
-            let hasImageFile = await OCRService.shared.hasImageFileOnClipboard()
-            if hasImage || hasImageFile {
-                print("No text found in clipboard image — opening window")
-            } else {
-                print("Clipboard is empty — opening window")
-            }
+        // No usable content — open an empty window. `hadImage` only picks the log line.
+        case .empty(let hadImage):
+            print(hadImage ? "No text found in clipboard image — opening window"
+                           : "Clipboard is empty — opening window")
             showEmptyWindow(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
         }
     }
@@ -425,6 +417,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Drain any pending pasteboard writes (fire-and-forget copies) so a copy
+        // made right before ⌘Q isn't lost when the process exits.
+        PasteboardQueue.shared.flush()
+
         // Safety net: unload MLX model if process is killed without going through quitApp()
         Task { await MLXInference.shared.unload() }
 

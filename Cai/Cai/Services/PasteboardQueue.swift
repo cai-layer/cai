@@ -46,4 +46,11 @@ final class PasteboardQueue {
     func write(_ body: @escaping () -> Void) {
         queue.async(execute: body)
     }
+
+    /// Blocks the caller until every queued operation has finished. Call on app
+    /// termination so a fire-and-forget write (a copy made right before ⌘Q) isn't
+    /// lost when the process exits before the queue drains.
+    func flush() {
+        queue.sync {}
+    }
 }

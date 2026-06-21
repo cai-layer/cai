@@ -86,6 +86,10 @@ class ClipboardHistory: ObservableObject {
     /// Guards against a slow pasteboard daemon letting two poll ticks run their
     /// async content reads at the same time. Only mutated on the main thread.
     private var pollInFlight = false
+    /// Text just written by `copyEntry` (re-copying a history entry). The poll
+    /// suppresses the matching change once instead of re-recording it. Set and
+    /// checked on the main thread, so it can't race the poll.
+    private var suppressNextCopyText: String?
 
     // MARK: - Pin Persistence
 
@@ -128,34 +132,31 @@ class ClipboardHistory: ObservableObject {
         Task { @MainActor in
             defer { self.pollInFlight = false }
 
-            // 1. Image file on clipboard (e.g. Finder copy) — OCR takes priority over filename text.
-            if let ocrText = await OCRService.shared.extractTextFromClipboardImageFile() {
+            // One atomic snapshot (file → text → image priority), resolved off-lane.
+            let (content, _) = await ClipboardService.shared.readClipboardContent()
+            switch content {
+            case .imageText(let ocrText):
                 self.addEntry(ocrText, isImage: true)
-                return
-            }
-
-            // 2. Try text.
-            if let text = await PasteboardQueue.shared.read({ NSPasteboard.general.string(forType: .string) }) {
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    self.addEntry(trimmed)
-                    return
-                }
-            }
-
-            // 3. Image data on clipboard (no file, no text) — OCR.
-            if let ocrText = await OCRService.shared.extractTextFromClipboardImage() {
-                self.addEntry(ocrText, isImage: true)
+            case .text(let text):
+                // A history entry we just copied back surfaces here as a change.
+                // Clear the marker every text tick (bounding staleness) and skip
+                // recording when it matches the self-copy.
+                let suppressed = self.suppressNextCopyText
+                self.suppressNextCopyText = nil
+                guard text != suppressed else { return }
+                self.addEntry(text)
+            case .empty:
+                break
             }
         }
     }
 
-    /// Record a clipboard entry the caller already read (called from the ⌥C path
-    /// after `ClipboardService.readClipboard`). Takes the text directly to avoid
-    /// a redundant pasteboard read on the hot path. `changeCount` is cheap, so it
-    /// stays on the main thread.
-    func recordCurrentClipboard(_ text: String) {
-        lastChangeCount = NSPasteboard.general.changeCount
+    /// Record a clipboard entry the caller already read (the ⌥C path, from
+    /// `ClipboardService.readClipboardContent`). Takes the text AND the
+    /// `changeCount` from the same snapshot, so the poll baseline matches the
+    /// recorded content and the next poll tick won't re-record it.
+    func recordCurrentClipboard(_ text: String, changeCount: Int) {
+        lastChangeCount = changeCount
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         addEntry(trimmed)
@@ -203,15 +204,14 @@ class ClipboardHistory: ObservableObject {
     /// so the write can't race a concurrent read/paste-back. Fire-and-forget, so
     /// the call site stays synchronous.
     func copyEntry(_ entry: Entry) {
+        // Mark the text so the poll suppresses this self-copy instead of
+        // re-recording it. Set on main (this is called from the UI) and checked
+        // on main in `checkForChanges` — race-free, no cross-thread hop.
+        suppressNextCopyText = entry.text
         PasteboardQueue.shared.write {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(entry.text, forType: .string)
-            let newCount = pasteboard.changeCount
-            // Update the poll's baseline on main so it doesn't re-record this copy.
-            DispatchQueue.main.async { [weak self] in
-                self?.lastChangeCount = newCount
-            }
         }
     }
 

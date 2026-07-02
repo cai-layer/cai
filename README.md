@@ -78,6 +78,8 @@ Also includes:
 
 ## Installation
 
+> ⚠️ **One-time manual update needed.** We rotated Cai's update-signing key, so 1.5.1 and older can't auto-update to 1.5.2. Download it from the [latest release](../../releases/latest) or [getcai.app](https://getcai.app) once; auto-updates resume from then on. (A brief "improperly signed" warning is expected and safe.)
+
 ### Homebrew
 
 ```bash

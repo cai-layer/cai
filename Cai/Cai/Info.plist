@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.5.1</string>
+	<string>1.5.2</string>
 	<key>CFBundleVersion</key>
-	<string>9</string>
+	<string>10</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
@@ -33,7 +33,7 @@
 	<key>SUFeedURL</key>
 	<string>https://getcai.app/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>8YP+xrUbvPwaSZex0KHZocx8c8YZdae88aq9BgFjph8=</string>
+	<string>yDoaoMq7lKf7Bd/joI03yMrX+xEPR5uvI6JiWa/rabo=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>

@@ -187,9 +187,11 @@ class CaiSettings: ObservableObject {
         }
     }
 
-    /// When true, Return submits the Ask AI prompt and Shift+Return inserts a
-    /// newline. Default false (Cmd+Return submits, plain Return inserts a newline).
-    /// Cmd+Return always submits in both modes. Scoped to the Ask AI panel.
+    /// When true, a bare Return submits and Shift+Return inserts a newline. Default
+    /// false (Cmd+Return submits, plain Return inserts a newline). Cmd+Return always
+    /// submits in both modes. Applies to every `MultilineTextEditor` composer — the
+    /// Ask AI prompt, follow-ups, custom prompts, and the MCP issue/comment + custom
+    /// destination body fields all follow the same rule.
     @Published var pressReturnToSend: Bool {
         didSet {
             defaults.set(pressReturnToSend, forKey: Keys.pressReturnToSend)

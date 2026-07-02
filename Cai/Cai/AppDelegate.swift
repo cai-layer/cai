@@ -463,6 +463,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Built-in LLM Startup
 
     private func startBuiltInLLMAndAutoDetect() {
+        // Skip the launch-time MLX model load under XCTest. The unit suite is fully
+        // offline (pure helpers, request encoding, template/detector logic), so loading
+        // a model here only adds startup cost and races MLX's global thread-pool
+        // teardown when the test host exits mid-load ([ThreadPool::enqueue] on stopped
+        // pool → fatal). No effect on the shipped app.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
+
         Task {
             let settings = await MainActor.run { CaiSettings.shared }
             let provider = await MainActor.run { settings.modelProvider }

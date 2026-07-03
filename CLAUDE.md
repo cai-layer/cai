@@ -79,6 +79,7 @@ Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) {
 
 ## Important Gotchas
 
+- **The project uses file-system-synchronized folders** (Xcode 16 format): every file under `Cai/Cai` and `Cai/CaiTests` builds automatically, no pbxproj registration. Flip side: never leave scratch or experimental files in those folders; they compile into the app.
 - **Never put `.onTapGesture` on a SwiftUI `List` row** — silently breaks `.onMove`. Use a trailing `Menu` or `Button`. Full bisect in [`_docs/architecture/SWIFTUI_GOTCHAS.md`](_docs/architecture/SWIFTUI_GOTCHAS.md).
 - **Never use `.id(index)` on LazyVStack rows** — use `.id(action.id)` to prevent stale cached views when filtering.
 - **`KeyEventHostingView` should NOT have an `onKeyDown` handler** — the local event monitor handles everything; adding `keyDown` causes double-handling.

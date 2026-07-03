@@ -57,6 +57,12 @@ xcodebuild -scheme Cai -configuration Debug test
 
 `Cai/CaiTests/` — `ContentDetectorTests` covers 40+ cases across all content types. Other suites cover `ActionGenerator`, `OutputDestinationService`, MCP parsing/transport, `ChainExecutor`, `TemplateEngine`.
 
+### Testability discipline
+
+Extract decision logic out of views, the key monitor, and AppKit glue into pure, nonisolated static functions, and cover them with table-driven XCTests. Logic that lives inline in event handlers ships unverified and only breaks in the real app. Exemplars: `WindowController.returnSubmitsPrompt(...)` (tested by `EnterToSendTests`, called from both the key monitor and `MultilineTextEditor`) and `ContentDetector.detect()` (tested by `ContentDetectorTests`).
+
+Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) { submit() }` buried in the key monitor. After: `if Self.returnSubmitsPrompt(pressReturnToSend:submitScreenActive:modifiers:) { submit() }` with the predicate unit-tested.
+
 ## Common Tasks
 
 **New LLM action:** add case to `LLMAction` enum (`ActionItem.swift`) → method on `LLMService` (with `appContext`) → wire in `ActionGenerator` → handle in `ActionListWindow.executeAction()` → title in `llmActionTitle()`.
@@ -118,4 +124,5 @@ xcodebuild -scheme Cai -configuration Debug test
   2. **If there isn't anything major, just say so.**
   3. **Only review the diff.**
 - Add `/codex` for risky paths: CGEvent / pasteboard, Keychain, MCP transport, subprocess execution, `OutputDestinationService`, `ClipboardService`.
+- Every review checks the diff against the Cai risk catalog: [`_docs/process/REVIEW-CHECKLIST.md`](_docs/process/REVIEW-CHECKLIST.md) (CAI-01..24; apply only the items whose area the diff touches).
 - Full doc: [`_docs/process/CODE-REVIEW.md`](_docs/process/CODE-REVIEW.md).

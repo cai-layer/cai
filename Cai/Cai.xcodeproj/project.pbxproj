@@ -88,6 +88,8 @@
 		CAI00416 /* ChainExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00417 /* ChainExecutor.swift */; };
 		CAI00420 /* ChainExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00421 /* ChainExecutorTests.swift */; };
 		CAI00524 /* EnterToSendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00525 /* EnterToSendTests.swift */; };
+		CAI00526 /* SmartQuoteNormalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00527 /* SmartQuoteNormalizationTests.swift */; };
+		CAI00528 /* MainThreadWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00529 /* MainThreadWatchdog.swift */; };
 		CAI00422 /* ChainStepsTokenField.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00423 /* ChainStepsTokenField.swift */; };
 		CAI00424 /* ChainStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00425 /* ChainStep.swift */; };
 		CAI00426 /* AppleShortcutsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00427 /* AppleShortcutsService.swift */; };
@@ -189,6 +191,8 @@
 		CAI00417 /* ChainExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainExecutor.swift; sourceTree = "<group>"; };
 		CAI00421 /* ChainExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainExecutorTests.swift; sourceTree = "<group>"; };
 		CAI00525 /* EnterToSendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnterToSendTests.swift; sourceTree = "<group>"; };
+		CAI00527 /* SmartQuoteNormalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartQuoteNormalizationTests.swift; sourceTree = "<group>"; };
+		CAI00529 /* MainThreadWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadWatchdog.swift; sourceTree = "<group>"; };
 		CAI00423 /* ChainStepsTokenField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainStepsTokenField.swift; sourceTree = "<group>"; };
 		CAI00425 /* ChainStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainStep.swift; sourceTree = "<group>"; };
 		CAI00427 /* AppleShortcutsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleShortcutsService.swift; sourceTree = "<group>"; };
@@ -289,6 +293,7 @@
 				CAI00411 /* TemplateEngine.swift */,
 				CAI00415 /* BackgroundTaskTracker.swift */,
 				CAI00417 /* ChainExecutor.swift */,
+				CAI00529 /* MainThreadWatchdog.swift */,
 				CAI00427 /* AppleShortcutsService.swift */,
 			);
 			path = Services;
@@ -308,6 +313,7 @@
 				CAI00413 /* TemplateEngineTests.swift */,
 				CAI00421 /* ChainExecutorTests.swift */,
 				CAI00525 /* EnterToSendTests.swift */,
+				CAI00527 /* SmartQuoteNormalizationTests.swift */,
 			);
 			path = CaiTests;
 			sourceTree = "<group>";
@@ -552,6 +558,7 @@
 				CAI00410 /* TemplateEngine.swift in Sources */,
 				CAI00414 /* BackgroundTaskTracker.swift in Sources */,
 				CAI00416 /* ChainExecutor.swift in Sources */,
+				CAI00528 /* MainThreadWatchdog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -570,6 +577,7 @@
 				CAI00412 /* TemplateEngineTests.swift in Sources */,
 				CAI00420 /* ChainExecutorTests.swift in Sources */,
 				CAI00524 /* EnterToSendTests.swift in Sources */,
+				CAI00526 /* SmartQuoteNormalizationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

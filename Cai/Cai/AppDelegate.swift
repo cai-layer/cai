@@ -24,6 +24,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var taskTrackerSubscription: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        MainThreadWatchdog.start()
+        #endif
+
         // Apply saved appearance preference
         CaiSettings.shared.applyAppearance()
 

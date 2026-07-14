@@ -91,6 +91,10 @@ iOSInjectionProject/
 # Build artifacts
 *.dmg
 
+# Code coverage (LLVM profiling data from instrumented Debug runs)
+*.profraw
+*.profdata
+
 # Claude Code (local settings, memory, plans — user-specific)
 .claude/
 

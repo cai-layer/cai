@@ -115,6 +115,24 @@ class CaiSettings: ObservableObject {
         }
     }
 
+    /// True once a provider has been persisted — the user picked one, or first-launch
+    /// onboarding/auto-detect established one. When false (fresh install, or a legacy
+    /// user who never had a provider key) auto-detect may probe for a running provider.
+    /// When true, auto-detect must be skipped: a provider that is merely unavailable at
+    /// launch (Apple Intelligence on macOS < 26, a local server not started yet, an offline
+    /// cloud provider) would otherwise be silently reverted to built-in and persisted. See #35.
+    var hasExplicitProvider: Bool {
+        Self.providerIsExplicit(persistedValue: defaults.object(forKey: Keys.modelProvider))
+    }
+
+    /// Pure predicate behind `hasExplicitProvider`, extracted for unit tests (see #35).
+    /// "Explicit" means the provider key has been persisted at all — by a user choice or
+    /// by first-launch onboarding/auto-detect. Presence is what matters, not the value:
+    /// even a persisted `.builtIn` counts, so auto-detect won't re-run and revert it.
+    static func providerIsExplicit(persistedValue: Any?) -> Bool {
+        persistedValue != nil
+    }
+
     /// Only used when modelProvider == .custom
     @Published var customModelURL: String {
         didSet { defaults.set(customModelURL, forKey: Keys.customModelURL) }
@@ -647,6 +665,15 @@ class CaiSettings: ObservableObject {
     /// Probes known provider URLs and selects the first one that responds.
     /// Only call this when `hasExplicitProvider` is false (first launch).
     func autoDetectProvider() async {
+        // Respect an explicitly chosen provider. Auto-detect is a first-launch / legacy
+        // convenience; once a provider is persisted, a transient unavailability at launch
+        // must never silently revert the user to built-in (see #35). Enforced here so no
+        // caller can reintroduce the override.
+        if hasExplicitProvider {
+            print("Provider explicitly set — skipping auto-detect")
+            return
+        }
+
         // Apple Intelligence — highest priority, zero setup.
         // Only auto-select on subsequent launches (builtInSetupDone already true).
         // On first launch, the ModelSetupView handles the Apple Intelligence recommendation

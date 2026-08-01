@@ -1,3 +1,4 @@
+import CaiActionCore
 import SwiftUI
 
 /// Management screen for creating, editing, and deleting custom shortcuts.

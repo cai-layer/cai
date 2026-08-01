@@ -1,3 +1,4 @@
+import CaiActionCore
 import SwiftUI
 
 /// Browse and install community extensions from the curated repo.

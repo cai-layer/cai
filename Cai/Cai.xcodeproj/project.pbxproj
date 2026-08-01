@@ -13,6 +13,8 @@
 		CAI00140 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00141 /* Sentry */; };
 		CAI00150 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00151 /* Sparkle */; };
 		CAI00160 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00161 /* Yams */; };
+		CAI00170 /* CaiActionCore in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00171 /* CaiActionCore */; };
+		CAI00172 /* CaiActionCore in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00173 /* CaiActionCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,6 +58,7 @@
 				CAI00150 /* Sparkle in Frameworks */,
 				702858772F800433002527EC /* MLXLMCommon in Frameworks */,
 				CAI00160 /* Yams in Frameworks */,
+				CAI00170 /* CaiActionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -63,6 +66,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CAI00172 /* CaiActionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -113,6 +117,7 @@
 				CAI00161 /* Yams */,
 				702858742F800433002527EC /* MLXLLM */,
 				702858762F800433002527EC /* MLXLMCommon */,
+				CAI00171 /* CaiActionCore */,
 			);
 			productName = Cai;
 			productReference = CAI00009 /* Cai.app */;
@@ -135,6 +140,9 @@
 				70B2E8072FF7F10D006F0575 /* CaiTests */,
 			);
 			name = CaiTests;
+			packageProductDependencies = (
+				CAI00173 /* CaiActionCore */,
+			);
 			productName = CaiTests;
 			productReference = CAI00049 /* CaiTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -168,6 +176,7 @@
 			);
 			mainGroup = CAI00013;
 			packageReferences = (
+				CAI00174 /* XCLocalSwiftPackageReference "CaiActionCore" */,
 				CAI00028 /* XCRemoteSwiftPackageReference "HotKey" */,
 				CAI00142 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				CAI00152 /* XCRemoteSwiftPackageReference "Sparkle" */,
@@ -481,6 +490,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		CAI00174 /* XCLocalSwiftPackageReference "CaiActionCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = CaiActionCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		702858732F800433002527EC /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -554,6 +570,14 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CAI00162 /* XCRemoteSwiftPackageReference "Yams" */;
 			productName = Yams;
+		};
+		CAI00171 /* CaiActionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CaiActionCore;
+		};
+		CAI00173 /* CaiActionCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CaiActionCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

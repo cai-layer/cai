@@ -1,3 +1,4 @@
+import CaiActionCore
 import Foundation
 
 /// Single source of truth for built-in action identifiers that can be hidden

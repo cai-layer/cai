@@ -92,6 +92,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+        // Start watching for agent-authored proposals. No-ops when the kill
+        // switch is off, and in Debug builds without CAI_MCP_PENDING=1 (both
+        // bundle IDs share Application Support, so an unguarded Debug build
+        // would race the Release build for the same pending files).
+        PendingChangeStore.shared.startIfEnabled()
+
         // Check accessibility permission
         permissionsManager.checkAccessibilityPermission()
 

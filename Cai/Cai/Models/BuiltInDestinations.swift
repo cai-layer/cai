@@ -1,3 +1,4 @@
+import CaiActionCore
 import Foundation
 
 /// Pre-defined output destinations for native macOS apps.

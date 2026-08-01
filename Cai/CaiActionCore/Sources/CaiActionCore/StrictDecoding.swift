@@ -56,7 +56,33 @@ public enum ActionCoding {
 
     public static var decoder: JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // Accept fractional seconds as well as whole ones. `.iso8601` alone
+        // rejects "2026-08-01T14:32:11.123Z", which is exactly what
+        // JavaScript's Date.toISOString() emits: a helper or third-party
+        // writer in any other language would have every proposal quarantined
+        // with an opaque "date corrupted" reason.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            if let date = iso8601WithFractionalSeconds.date(from: text) ?? iso8601.date(from: text) {
+                return date
+            }
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath,
+                debugDescription: "expected an ISO 8601 date, found '\(text)'"
+            ))
+        }
         return decoder
     }
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }

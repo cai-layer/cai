@@ -84,7 +84,7 @@ public enum ActionValidator {
         let reasons = ApprovalClassifier.escalationReasons(for: normalized, known: known)
         return ValidatedChange(
             changeId: change.id,
-            provenance: change.provenance,
+            provenance: sanitized(change.provenance),
             before: nil,
             after: normalized,
             changedFields: [],
@@ -141,7 +141,7 @@ public enum ActionValidator {
         let reasons = ApprovalClassifier.escalationReasons(for: normalized, known: known)
         return ValidatedChange(
             changeId: change.id,
-            provenance: change.provenance,
+            provenance: sanitized(change.provenance),
             before: current,
             after: normalized,
             changedFields: update.changes.fields,
@@ -149,6 +149,32 @@ public enum ActionValidator {
             tier: reasons.isEmpty ? .standard : .escalated,
             escalationReasons: reasons
         )
+    }
+
+    // MARK: - Provenance
+
+    /// Provenance labels are as attacker-controlled as the payload: the client
+    /// name arrives in the same file, and the approval sheet renders it in
+    /// Cai's own voice ("Proposed by ..."). Unsanitized, a name carrying
+    /// newlines can add lines of reassuring copy above the payload, and a name
+    /// carrying thousands of characters can push the Approve and Reject
+    /// buttons off the bottom of the screen. Same treatment as a name.
+    static func sanitized(_ provenance: ActionProvenance) -> ActionProvenance {
+        ActionProvenance(
+            source: provenance.source,
+            client: sanitizedLabel(provenance.client),
+            model: sanitizedLabel(provenance.model),
+            authoredAt: provenance.authoredAt
+        )
+    }
+
+    private static func sanitizedLabel(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let cleaned = text
+            .strippingControlCharacters(keepingNewlines: false)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        return String(cleaned.prefix(ActionSchema.maxProvenanceLabelLength))
     }
 
     // MARK: - Normalization and limits

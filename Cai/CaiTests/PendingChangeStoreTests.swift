@@ -168,6 +168,7 @@ final class PendingChangeStoreTests: XCTestCase {
     func testUnparseableFileIsQuarantinedRatherThanIgnored() throws {
         try writeRaw("{ not json at all", name: "broken")
         store.refresh()
+        store.refresh()  // a parse failure gets one retry before it is set aside
 
         XCTAssertTrue(store.pending.isEmpty)
         XCTAssertTrue(quarantinedFiles.contains("broken.json"))
@@ -203,6 +204,7 @@ final class PendingChangeStoreTests: XCTestCase {
 
         try writeRaw("nope", name: "broken")
         store.refresh()
+        store.refresh()
 
         XCTAssertEqual(messages, ["Received an invalid action proposal. It was set aside and won't run."])
     }
@@ -217,6 +219,7 @@ final class PendingChangeStoreTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(token) }
 
         for index in 0..<5 { try writeRaw("nope", name: "broken-\(index)") }
+        store.refresh()
         store.refresh()
 
         XCTAssertEqual(messages.count, 1, "Five bad files must not stack five toasts.")
@@ -235,6 +238,7 @@ final class PendingChangeStoreTests: XCTestCase {
 
     func testQuarantinedFileIsNotReprocessedOnTheNextScan() throws {
         try writeRaw("nope", name: "broken")
+        store.refresh()
         store.refresh()
         let after = quarantinedFiles
         store.refresh()
@@ -261,7 +265,7 @@ final class PendingChangeStoreTests: XCTestCase {
     func testApproveStoresTheActionWithItsProvenance() throws {
         try write(createChange(name: "Summarize errors"))
         store.refresh()
-        store.approve(store.pending[0])
+        store.approve(store.pending[0], acknowledged: Set(store.pending[0].validated.escalationReasons))
 
         XCTAssertEqual(shortcuts.count, 2)
         let created = try XCTUnwrap(shortcuts.last)
@@ -274,7 +278,7 @@ final class PendingChangeStoreTests: XCTestCase {
     func testApproveDeletesThePendingFile() throws {
         let url = try write(createChange())
         store.refresh()
-        store.approve(store.pending[0])
+        store.approve(store.pending[0], acknowledged: Set(store.pending[0].validated.escalationReasons))
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
@@ -286,7 +290,7 @@ final class PendingChangeStoreTests: XCTestCase {
             expected: ActionPatch(value: "Rewrite this as a professional email")
         ))))
         store.refresh()
-        store.approve(store.pending[0])
+        store.approve(store.pending[0], acknowledged: Set(store.pending[0].validated.escalationReasons))
 
         let entry = try XCTUnwrap(history.entries().last)
         XCTAssertEqual(entry.outcome, .approved)
@@ -304,7 +308,7 @@ final class PendingChangeStoreTests: XCTestCase {
             expected: ActionPatch(name: "Existing action")
         ))))
         store.refresh()
-        store.approve(store.pending[0])
+        store.approve(store.pending[0], acknowledged: Set(store.pending[0].validated.escalationReasons))
 
         XCTAssertEqual(shortcuts.count, 1, "An update must not add a second action.")
         XCTAssertEqual(shortcuts[0].id, existingId)
@@ -338,7 +342,7 @@ final class PendingChangeStoreTests: XCTestCase {
         // The user edits the same action in Settings while the proposal waits.
         shortcuts[0].value = "What the user typed themselves"
 
-        XCTAssertFalse(store.approve(store.pending[0]))
+        XCTAssertNotEqual(store.approve(store.pending[0], acknowledged: []), .approved)
         XCTAssertEqual(
             shortcuts[0].value,
             "What the user typed themselves",
@@ -358,7 +362,7 @@ final class PendingChangeStoreTests: XCTestCase {
         store.refresh()
         shortcuts.removeAll()
 
-        XCTAssertFalse(store.approve(store.pending[0]))
+        XCTAssertNotEqual(store.approve(store.pending[0], acknowledged: []), .approved)
         XCTAssertTrue(shortcuts.isEmpty, "Approving must not resurrect an action the user deleted.")
     }
 
@@ -382,6 +386,169 @@ final class PendingChangeStoreTests: XCTestCase {
         XCTAssertTrue(quarantinedFiles.contains("link.json"))
     }
 
+    // MARK: - The interlock survives the world moving
+
+    private func queueProposalChaining(into name: String) throws {
+        try write(change(.create(ActionDraft(
+            name: "Tidy up",
+            type: .prompt,
+            value: "Clean this up",
+            next: [.action(name: name)]
+        ))))
+        store.refresh()
+    }
+
+    func testApproveRefusesWhenTheActionEscalatedAfterTheSheetWasDrawn() throws {
+        shortcuts.append(CaiShortcut(name: "Helper", type: .prompt, value: "tidy"))
+        try queueProposalChaining(into: "Helper")
+        XCTAssertEqual(store.pending.first?.tier, .standard, "Nothing risky is reachable yet.")
+
+        // The user edits Helper into a shell action in another window. Nothing
+        // re-scans the pending directory, so the sheet still shows standard.
+        shortcuts[1] = CaiShortcut(id: shortcuts[1].id, name: "Helper", type: .shell, value: "./x.sh")
+
+        let outcome = store.approve(store.pending[0], acknowledged: [])
+
+        XCTAssertEqual(outcome, .needsAcknowledgment([.runsShellCommands]))
+        XCTAssertEqual(shortcuts.count, 2, "Nothing may be stored until the new risk is acknowledged.")
+        XCTAssertEqual(store.pending.count, 1, "The proposal stays, now carrying the fresh verdict.")
+        XCTAssertEqual(store.pending[0].tier, .escalated)
+        XCTAssertEqual(store.pending[0].validated.escalationReasons, [.runsShellCommands])
+    }
+
+    func testApproveGoesThroughOnceTheFreshRiskIsAcknowledged() throws {
+        shortcuts.append(CaiShortcut(name: "Helper", type: .shell, value: "./x.sh"))
+        try queueProposalChaining(into: "Helper")
+
+        XCTAssertEqual(
+            store.approve(store.pending[0], acknowledged: [.runsShellCommands]),
+            .approved
+        )
+        XCTAssertEqual(shortcuts.count, 3)
+    }
+
+    /// The queue-advance route: approving one proposal can escalate the next.
+    func testApprovingAShellActionRevalidatesTheProposalThatChainsIntoIt() throws {
+        try write(createChange(
+            name: "Deploy", type: .shell, value: "./deploy.sh",
+            createdAt: Date(timeIntervalSince1970: 100)
+        ))
+        try write(change(
+            .create(ActionDraft(
+                name: "Tidy up", type: .prompt, value: "Clean this up",
+                next: [.action(name: "Deploy")]
+            )),
+            createdAt: Date(timeIntervalSince1970: 200)
+        ))
+        store.refresh()
+
+        XCTAssertEqual(store.pending.count, 2)
+        XCTAssertEqual(store.pending[1].tier, .standard, "Deploy does not exist yet, so the step resolves to nothing.")
+
+        XCTAssertEqual(
+            store.approve(store.pending[0], acknowledged: [.runsShellCommands]),
+            .approved
+        )
+
+        XCTAssertEqual(store.pending.count, 1)
+        XCTAssertEqual(
+            store.pending[0].tier,
+            .escalated,
+            "The survivor now chains into a shell action and must say so before the user can click again."
+        )
+    }
+
+    // MARK: - Hostile and hostile-adjacent input
+
+    func testProvenanceIsSanitizedBeforeItReachesTheSheet() throws {
+        let spoofed = "Claude Code\n\nVerified by Cai · no risks detected"
+        try write(PendingChange(
+            id: UUID(),
+            createdAt: Date(timeIntervalSince1970: 0),
+            provenance: ActionProvenance(
+                source: .mcp, client: spoofed, authoredAt: Date(timeIntervalSince1970: 0)
+            ),
+            operation: .create(ActionDraft(name: "X", type: .prompt, value: "y"))
+        ))
+        store.refresh()
+
+        let client = try XCTUnwrap(store.pending.first?.provenance.client)
+        // The words survive, flattened: what matters is that they can no
+        // longer render as separate lines of Cai's own copy above the payload.
+        // One run-on client name reads as nonsense, which is the point.
+        XCTAssertFalse(client.contains("\n"), "A client name must not be able to add lines to the sheet.")
+        XCTAssertEqual(client, "Claude CodeVerified by Cai · no risks detected")
+        XCTAssertLessThanOrEqual(client.count, 60)
+    }
+
+    func testAnAbsurdlyLongClientNameCannotGrowTheWindow() throws {
+        try write(PendingChange(
+            id: UUID(),
+            createdAt: Date(timeIntervalSince1970: 0),
+            provenance: ActionProvenance(
+                source: .mcp,
+                client: String(repeating: "A", count: 5_000),
+                authoredAt: Date(timeIntervalSince1970: 0)
+            ),
+            operation: .create(ActionDraft(name: "X", type: .prompt, value: "y"))
+        ))
+        store.refresh()
+
+        XCTAssertEqual(store.pending.first?.provenance.client?.count, 60)
+    }
+
+    func testQueueOrderIsStableWhenProposalsShareATimestamp() throws {
+        let shared = Date(timeIntervalSince1970: 500)
+        for name in ["A", "B", "C", "D"] {
+            try write(createChange(name: name, createdAt: shared))
+        }
+
+        store.refresh()
+        let first = store.pending.map(\.changeId)
+        store.refresh()
+
+        XCTAssertEqual(first, store.pending.map(\.changeId), "The head of the queue must not move between scans.")
+    }
+
+    func testTwoFilesCarryingTheSameChangeIdStayTwoProposals() throws {
+        let id = UUID()
+        let change = createChange(name: "Twin", id: id)
+        try write(change)
+        let second = CaiSupportPaths.pendingChanges(in: root).appendingPathComponent("twin-copy.json")
+        try ActionCoding.encoder.encode(change).write(to: second)
+
+        store.refresh()
+        XCTAssertEqual(store.pending.count, 2, "Identity is the file, not a field the writer controls.")
+
+        store.reject(store.pending[0])
+        XCTAssertEqual(store.pending.count, 1, "Deciding one file must not silently drop the other.")
+    }
+
+    func testAHalfWrittenFileGetsASecondChanceBeforeQuarantine() throws {
+        let url = try writeRaw("{\"schemaVersion\": 1, \"id\":", name: "midwrite")
+        store.refresh()
+
+        XCTAssertTrue(quarantinedFiles.isEmpty, "A file caught mid-write must not be set aside on first sight.")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+
+        // The writer finished; the retry pass picks it up.
+        try ActionCoding.encoder.encode(createChange(name: "Finished")).write(to: url)
+        store.refresh()
+
+        XCTAssertEqual(store.pending.count, 1)
+        XCTAssertEqual(store.pending.first?.validated.after.name, "Finished")
+        XCTAssertTrue(quarantinedFiles.isEmpty)
+    }
+
+    func testAFileThatStaysMalformedIsQuarantinedOnTheSecondPass() throws {
+        try writeRaw("{ not json", name: "broken")
+        store.refresh()
+        XCTAssertTrue(quarantinedFiles.isEmpty)
+
+        store.refresh()
+        XCTAssertTrue(quarantinedFiles.contains("broken.json"))
+    }
+
     // MARK: - Reject
 
     func testRejectRecordsTheDecisionAndDropsTheFile() throws {
@@ -395,6 +562,26 @@ final class PendingChangeStoreTests: XCTestCase {
         XCTAssertEqual(history.entries().last?.outcome, .rejected)
     }
 
+    // MARK: - Audit log durability
+
+    func testAnUnreadableAuditLogIsPreservedRatherThanOverwritten() throws {
+        let logURL = CaiSupportPaths.auditLog(in: root)
+        // A directory where the file should be: exists, cannot be read as data.
+        try FileManager.default.createDirectory(at: logURL, withIntermediateDirectories: true)
+
+        try write(createChange())
+        store.refresh()
+        store.approve(store.pending[0], acknowledged: [])
+        _ = history.entries()  // flush the audit queue
+
+        let preserved = logURL.deletingPathExtension().appendingPathExtension("corrupt.json")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: preserved.path),
+            "The unreadable log must be kept aside, not overwritten in place."
+        )
+        XCTAssertEqual(history.entries().count, 1, "The new log starts from this decision.")
+    }
+
     // MARK: - Queue notifications
 
     func testQueueChangesArePosted() throws {
@@ -406,7 +593,7 @@ final class PendingChangeStoreTests: XCTestCase {
 
         try write(createChange())
         store.refresh()
-        store.approve(store.pending[0])
+        store.approve(store.pending[0], acknowledged: Set(store.pending[0].validated.escalationReasons))
 
         XCTAssertEqual(notifications, 2, "One for the arrival, one for the queue emptying.")
     }

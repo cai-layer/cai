@@ -42,7 +42,7 @@ public enum ApprovalClassifier {
         known: KnownActions
     ) -> [EscalationReason] {
         var found: Set<EscalationReason> = []
-        collect(into: &found, action: action, known: known, visited: [action.name], depth: 0)
+        collect(into: &found, action: action, known: known, visited: [action.id], depth: 0)
         return EscalationReason.allCases.filter { found.contains($0) }
     }
 
@@ -50,11 +50,18 @@ public enum ApprovalClassifier {
         escalationReasons(for: action, known: known).isEmpty ? .standard : .escalated
     }
 
+    /// `visited` holds action ids, never names.
+    ///
+    /// Names are not unique: a proposal may be named the same as an installed
+    /// action, and a name-keyed visited set would then skip the chain step
+    /// that resolves to the OTHER action. A proposal named "Deploy" chaining
+    /// to "Deploy" would read as a harmless prompt while `ChainExecutor`
+    /// resolved that step to the user's existing shell action and ran it.
     private static func collect(
         into found: inout Set<EscalationReason>,
         action: ActionSnapshot,
         known: KnownActions,
-        visited: Set<String>,
+        visited: Set<UUID>,
         depth: Int
     ) {
         if action.type == .shell { found.insert(.runsShellCommands) }
@@ -74,14 +81,17 @@ public enum ApprovalClassifier {
                 // with the executable callout rather than passing silently.
                 found.insert(.runsShellCommands)
             case .action(let name):
-                guard !visited.contains(name) else { continue }
                 switch known.resolveChainName(name) {
                 case .shortcut(let referenced):
+                    // Only a step resolving back to an action already on this
+                    // path is a cycle. A different action that happens to
+                    // share a name is a different action, and its risks count.
+                    guard !visited.contains(referenced.id) else { continue }
                     collect(
                         into: &found,
                         action: referenced,
                         known: known,
-                        visited: visited.union([name]),
+                        visited: visited.union([referenced.id]),
                         depth: depth + 1
                     )
                 case .destination(let destination):

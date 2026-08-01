@@ -161,6 +161,28 @@ final class ApprovalTierTests: XCTestCase {
         XCTAssertEqual(ApprovalClassifier.escalationReasons(for: top, known: known), [.runsShellCommands])
     }
 
+    /// Names are not unique. A proposal named the same as an installed action
+    /// must not be able to hide that action's risks behind the cycle guard.
+    func testAChainStepSharingTheProposalsOwnNameStillEscalates() {
+        let installedShell = ActionSnapshot(
+            id: CoreFixture.otherId, name: "Deploy", type: .shell, value: "./deploy.sh"
+        )
+        let known = KnownActions(shortcuts: [installedShell])
+        let proposal = ActionSnapshot(
+            id: CoreFixture.changeId,
+            name: "Deploy",
+            type: .prompt,
+            value: "Summarize the diff",
+            next: [.action(name: "Deploy")]
+        )
+
+        XCTAssertEqual(
+            ApprovalClassifier.escalationReasons(for: proposal, known: known),
+            [.runsShellCommands],
+            "The chain step resolves to the user's existing shell action, not to the proposal itself."
+        )
+    }
+
     func testCyclicChainTerminates() {
         let a = CoreFixture.snapshot(id: CoreFixture.targetId, name: "A", type: .prompt, next: [.action(name: "B")])
         let b = CoreFixture.snapshot(id: CoreFixture.otherId, name: "B", type: .prompt, next: [.action(name: "A")])

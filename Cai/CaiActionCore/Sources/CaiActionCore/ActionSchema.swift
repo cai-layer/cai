@@ -36,9 +36,25 @@ public enum ActionSchema {
     /// looping on create_action must hit a wall rather than bury the user.
     public static let maxPendingChanges = 50
 
+    /// Bounds on provenance labels. They are attacker-controlled text rendered
+    /// inside the approval sheet, so they follow the same limit as a name.
+    public static let maxProvenanceLabelLength = 60
+
     /// Max audit-log entries kept in `action-history.json`. Oldest are dropped
     /// past this; the log is a revert aid, not an archive.
     public static let maxAuditEntries = 1_000
+
+    /// Byte ceiling for the audit log. An entry carries full before and after
+    /// snapshots, so 1,000 of them can reach hundreds of megabytes, and the
+    /// whole file is rewritten on every decision. Oldest entries are dropped
+    /// until the file fits.
+    public static let maxAuditBytes = 5_000_000
+
+    /// Files examined in one scan of the pending directory. The queue cap is
+    /// applied after reading, so without this a directory stuffed with
+    /// thousands of files would be read in full on the main actor before any
+    /// of them could be refused.
+    public static let maxPendingFilesScanned = 200
 
     /// Largest pending file the app will read. A valid proposal is a few KB
     /// (the value cap alone is 10K characters); anything past 1 MB is either

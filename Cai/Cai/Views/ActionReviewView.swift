@@ -18,11 +18,18 @@ struct ActionReviewView: View {
     @ObservedObject var store: PendingChangeStore
     @ObservedObject private var settings = CaiSettings.shared
     let onClose: () -> Void
+    let onOpenSettings: () -> Void
 
     /// Reasons the user has ticked for the proposal on screen. Cleared whenever
     /// the queue advances so the next proposal starts from zero: an
     /// acknowledgment is about one payload, never inherited by the next.
     @State private var acknowledged: Set<EscalationReason> = []
+
+    /// False for a moment after the card changes. Approve owns the Return key
+    /// and the queue advances in place, so without this a held or double
+    /// Return carries straight into the next proposal, and a proposal
+    /// arriving under the cursor can catch a click meant for the last one.
+    @State private var isArmed = false
 
     private var proposal: PendingProposal? { store.pending.first }
 
@@ -39,7 +46,15 @@ struct ActionReviewView: View {
         .frame(width: 540)
         .background(VisualEffectBackground(cornerRadius: 20))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .onChange(of: proposal?.id) { _ in acknowledged = [] }
+        // Keyed on the whole proposal, not its id: a writer can rewrite the
+        // same file in place, keeping the id while the payload changes. Ticks
+        // belong to the bytes the user read, not to a filename.
+        .onChange(of: proposal) { _ in acknowledged = [] }
+        .task(id: proposal) {
+            isArmed = false
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            isArmed = true
+        }
     }
 
     // MARK: - Header
@@ -256,6 +271,10 @@ struct ActionReviewView: View {
 
     private func metadata(for proposal: PendingProposal) -> some View {
         VStack(alignment: .leading, spacing: 4) {
+            // Single line by construction: the validator strips control
+            // characters and caps the length, and this is the belt to that
+            // brace. A client name is attacker-controlled text sitting in
+            // Cai's own voice, one line above the payload.
             Text(ActionReviewPresentation.provenanceLine(
                 client: proposal.provenance.client,
                 authoredAt: proposal.provenance.authoredAt,
@@ -263,6 +282,8 @@ struct ActionReviewView: View {
             ))
             .font(.system(size: 11))
             .foregroundColor(.caiTextSecondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
 
             HStack(spacing: 16) {
                 Text("Name: \(proposal.validated.after.name)")
@@ -315,7 +336,7 @@ struct ActionReviewView: View {
     // MARK: - Footer
 
     private func footer(for proposal: PendingProposal) -> some View {
-        let canApprove = ActionReviewPresentation.canApprove(
+        let canApprove = isArmed && ActionReviewPresentation.canApprove(
             tier: proposal.validated.tier,
             reasons: proposal.validated.escalationReasons,
             acknowledged: acknowledged
@@ -358,18 +379,27 @@ struct ActionReviewView: View {
 
     private func approve(_ proposal: PendingProposal) {
         let isUpdate = proposal.validated.isUpdate
-        guard store.approve(proposal) else {
-            // Re-validation refused it (the action changed underneath the
-            // proposal). The store has already surfaced why; just move on.
+
+        switch store.approve(proposal, acknowledged: acknowledged) {
+        case .approved:
+            NotificationCenter.default.post(
+                name: .caiShowToast,
+                object: nil,
+                userInfo: ["message": ActionReviewPresentation.approvedToast(isUpdate: isUpdate)]
+            )
             closeIfQueueEmpty()
-            return
+
+        case .refused:
+            // The proposal stopped applying while it waited. The store has
+            // quarantined it and said why; move to whatever is next.
+            closeIfQueueEmpty()
+
+        case .needsAcknowledgment:
+            // The action grew a risk since this card was drawn. The store has
+            // replaced the verdict, so the sheet is about to show callouts the
+            // user has not read: drop the ticks they made against the old one.
+            acknowledged = []
         }
-        NotificationCenter.default.post(
-            name: .caiShowToast,
-            object: nil,
-            userInfo: ["message": ActionReviewPresentation.approvedToast(isUpdate: isUpdate)]
-        )
-        closeIfQueueEmpty()
     }
 
     private func closeIfQueueEmpty() {
@@ -390,8 +420,12 @@ struct ActionReviewView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // Routed through the delegate rather than `.caiShowSettings`: that
+            // notification is only observed inside the action panel, which is
+            // closed whenever this window was opened from the menu bar, so the
+            // only button on the empty state would do nothing at all.
             Button(ActionReviewPresentation.emptyStateButton) {
-                NotificationCenter.default.post(name: .caiShowSettings, object: nil)
+                onOpenSettings()
                 onClose()
             }
             .buttonStyle(.bordered)

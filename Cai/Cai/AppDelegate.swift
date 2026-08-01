@@ -529,6 +529,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onClose: { [weak self] in
                 self?.actionReviewWindow?.close()
                 self?.actionReviewWindow = nil
+            },
+            onOpenSettings: { [weak self] in
+                self?.windowController.showSettingsWindow()
             }
         )
         let hostingView = NSHostingView(rootView: reviewView)

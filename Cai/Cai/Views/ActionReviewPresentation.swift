@@ -135,6 +135,12 @@ enum ActionReviewPresentation {
         isUpdate ? "Action updated" : "Action added"
     }
 
+    /// Shown when a proposal stopped applying while it waited: the action it
+    /// patches was edited or deleted, or its id is now taken. Distinct from
+    /// the arrival copy, which would tell the user something just came in when
+    /// what actually happened is that their own click was refused.
+    static let refusedToast = "That proposal no longer applies. It was set aside and won't run."
+
     // MARK: - Provenance
 
     /// "Proposed by Claude Code · today 14:32". Time formatting follows the

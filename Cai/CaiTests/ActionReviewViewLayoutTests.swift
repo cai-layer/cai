@@ -49,7 +49,7 @@ final class ActionReviewViewLayoutTests: XCTestCase {
     }
 
     private func measure() -> NSSize {
-        let host = NSHostingView(rootView: ActionReviewView(store: store, onClose: {}))
+        let host = NSHostingView(rootView: ActionReviewView(store: store, onClose: {}, onOpenSettings: {}))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize
     }

@@ -227,6 +227,16 @@ class CaiSettings: ObservableObject {
     @Published var allowAgentProposals: Bool {
         didSet {
             defaults.set(allowAgentProposals, forKey: Keys.allowAgentProposals)
+            // Takes effect immediately rather than at next launch, so the
+            // switch means what its caption says.
+            let enabled = allowAgentProposals
+            Task { @MainActor in
+                if enabled {
+                    PendingChangeStore.shared.startIfEnabled()
+                } else {
+                    PendingChangeStore.shared.stop()
+                }
+            }
         }
     }
 

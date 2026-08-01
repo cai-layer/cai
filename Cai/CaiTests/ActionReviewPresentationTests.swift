@@ -49,6 +49,41 @@ final class ActionReviewPresentationTests: XCTestCase {
         )
     }
 
+    // MARK: - Grouped callout
+
+    func testOneRiskKeepsTheSpecsSentence() {
+        XCTAssertEqual(
+            ActionReviewPresentation.callout(for: [.runsShellCommands]),
+            .sentence("This action can run terminal commands on your Mac.")
+        )
+    }
+
+    func testSeveralRisksCollapseIntoOneHeadedList() {
+        XCTAssertEqual(
+            ActionReviewPresentation.callout(for: [.runsShellCommands, .runsWithoutShowingOutput]),
+            .grouped(
+                header: "This action will:",
+                bullets: ["Run terminal commands on your Mac", "Run without showing its output"]
+            )
+        )
+    }
+
+    func testNoRisksRenderNoCallout() {
+        XCTAssertEqual(ActionReviewPresentation.callout(for: []), .none)
+    }
+
+    func testBulletsCoverEveryRiskAndReadAsListItems() {
+        for reason in EscalationReason.allCases {
+            let bullet = ActionReviewPresentation.calloutBullet(for: reason)
+            XCTAssertFalse(bullet.isEmpty, "\(reason) has no bullet")
+            XCTAssertFalse(bullet.hasSuffix("."), "List items are not sentences: \(bullet)")
+            XCTAssertFalse(
+                bullet.hasPrefix("This action"),
+                "The header already says it: \(bullet)"
+            )
+        }
+    }
+
     func testNoUserFacingStringUsesAnEmDash() {
         var strings = [
             ActionReviewPresentation.windowTitle,

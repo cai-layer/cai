@@ -85,9 +85,7 @@ struct ActionReviewView: View {
                 diffBlock(before: before, after: validated.after, changed: validated.changedFields)
             }
 
-            ForEach(validated.escalationReasons, id: \.self) { reason in
-                callout(reason)
-            }
+            callout(for: validated.escalationReasons)
 
             metadata(for: proposal)
 
@@ -192,16 +190,58 @@ struct ActionReviewView: View {
         }
     }
 
-    private func callout(_ reason: EscalationReason) -> some View {
+    /// One band, however many risks. Stacking a sentence per risk repeats
+    /// "This action" down the sheet and pushes the buttons off the fold, so
+    /// two or more collapse into a single headed list.
+    @ViewBuilder
+    private func callout(for reasons: [EscalationReason]) -> some View {
+        switch ActionReviewPresentation.callout(for: reasons) {
+        case .none:
+            EmptyView()
+
+        case .sentence(let text):
+            calloutBand {
+                Text(text)
+                    .font(.system(size: 12))
+                    .foregroundColor(.caiTextPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+
+        case .grouped(let header, let bullets):
+            calloutBand {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(header)
+                        .font(.system(size: 12))
+                        .foregroundColor(.caiTextPrimary)
+
+                    ForEach(bullets, id: \.self) { bullet in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("•")
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextSecondary)
+                            Text(bullet)
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(header) \(bullets.joined(separator: ", "))")
+        }
+    }
+
+    /// The orange band itself: `caiError` at 12% with a hairline, and the only
+    /// place orange appears on this sheet.
+    private func calloutBand<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11))
                 .foregroundColor(.caiError)
 
-            Text(ActionReviewPresentation.callout(for: reason))
-                .font(.system(size: 12))
-                .foregroundColor(.caiTextPrimary)
-                .fixedSize(horizontal: false, vertical: true)
+            content()
 
             Spacer(minLength: 0)
         }
@@ -212,7 +252,6 @@ struct ActionReviewView: View {
                 .fill(Color.caiError.opacity(0.12))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.caiError.opacity(0.5), lineWidth: 1))
         )
-        .accessibilityElement(children: .combine)
     }
 
     private func metadata(for proposal: PendingProposal) -> some View {

@@ -40,6 +40,46 @@ enum ActionReviewPresentation {
         }
     }
 
+    /// Lead-in for the grouped callout, used when an action carries more than
+    /// one risk.
+    static let calloutHeader = "This action will:"
+
+    /// One risk as a list item, for the grouped callout. Same claim as the
+    /// sentence form, minus the repeated "This action" that reads as noise
+    /// once it is stacked three deep.
+    static func calloutBullet(for reason: EscalationReason) -> String {
+        switch reason {
+        case .runsShellCommands:
+            return "Run terminal commands on your Mac"
+        case .sendsSelectionToURL:
+            return "Send your selected text to the URL shown above"
+        case .replacesSelection:
+            return "Replace your selected text without showing a preview"
+        case .runsWithoutShowingOutput:
+            return "Run without showing its output"
+        }
+    }
+
+    /// How the callout renders for a given set of risks: one sentence for a
+    /// single risk (the design spec's verbatim copy), a grouped list beyond
+    /// that.
+    enum Callout: Equatable {
+        case none
+        case sentence(String)
+        case grouped(header: String, bullets: [String])
+    }
+
+    static func callout(for reasons: [EscalationReason]) -> Callout {
+        switch reasons.count {
+        case 0:
+            return .none
+        case 1:
+            return .sentence(callout(for: reasons[0]))
+        default:
+            return .grouped(header: calloutHeader, bullets: reasons.map(calloutBullet))
+        }
+    }
+
     /// The per-type acknowledgment that gates Approve. Deliberately the same
     /// claim as the callout in the first person: the habituation defense only
     /// works if checking the box means reading the sentence.

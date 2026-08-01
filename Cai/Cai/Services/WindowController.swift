@@ -417,7 +417,12 @@ class WindowController: NSObject, ObservableObject {
         // Monitor for key events — fires BEFORE the first responder chain,
         // so ESC works even when a TextField/TextEditor is focused.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self = self, self.window != nil else { return event }
+            guard let self = self, let panel = self.window else { return event }
+            // Only keys aimed at the action panel. Cai's other windows (the
+            // agent-proposal review sheet, the management screens) own their
+            // own keyboard; without this the panel would swallow their Return
+            // and Esc whenever it happened to be open behind them.
+            guard panel.isKeyWindow else { return event }
             if self.handleKeyEvent(event) {
                 return nil  // Consumed — suppress the event
             }

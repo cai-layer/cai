@@ -1,0 +1,365 @@
+import CaiActionCore
+import SwiftUI
+
+/// The approval sheet: the one place an agent-authored action becomes real.
+///
+/// Hierarchy is payload first, deliberately. The name is what an attacker
+/// controls and the payload is what actually runs, so the command sits at the
+/// top in monospace, untruncated, and the name is metadata below it. Escalated
+/// proposals add an orange callout per risk and an acknowledgment checkbox that
+/// gates Approve, so a flow-state click cannot complete one.
+///
+/// Layout follows `docs/design/DESIGN.md`: 540pt frosted window, 20pt radius,
+/// `caiPrimary` on Approve and nowhere else, `caiError` (orange) hairline and
+/// 12% band on the callout only. No red exists in this system and none is
+/// introduced here.
+struct ActionReviewView: View {
+
+    @ObservedObject var store: PendingChangeStore
+    @ObservedObject private var settings = CaiSettings.shared
+    let onClose: () -> Void
+
+    /// Reasons the user has ticked for the proposal on screen. Cleared whenever
+    /// the queue advances so the next proposal starts from zero: an
+    /// acknowledgment is about one payload, never inherited by the next.
+    @State private var acknowledged: Set<EscalationReason> = []
+
+    private var proposal: PendingProposal? { store.pending.first }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let proposal {
+                header(for: proposal)
+                content(for: proposal)
+                footer(for: proposal)
+            } else {
+                emptyState
+            }
+        }
+        .frame(width: 540)
+        .background(VisualEffectBackground(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onChange(of: proposal?.id) { _ in acknowledged = [] }
+    }
+
+    // MARK: - Header
+
+    private func header(for proposal: PendingProposal) -> some View {
+        HStack(spacing: 8) {
+            Text(ActionReviewPresentation.windowTitle)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.caiTextPrimary)
+
+            Spacer()
+
+            if let counter = ActionReviewPresentation.queueCounter(index: 0, total: store.pending.count) {
+                Text(counter)
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(.caiTextSecondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.caiSurface.opacity(0.6)))
+                    .accessibilityLabel("Proposal \(counter)")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private func content(for proposal: PendingProposal) -> some View {
+        let validated = proposal.validated
+
+        VStack(alignment: .leading, spacing: 12) {
+            payloadBlock(for: validated.after)
+
+            if !validated.after.next.isEmpty {
+                chainBlock(for: validated.after)
+            }
+
+            if let before = validated.before {
+                diffBlock(before: before, after: validated.after, changed: validated.changedFields)
+            }
+
+            ForEach(validated.escalationReasons, id: \.self) { reason in
+                callout(reason)
+            }
+
+            metadata(for: proposal)
+
+            if !validated.warnings.isEmpty {
+                warnings(validated.warnings)
+            }
+
+            if validated.tier == .escalated {
+                acknowledgments(for: validated.escalationReasons)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// The hero. Monospace, scrollable, never truncated: the user has to be
+    /// able to read every character that will run.
+    private func payloadBlock(for action: ActionSnapshot) -> some View {
+        ScrollView {
+            Text(action.value)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(.caiTextPrimary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+        }
+        .frame(maxHeight: 220)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.6)))
+        .accessibilityElement()
+        .accessibilityLabel(ActionReviewPresentation.payloadLabel(for: action.type))
+        .accessibilityValue(action.value)
+    }
+
+    /// One block per chain step with the referenced item's kind resolved, so a
+    /// chain cannot hide a shell step behind a friendly name.
+    private func chainBlock(for action: ActionSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Then runs")
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary)
+
+            ForEach(ActionReviewPresentation.chainSteps(action.next, known: settings.knownActions)) { step in
+                HStack(spacing: 8) {
+                    Text("\(step.index + 1)")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(.caiTextSecondary)
+                        .frame(width: 14)
+
+                    Text(step.label)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.caiTextPrimary)
+                        .lineLimit(2)
+
+                    Spacer()
+
+                    Text(step.kind)
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiTextSecondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.6)))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Step \(step.index + 1), \(step.label), \(step.kind)")
+            }
+        }
+    }
+
+    /// Update proposals show what changes, old beside new. Unchanged fields
+    /// stay out of the way.
+    private func diffBlock(before: ActionSnapshot, after: ActionSnapshot, changed: [ActionField]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Changes")
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary)
+
+            ForEach(ActionReviewPresentation.diffRows(before: before, after: after, changed: changed)) { row in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.label)
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiTextSecondary)
+
+                    Text(row.before)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.caiTextSecondary.opacity(0.7))
+                        .strikethrough(true, color: .caiTextSecondary.opacity(0.5))
+                        .lineLimit(3)
+
+                    Text(row.after)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.caiTextPrimary)
+                        .lineLimit(3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.4)))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(row.label) changes from \(row.before) to \(row.after)")
+            }
+        }
+    }
+
+    private func callout(_ reason: EscalationReason) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.caiError)
+
+            Text(ActionReviewPresentation.callout(for: reason))
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.caiError.opacity(0.12))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.caiError.opacity(0.5), lineWidth: 1))
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    private func metadata(for proposal: PendingProposal) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(ActionReviewPresentation.provenanceLine(
+                client: proposal.provenance.client,
+                authoredAt: proposal.provenance.authoredAt,
+                now: Date()
+            ))
+            .font(.system(size: 11))
+            .foregroundColor(.caiTextSecondary)
+
+            HStack(spacing: 16) {
+                Text("Name: \(proposal.validated.after.name)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.caiTextPrimary)
+                    .lineLimit(1)
+
+                if proposal.validated.after.type == .prompt {
+                    Text("Runs with: \(settings.modelProvider.rawValue)")
+                        .font(.system(size: 12))
+                        .foregroundColor(.caiTextSecondary)
+                }
+
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func warnings(_ warnings: [ActionWarning]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
+                Text(warning.summary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.caiTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The habituation defense. One box per risk, all of them required.
+    private func acknowledgments(for reasons: [EscalationReason]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(reasons, id: \.self) { reason in
+                Toggle(isOn: Binding(
+                    get: { acknowledged.contains(reason) },
+                    set: { isOn in
+                        if isOn { acknowledged.insert(reason) } else { acknowledged.remove(reason) }
+                    }
+                )) {
+                    Text(ActionReviewPresentation.acknowledgment(for: reason))
+                        .font(.system(size: 12))
+                        .foregroundColor(.caiTextPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .toggleStyle(.checkbox)
+            }
+        }
+    }
+
+    // MARK: - Footer
+
+    private func footer(for proposal: PendingProposal) -> some View {
+        let canApprove = ActionReviewPresentation.canApprove(
+            tier: proposal.validated.tier,
+            reasons: proposal.validated.escalationReasons,
+            acknowledged: acknowledged
+        )
+
+        return HStack(spacing: 8) {
+            Spacer()
+
+            Button(ActionReviewPresentation.rejectButton) {
+                store.reject(proposal)
+                closeIfQueueEmpty()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+
+            Button(ActionReviewPresentation.approveButton) {
+                approve(proposal)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.caiPrimary)
+            .controlSize(.large)
+            .disabled(!canApprove)
+            // Return approves, and stays inert on the escalated tier until
+            // every box is checked: the disabled button swallows the key.
+            .keyboardShortcut(.defaultAction)
+
+            // Esc defers. The window closes, the badge and the queue stay:
+            // rejecting is always an explicit click, never a dismissal.
+            Button("") { onClose() }
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+    }
+
+    // MARK: - Actions
+
+    private func approve(_ proposal: PendingProposal) {
+        let isUpdate = proposal.validated.isUpdate
+        guard store.approve(proposal) else {
+            // Re-validation refused it (the action changed underneath the
+            // proposal). The store has already surfaced why; just move on.
+            closeIfQueueEmpty()
+            return
+        }
+        NotificationCenter.default.post(
+            name: .caiShowToast,
+            object: nil,
+            userInfo: ["message": ActionReviewPresentation.approvedToast(isUpdate: isUpdate)]
+        )
+        closeIfQueueEmpty()
+    }
+
+    private func closeIfQueueEmpty() {
+        if store.pending.isEmpty { onClose() }
+    }
+
+    // MARK: - Empty state
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "tray")
+                .font(.system(size: 28, weight: .light))
+                .foregroundColor(.caiTextSecondary.opacity(0.4))
+
+            Text(ActionReviewPresentation.emptyState)
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(ActionReviewPresentation.emptyStateButton) {
+                NotificationCenter.default.post(name: .caiShowSettings, object: nil)
+                onClose()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
+        .padding(.vertical, 40)
+    }
+}

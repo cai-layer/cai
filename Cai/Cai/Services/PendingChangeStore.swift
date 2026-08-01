@@ -236,8 +236,26 @@ final class PendingChangeStore: ObservableObject {
         }
 
         guard accepted != pending else { return }
+
+        // Arrival is passive by design: one toast naming who proposed it, and
+        // a dot on the menu bar icon. Nothing takes focus, nothing opens. Only
+        // genuinely new proposals announce themselves, so a rescan triggered by
+        // an unrelated write stays silent.
+        let alreadyQueued = Set(pending.map(\.id))
+        let arrivals = accepted.filter { !alreadyQueued.contains($0.id) }
         pending = accepted
         notifyQueueChanged()
+
+        if let arrival = arrivals.first {
+            NotificationCenter.default.post(
+                name: .caiShowToast,
+                object: nil,
+                userInfo: ["message": ActionReviewPresentation.arrivalToast(
+                    client: arrival.provenance.client,
+                    isUpdate: arrival.validated.isUpdate
+                )]
+            )
+        }
     }
 
     private func load(_ file: URL, known: KnownActions) -> Result<PendingProposal, ActionRejection> {

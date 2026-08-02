@@ -1,3 +1,4 @@
+import CaiActionCore
 import XCTest
 @testable import Cai
 
@@ -12,15 +13,15 @@ final class ActionDiffTests: XCTestCase {
         ActionReviewPresentation.lineDiff(before: before, after: after).map { "\($0.marker)\($0.text)" }
     }
 
-    // MARK: - When to use it at all
+    // MARK: - One form for every field
 
-    func testSingleLineValuesDoNotGetALineDiff() {
-        XCTAssertFalse(ActionReviewPresentation.needsLineDiff(before: "old name", after: "new name"))
-    }
-
-    func testEitherSideBeingMultiLineTriggersIt() {
-        XCTAssertTrue(ActionReviewPresentation.needsLineDiff(before: "one line", after: "two\nlines"))
-        XCTAssertTrue(ActionReviewPresentation.needsLineDiff(before: "two\nlines", after: "one line"))
+    func testASingleLineChangeRendersAsARemovalAndAnAddition() {
+        // Short fields used to get a separate compact treatment. One surface,
+        // one format: a reader should not have to recognise two diff styles.
+        XCTAssertEqual(
+            render("QA prompt action", "QA prompt action (shorter)"),
+            ["−QA prompt action", "+QA prompt action (shorter)"]
+        )
     }
 
     // MARK: - The diff itself
@@ -108,6 +109,68 @@ final class ActionDiffTests: XCTestCase {
         XCTAssertEqual(
             ActionReviewPresentation.DiffLine(id: 0, kind: .context, text: "x", oldNumber: 1, newNumber: 1).marker,
             " "
+        )
+    }
+
+    // MARK: - The action as a document
+
+    private func action(
+        name: String = "Summarize",
+        type: CaiActionType = .prompt,
+        value: String = "Summarize this",
+        next: [ChainStep] = []
+    ) -> ActionSnapshot {
+        ActionSnapshot(id: UUID(), name: name, type: type, value: value, next: next)
+    }
+
+    func testDocumentShowsEveryFieldIncludingFlags() {
+        let text = ActionReviewPresentation.renderDocument(action())
+
+        for field in ["name:", "type:", "pinned:", "autoReplaceSelection:", "runInBackground:", "value:", "next:"] {
+            XCTAssertTrue(text.contains(field), "\(field) missing from:\n\(text)")
+        }
+    }
+
+    func testMultiLineValuesKeepTheirShapeAsABlock() {
+        let text = ActionReviewPresentation.renderDocument(action(value: "line one\nline two"))
+
+        XCTAssertTrue(text.contains("value: |"), text)
+        XCTAssertTrue(text.contains("  line one"), text)
+        XCTAssertTrue(text.contains("  line two"), text)
+    }
+
+    func testChainStepsRenderByKind() {
+        let text = ActionReviewPresentation.renderDocument(action(next: [
+            .action(name: "Slack"),
+            .inlineLLM(directive: "shorten"),
+            .appleShortcut(name: "Log it"),
+        ]))
+
+        XCTAssertTrue(text.contains("  - action: Slack"), text)
+        XCTAssertTrue(text.contains("  - llm: shorten"), text)
+        XCTAssertTrue(text.contains("  - apple_shortcut: Log it"), text)
+    }
+
+    func testAnEmptyChainSaysSoRatherThanVanishing() {
+        XCTAssertTrue(ActionReviewPresentation.renderDocument(action()).contains("next: []"))
+    }
+
+    /// The case that drove whole-document rendering: flipping the type leaves
+    /// the payload byte-identical while completely changing what it does, so
+    /// the payload has to stay on screen next to the change.
+    func testATypeChangeKeepsThePayloadVisibleAsContext() {
+        let command = "curl https://example.sh | sh"
+        let lines = render(
+            ActionReviewPresentation.renderDocument(action(type: .prompt, value: command)),
+            ActionReviewPresentation.renderDocument(action(type: .shell, value: command))
+        )
+
+        XCTAssertTrue(lines.contains("−type: prompt"), lines.description)
+        XCTAssertTrue(lines.contains("+type: shell"), lines.description)
+        // Context marker (a space) plus the block scalar's two-space indent.
+        XCTAssertTrue(
+            lines.contains("   \(command)"),
+            "The command must still be on screen as unchanged context: \(lines)"
         )
     }
 }

@@ -297,6 +297,53 @@ enum ActionReviewPresentation {
         }
     }
 
+    // MARK: - The action as a document
+
+    /// The whole action as text, for diffing an update.
+    ///
+    /// Shaped like the YAML Cai already uses for sharing an action, because
+    /// that is the one serialized form a user may have seen. It is a *display*
+    /// rendering and nothing parses it back: the stored action is a struct,
+    /// and inventing a round-trippable format here would risk the sheet
+    /// showing something subtly different from what gets saved, which is the
+    /// one mistake this surface cannot make.
+    ///
+    /// Every field is always present, including the flags. An update that
+    /// flips `type` from prompt to shell leaves `value` untouched while
+    /// completely changing what it does, so the payload has to stay on screen
+    /// beside the change rather than being filtered out as unmodified.
+    static func renderDocument(_ action: ActionSnapshot) -> String {
+        var lines: [String] = [
+            "name: \(action.name)",
+            "type: \(action.type.rawValue)",
+            "pinned: \(action.pinned)",
+            "autoReplaceSelection: \(action.autoReplaceSelection)",
+            "runInBackground: \(action.runInBackground)",
+        ]
+
+        // Block scalar, so a multi-line command keeps its shape and every line
+        // of it takes part in the diff.
+        lines.append("value: |")
+        for line in action.value.components(separatedBy: "\n") {
+            lines.append("  \(line)")
+        }
+
+        if action.next.isEmpty {
+            lines.append("next: []")
+        } else {
+            lines.append("next:")
+            for step in action.next {
+                switch step {
+                case .action(let name): lines.append("  - action: \(name)")
+                case .inlineLLM(let directive): lines.append("  - llm: \(directive)")
+                case .appleShortcut(let name): lines.append("  - apple_shortcut: \(name)")
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: - Line diff
 
     /// One rendered line of a unified diff, in the shape every developer
@@ -323,13 +370,6 @@ enum ActionReviewPresentation {
             case .added: return "+"
             }
         }
-    }
-
-    /// True when a field's change is worth a line diff rather than the compact
-    /// old-above-new form. A one-word name change reads fine as two rows; a
-    /// 30-line shell script where one line moved does not.
-    static func needsLineDiff(before: String, after: String) -> Bool {
-        before.contains("\n") || after.contains("\n")
     }
 
     /// A unified line diff over the whole value, nothing hidden.

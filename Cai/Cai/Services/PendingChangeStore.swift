@@ -635,10 +635,3 @@ final class PendingChangeStore: ObservableObject {
         }
     }
 }
-
-/// Written beside a quarantined proposal so the reason survives the app quitting.
-struct QuarantineRecord: Codable, Equatable {
-    let schemaVersion: Int
-    let rejectedAt: Date
-    let reason: String
-}

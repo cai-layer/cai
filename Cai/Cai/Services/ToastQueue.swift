@@ -13,13 +13,39 @@ import Foundation
 /// by trying to read a pill that vanishes in a second and a half.
 struct ToastQueue: Equatable {
 
+    /// What the pill shows beside the message.
+    ///
+    /// A toast confirming something the user just did needs no identity: they
+    /// are looking at Cai. A toast announcing something they did not ask for
+    /// appears over whatever app they were actually using, so it says who is
+    /// talking. And a refusal must not wear a success checkmark, which is what
+    /// every message used to get.
+    enum Icon: String, Equatable {
+        /// Something the user asked for worked.
+        case success
+        /// Something was refused or set aside.
+        case warning
+        /// Unsolicited news from Cai itself, such as an agent's proposal.
+        case cai
+
+        var symbolName: String? {
+            switch self {
+            case .success: return "checkmark.circle.fill"
+            case .warning: return "exclamationmark.triangle.fill"
+            case .cai: return nil  // drawn from CaiLogoShape instead
+            }
+        }
+    }
+
     struct Request: Equatable {
         let message: String
         let duration: TimeInterval
+        let icon: Icon
 
-        init(message: String, duration: TimeInterval = 1.5) {
+        init(message: String, duration: TimeInterval = 1.5, icon: Icon = .success) {
             self.message = message
             self.duration = duration
+            self.icon = icon
         }
     }
 

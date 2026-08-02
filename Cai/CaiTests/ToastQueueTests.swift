@@ -56,6 +56,31 @@ final class ToastQueueTests: XCTestCase {
         XCTAssertEqual(queue.pending.map(\.message), ["Action added", "Chain failed", "Action added"])
     }
 
+    // MARK: - Icon
+
+    func testMessagesDefaultToSuccessAndCarryTheirIcon() {
+        XCTAssertEqual(ToastQueue.Request(message: "Action added").icon, .success)
+
+        var queue = ToastQueue()
+        queue.enqueue(ToastQueue.Request(message: "Claude Code proposed a new action", icon: .cai), showing: nil)
+        XCTAssertEqual(queue.next()?.icon, .cai)
+    }
+
+    func testARefusalDoesNotWearASuccessCheckmark() {
+        let refusal = ToastQueue.Request(message: "That proposal no longer applies.", icon: .warning)
+
+        XCTAssertEqual(refusal.icon.symbolName, "exclamationmark.triangle.fill")
+        XCTAssertNotEqual(refusal.icon, .success)
+    }
+
+    func testTheCaiMarkIsDrawnRatherThanNamed() {
+        XCTAssertNil(
+            ToastQueue.Icon.cai.symbolName,
+            "There is no SF Symbol for the Cai mark; it comes from CaiLogoShape."
+        )
+        XCTAssertEqual(ToastQueue.Icon.success.symbolName, "checkmark.circle.fill")
+    }
+
     // MARK: - Depth
 
     func testTheQueueDropsTheOldestBeyondItsDepth() {

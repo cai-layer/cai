@@ -83,10 +83,11 @@ class WindowController: NSObject, ObservableObject {
             queue: .main
         ) { [weak self] notification in
             let message = notification.userInfo?["message"] as? String ?? "Copied to Clipboard"
+            let icon = (notification.userInfo?["icon"] as? String).flatMap(ToastQueue.Icon.init(rawValue:)) ?? .success
             if let duration = notification.userInfo?["duration"] as? TimeInterval {
-                self?.showToast(message: message, duration: duration)
+                self?.showToast(message: message, duration: duration, icon: icon)
             } else {
-                self?.showToast(message: message)
+                self?.showToast(message: message, icon: icon)
             }
         }
         NotificationCenter.default.addObserver(
@@ -699,9 +700,9 @@ class WindowController: NSObject, ObservableObject {
     /// moment apart produce two readable toasts rather than one flicker.
     /// Callers can override per-message via the `duration` arg or the
     /// notification userInfo `"duration"` key.
-    func showToast(message: String, duration: TimeInterval = 1.5) {
+    func showToast(message: String, duration: TimeInterval = 1.5, icon: ToastQueue.Icon = .success) {
         toastQueue.enqueue(
-            ToastQueue.Request(message: message, duration: duration),
+            ToastQueue.Request(message: message, duration: duration, icon: icon),
             showing: showingToastMessage
         )
         presentNextToastIfIdle()
@@ -710,7 +711,7 @@ class WindowController: NSObject, ObservableObject {
     private func presentNextToastIfIdle() {
         guard showingToastMessage == nil, let request = toastQueue.next() else { return }
         showingToastMessage = request.message
-        presentToast(request.message)
+        presentToast(request.message, icon: request.icon)
 
         // Scheduled once per shown toast, and only while the slot is occupied,
         // so a previous toast's timer can never dismiss its successor early.
@@ -729,7 +730,7 @@ class WindowController: NSObject, ObservableObject {
         }
     }
 
-    private func presentToast(_ message: String) {
+    private func presentToast(_ message: String, icon: ToastQueue.Icon) {
         // Pure AppKit toast — no NSHostingView. NSHostingView on borderless
         // panels triggers an infinite constraint update loop that crashes in
         // _postWindowNeedsUpdateConstraints during the display cycle.
@@ -738,8 +739,13 @@ class WindowController: NSObject, ObservableObject {
         pill.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
         pill.layer?.cornerRadius = 18
 
-        let checkImage = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
-        let imageView = NSImageView(image: checkImage ?? NSImage())
+        let glyph: NSImage
+        if let symbolName = icon.symbolName {
+            glyph = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) ?? NSImage()
+        } else {
+            glyph = Self.caiMarkImage()
+        }
+        let imageView = NSImageView(image: glyph)
         imageView.contentTintColor = NSColor.white.withAlphaComponent(0.9)
         imageView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -793,6 +799,21 @@ class WindowController: NSObject, ObservableObject {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
             panel.animator().alphaValue = 1
+        }
+    }
+
+    /// The Cai mark, drawn white for the dark toast pill. Same shape as the
+    /// menu bar icon, so an unsolicited toast is recognisably from Cai rather
+    /// than an anonymous black rectangle over the user's work.
+    private static func caiMarkImage() -> NSImage {
+        let height: CGFloat = 11
+        let size = NSSize(width: height * (217.0 / 127.0), height: height)
+        return NSImage(size: size, flipped: true) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            ctx.addPath(CaiLogoShape().path(in: CGRect(origin: .zero, size: rect.size)).cgPath)
+            ctx.setFillColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+            ctx.fillPath()
+            return true
         }
     }
 

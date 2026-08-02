@@ -282,7 +282,10 @@ final class PendingChangeStore: ObservableObject {
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
-                userInfo: ["message": "Received an invalid action proposal. It was set aside and won't run."]
+                userInfo: [
+                    "message": "Received an invalid action proposal. It was set aside and won't run.",
+                    "icon": ToastQueue.Icon.warning.rawValue,
+                ]
             )
         }
 
@@ -305,10 +308,13 @@ final class PendingChangeStore: ObservableObject {
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
-                userInfo: ["message": ActionReviewPresentation.arrivalToast(
-                    client: arrival.provenance.client,
-                    isUpdate: arrival.validated.isUpdate
-                )]
+                userInfo: [
+                    "message": ActionReviewPresentation.arrivalToast(
+                        client: arrival.provenance.client,
+                        isUpdate: arrival.validated.isUpdate
+                    ),
+                    "icon": ToastQueue.Icon.cai.rawValue,
+                ]
             )
         }
     }
@@ -498,7 +504,10 @@ final class PendingChangeStore: ObservableObject {
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
-                userInfo: ["message": ActionReviewPresentation.refusedToast]
+                userInfo: [
+                    "message": ActionReviewPresentation.refusedToast,
+                    "icon": ToastQueue.Icon.warning.rawValue,
+                ]
             )
         }
         pending.removeAll { $0.id == proposal.id }

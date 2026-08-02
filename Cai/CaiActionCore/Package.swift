@@ -16,7 +16,14 @@ let package = Package(
     name: "CaiActionCore",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "CaiActionCore", targets: ["CaiActionCore"])
+        // Static deliberately. Left automatic, Xcode builds one dynamic
+        // framework and hands it to both the app and the `cai-mcp` helper. The
+        // app embeds it and is fine; the helper is a bare executable with
+        // nowhere to embed anything, so it fails at launch with a dyld error
+        // the moment it runs outside the build directory. Linking the app's
+        // frameworks instead would mean embedding the MCP SDK in the app,
+        // which the MLP plan rules out: the SDK belongs to the helper alone.
+        .library(name: "CaiActionCore", type: .static, targets: ["CaiActionCore"])
     ],
     // No test target here: Xcode does not surface the test target of a
     // project-referenced local package in a scheme, so a package-side test

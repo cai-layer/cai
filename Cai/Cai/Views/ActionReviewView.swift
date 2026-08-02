@@ -91,11 +91,16 @@ struct ActionReviewView: View {
 
         VStack(alignment: .leading, spacing: 12) {
             // One frame, not two. A create shows its payload; an update shows
-            // the diff, which already contains the whole new value as its
-            // context lines. Rendering both would make the user read the same
-            // script twice and decide which one to trust.
+            // the diff, which carries the whole new value as context lines
+            // WHEN the patch touches the value. A patch that only flips
+            // execution semantics (type, a flag) would otherwise never show
+            // the payload that runs, so those get the payload block too —
+            // see `updateShowsPayload`.
             if let before = validated.before {
                 diffBlock(before: before, after: validated.after, changed: validated.changedFields)
+                if ActionReviewPresentation.updateShowsPayload(changed: validated.changedFields) {
+                    payloadBlock(for: validated.after)
+                }
             } else {
                 payloadBlock(for: validated.after)
             }
@@ -452,6 +457,11 @@ struct ActionReviewView: View {
             // replaced the verdict, so the sheet is about to show callouts the
             // user has not read: drop the ticks they made against the old one.
             acknowledged = []
+
+        case .stale:
+            // The click landed on a card that already left the queue. Nothing
+            // happened; the sheet is about to redraw for whatever is next.
+            closeIfQueueEmpty()
         }
     }
 

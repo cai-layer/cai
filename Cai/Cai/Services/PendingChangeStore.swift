@@ -13,6 +13,12 @@ struct PendingProposal: Identifiable, Equatable {
     var id: URL { fileURL }
     let changeId: UUID
     let fileURL: URL
+    /// When the file landed on disk, per the filesystem. This is what the
+    /// queue sorts on: `createdAt` below is a field in the payload, and a
+    /// writer that stamps its proposal with 1970 must not jump to the head
+    /// of the queue and swap the card the user is reading.
+    let arrivedAt: Date
+    /// The writer's own timestamp. Display metadata only — never ordering.
     let createdAt: Date
     /// What was read off disk. Kept so approval can validate again against the
     /// actions as they are at that moment, not as they were when the file
@@ -125,6 +131,9 @@ final class PendingChangeStore: ObservableObject {
     private var quarantinedThisPass = 0
     /// Files that read as malformed once and get a second chance next pass.
     private var malformedOnce: Set<URL> = []
+    /// One recheck timer at a time: a pass over 200 half-written files must
+    /// schedule one follow-up scan, not 200 of them.
+    private var recheckScheduled = false
 
     init(
         root: URL = CaiSupportPaths.root,
@@ -214,6 +223,10 @@ final class PendingChangeStore: ObservableObject {
         // without a ceiling here a directory stuffed with thousands of files
         // would be read in full on the main actor before any could be refused.
         let candidates = files.filter { $0.pathExtension == "json" }.sorted { $0.path < $1.path }
+        // Forget malformed-once verdicts for files that no longer exist, or a
+        // writer looping on write-partial-then-delete grows this set for the
+        // app's lifetime.
+        malformedOnce.formIntersection(candidates)
         let examined = candidates.prefix(ActionSchema.maxPendingFilesScanned)
         if candidates.count > examined.count {
             print("PendingChanges: \(candidates.count - examined.count) file(s) beyond the per-scan cap were left for the next pass")
@@ -239,14 +252,17 @@ final class PendingChangeStore: ObservableObject {
         }
 
         // Oldest first, so a queue that hits the cap keeps the proposals the
-        // user has been looking at rather than the newest arrival. `createdAt`
-        // is chosen by whoever wrote the file and two proposals can share one,
-        // so the id breaks ties: without it the head of the queue could change
-        // between scans and swap the card under the user's cursor.
+        // user has been looking at rather than the newest arrival. Sorted on
+        // the file's own modification date, never the payload's `createdAt`:
+        // that one is chosen by whoever wrote the file, and a proposal
+        // stamped 1970 would otherwise pin itself at the head of the queue,
+        // swapping the card under the user's cursor. Two files can still
+        // share a timestamp, so the id breaks ties and keeps the head stable
+        // between scans.
         accepted.sort {
-            $0.createdAt == $1.createdAt
+            $0.arrivedAt == $1.arrivedAt
                 ? $0.changeId.uuidString < $1.changeId.uuidString
-                : $0.createdAt < $1.createdAt
+                : $0.arrivedAt < $1.arrivedAt
         }
 
         // Everything past the cap is quarantined rather than held invisibly:
@@ -312,7 +328,9 @@ final class PendingChangeStore: ObservableObject {
         // it was never a proposal. `resourceValues` resolves symlinks, which
         // `attributesOfItem` does not: without that, a link to /dev/zero would
         // measure as a few bytes and then never finish being read.
-        let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        let values = try? file.resourceValues(forKeys: [
+            .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
+        ])
         guard values?.isRegularFile == true else {
             return .failure(LoadFailure(
                 rejection: .malformedJSON("only regular files are read from the pending directory"),
@@ -332,11 +350,31 @@ final class PendingChangeStore: ObservableObject {
             ))
         }
         do {
-            let change = try ActionCoding.decoder.decode(PendingChange.self, from: data)
+            var change = try ActionCoding.decoder.decode(PendingChange.self, from: data)
+            // Whatever the file claims, it arrived through the pending
+            // directory, and that IS the mcp channel. Left as written, a
+            // payload carrying `"source": "in-app"` would badge its action
+            // "via Cai" forever — the one provenance label agents must not
+            // be able to award themselves.
+            if change.provenance.source != .mcp {
+                change = PendingChange(
+                    schemaVersion: change.schemaVersion,
+                    id: change.id,
+                    createdAt: change.createdAt,
+                    provenance: ActionProvenance(
+                        source: .mcp,
+                        client: change.provenance.client,
+                        model: change.provenance.model,
+                        authoredAt: change.provenance.authoredAt
+                    ),
+                    operation: change.operation
+                )
+            }
             let validated = try ActionValidator.validate(change, known: known)
             return .success(PendingProposal(
                 changeId: change.id,
                 fileURL: file,
+                arrivedAt: values?.contentModificationDate ?? change.createdAt,
                 createdAt: change.createdAt,
                 change: change,
                 validated: validated
@@ -362,6 +400,11 @@ final class PendingChangeStore: ObservableObject {
         /// applied; the queue now carries the fresh verdict so the sheet can
         /// re-present it with the callouts and boxes that were missing.
         case needsAcknowledgment([EscalationReason])
+        /// The proposal already left the queue (decided elsewhere, or its file
+        /// vanished between render and click). Nothing was applied and nothing
+        /// was deleted: acting on it would upsert a payload the queue no
+        /// longer holds and remove whatever file now sits at its path.
+        case stale
     }
 
     /// Persists the action and records the change.
@@ -376,6 +419,8 @@ final class PendingChangeStore: ObservableObject {
     /// ever appearing, which is the one failure this surface cannot have.
     @discardableResult
     func approve(_ proposal: PendingProposal, acknowledged: Set<EscalationReason>) -> ApprovalOutcome {
+        guard pending.contains(where: { $0.id == proposal.id }) else { return .stale }
+
         let validated: ValidatedChange
         do {
             validated = try ActionValidator.validate(proposal.change, known: bridge.knownActions())
@@ -418,6 +463,7 @@ final class PendingChangeStore: ObservableObject {
         pending[index] = PendingProposal(
             changeId: proposal.changeId,
             fileURL: proposal.fileURL,
+            arrivedAt: proposal.arrivedAt,
             createdAt: proposal.createdAt,
             change: proposal.change,
             validated: validated
@@ -489,6 +535,7 @@ final class PendingChangeStore: ObservableObject {
         }
 
         writeRejectionSidecar(for: destination, reason: reason)
+        pruneQuarantine()
 
         history.append(ActionAuditEntry(
             timestamp: now(),
@@ -504,6 +551,39 @@ final class PendingChangeStore: ObservableObject {
         ))
 
         quarantinedThisPass += 1
+    }
+
+    /// Drops the oldest quarantined proposals (and their sidecars) past the
+    /// cap. The queue and the audit log are both bounded; this is the same
+    /// discipline for the one directory a misbehaving writer can grow.
+    private func pruneQuarantine() {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: quarantineDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        )) ?? []
+
+        let proposals = files
+            .filter { !$0.lastPathComponent.hasSuffix(".rejection.json") }
+            .map { url in
+                (url: url, modified: (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast)
+            }
+        for url in Self.quarantineOverflow(proposals, cap: ActionSchema.maxQuarantinedFiles) {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(
+                at: url.deletingPathExtension().appendingPathExtension("rejection.json")
+            )
+        }
+    }
+
+    /// Which quarantined proposals to delete: everything past `cap`, oldest
+    /// first. Pure, so the selection is table-tested instead of exercised by
+    /// writing hundreds of fixture files.
+    static func quarantineOverflow(_ proposals: [(url: URL, modified: Date)], cap: Int) -> [URL] {
+        let overflow = proposals.count - cap
+        guard overflow > 0 else { return [] }
+        return proposals.sorted { $0.modified < $1.modified }.prefix(overflow).map(\.url)
     }
 
     /// `<uuid>.rejection.json` beside the quarantined file. The original bytes
@@ -526,7 +606,10 @@ final class PendingChangeStore: ObservableObject {
     /// further filesystem event arrives, so a half-written file cannot sit
     /// unexamined forever.
     private func scheduleRecheck() {
+        guard !recheckScheduled else { return }
+        recheckScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.recheckScheduled = false
             self?.refresh()
         }
     }

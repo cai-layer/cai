@@ -269,6 +269,23 @@ enum ActionReviewPresentation {
         var id: String { field.rawValue }
     }
 
+    /// True when an update's diff rows alone would hide what actually runs.
+    ///
+    /// The diff shows only the fields the patch touched. A patch that flips
+    /// execution semantics — `type: prompt → shell`, `runInBackground`,
+    /// `autoReplaceSelection` — without touching `value` therefore renders a
+    /// one-line diff and never the payload, and the user acknowledges "runs
+    /// terminal commands" without being shown which command. Those updates
+    /// render the full payload block beneath the diff. When the patch touches
+    /// `value`, the diff already carries the whole new value as context lines
+    /// and repeating it would make the user decide which copy to trust.
+    static func updateShowsPayload(changed: [ActionField]) -> Bool {
+        guard !changed.contains(.value) else { return false }
+        return changed.contains { field in
+            field == .type || field == .runInBackground || field == .autoReplaceSelection
+        }
+    }
+
     static func diffRows(before: ActionSnapshot, after: ActionSnapshot, changed: [ActionField]) -> [DiffRow] {
         changed.map { field in
             DiffRow(

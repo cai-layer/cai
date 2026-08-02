@@ -197,4 +197,65 @@ final class ApprovalTierTests: XCTestCase {
 
         XCTAssertEqual(ApprovalClassifier.escalationReasons(for: loop, known: known), [])
     }
+
+    // MARK: - Traversal shape
+
+    func testSharedDownstreamActionStillEscalatesThroughEitherRoute() {
+        // Diamond: root → B and C, both → D (shell). The shared visited set
+        // walks D once; its risk must surface all the same.
+        let d = CoreFixture.snapshot(id: UUID(), name: "D", type: .shell, value: "./x.sh")
+        let b = CoreFixture.snapshot(id: UUID(), name: "B", next: [.action(name: "D")])
+        let c = CoreFixture.snapshot(id: UUID(), name: "C", next: [.action(name: "D")])
+        let root = CoreFixture.snapshot(id: UUID(), name: "Root", next: [.action(name: "B"), .action(name: "C")])
+        let known = KnownActions(shortcuts: [b, c, d, root], destinations: [], builtInActionNames: [])
+
+        XCTAssertEqual(ApprovalClassifier.escalationReasons(for: root, known: known), [.runsShellCommands])
+    }
+
+    func testShallowRouteEscalatesWhenALongerRouteHitsTheDepthCapFirst() {
+        // Root's first step reaches X through nine intermediaries, putting X
+        // past the step cap on that route; its second step reaches X directly.
+        // The direct route is one the executor runs, so X's shell destination
+        // must escalate no matter which route the walk encounters first —
+        // this is the case a depth-first walk with a shared visited set gets
+        // wrong (X parked in `visited` at the cap, chain uncounted).
+        let x = CoreFixture.snapshot(id: UUID(), name: "X", next: [.action(name: "Run script")])
+        var intermediaries: [ActionSnapshot] = []
+        for index in 1...9 {
+            let nextName = index == 9 ? "X" : "L\(index + 1)"
+            intermediaries.append(
+                CoreFixture.snapshot(id: UUID(), name: "L\(index)", next: [.action(name: nextName)])
+            )
+        }
+        let root = CoreFixture.snapshot(
+            id: UUID(),
+            name: "Root",
+            next: [.action(name: "L1"), .action(name: "X")]
+        )
+        let known = KnownActions(
+            shortcuts: intermediaries + [x, root],
+            destinations: [DestinationSummary(name: "Run script", kind: .shell)],
+            builtInActionNames: []
+        )
+
+        XCTAssertEqual(ApprovalClassifier.escalationReasons(for: root, known: known), [.runsShellCommands])
+    }
+
+    func testDenseMeshClassifiesWithoutEnumeratingPaths() {
+        // Twelve prompt actions, each chaining into ten others: a dozen
+        // reachable nodes but millions of simple paths. A per-path walk hangs
+        // the suite here; the breadth-first walk returns instantly.
+        let names = (0..<12).map { "Mesh \($0)" }
+        let ids = (0..<12).map { _ in UUID() }
+        let mesh = names.indices.map { index in
+            CoreFixture.snapshot(
+                id: ids[index],
+                name: names[index],
+                next: names.indices.filter { $0 != index }.prefix(10).map { .action(name: names[$0]) }
+            )
+        }
+        let known = KnownActions(shortcuts: mesh, destinations: [], builtInActionNames: [])
+
+        XCTAssertEqual(ApprovalClassifier.escalationReasons(for: mesh[0], known: known), [])
+    }
 }

@@ -61,4 +61,11 @@ public enum ActionSchema {
     /// broken or an attempt to make the app read a huge file into memory, and
     /// is quarantined without being read.
     public static let maxPendingFileBytes = 1_048_576
+
+    /// Max refused proposals kept in `quarantine/`, oldest dropped first.
+    /// The queue and the audit log are both capped; without this the one
+    /// directory a misbehaving writer can fill grows until the disk does.
+    /// 200 keeps plenty of forensic tail while bounding it at ~200 MB worst
+    /// case (`maxPendingFileBytes` each).
+    public static let maxQuarantinedFiles = 200
 }

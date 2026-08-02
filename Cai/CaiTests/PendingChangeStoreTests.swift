@@ -71,6 +71,12 @@ final class PendingChangeStoreTests: XCTestCase {
         return url
     }
 
+    /// The queue orders on the file's modification date, so tests that care
+    /// about order pin it explicitly instead of racing the filesystem clock.
+    private func setModified(_ url: URL, _ date: Date) throws {
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
+    }
+
     @discardableResult
     private func writeRaw(_ json: String, name: String = UUID().uuidString) throws -> URL {
         let url = CaiSupportPaths.pendingChanges(in: root).appendingPathComponent("\(name).json")
@@ -132,12 +138,32 @@ final class PendingChangeStoreTests: XCTestCase {
         XCTAssertEqual(store.pending.first?.validated.escalationReasons, [.runsShellCommands])
     }
 
-    func testProposalsAreQueuedOldestFirst() throws {
-        try write(createChange(name: "Second", createdAt: Date(timeIntervalSince1970: 200)))
-        try write(createChange(name: "First", createdAt: Date(timeIntervalSince1970: 100)))
+    func testProposalsAreQueuedOldestFirstByArrival() throws {
+        let second = try write(createChange(name: "Second"))
+        let first = try write(createChange(name: "First"))
+        try setModified(first, Date(timeIntervalSince1970: 100))
+        try setModified(second, Date(timeIntervalSince1970: 200))
         store.refresh()
 
         XCTAssertEqual(store.pending.map(\.validated.after.name), ["First", "Second"])
+    }
+
+    func testPayloadCreatedAtCannotJumpTheQueue() throws {
+        // `createdAt` is a field in a document any process can write. A
+        // proposal stamping itself 1970 must not displace the card the user
+        // is already reading — arrival order is the file's, not the writer's.
+        let settled = try write(createChange(name: "Settled", createdAt: Date(timeIntervalSince1970: 5_000)))
+        try setModified(settled, Date(timeIntervalSince1970: 100))
+        store.refresh()
+
+        let jumper = try write(createChange(name: "Jumper", createdAt: Date(timeIntervalSince1970: 0)))
+        try setModified(jumper, Date(timeIntervalSince1970: 200))
+        store.refresh()
+
+        XCTAssertEqual(
+            store.pending.map(\.validated.after.name), ["Settled", "Jumper"],
+            "An epoch-stamped payload must still queue behind what arrived first."
+        )
     }
 
     func testRefreshIsIdempotent() throws {
@@ -248,10 +274,11 @@ final class PendingChangeStoreTests: XCTestCase {
 
     func testQueueStopsAtFiftyAndQuarantinesTheOverflow() throws {
         for index in 0..<52 {
-            try write(createChange(
+            let url = try write(createChange(
                 name: "Proposal \(index)",
                 createdAt: Date(timeIntervalSince1970: TimeInterval(index))
             ))
+            try setModified(url, Date(timeIntervalSince1970: TimeInterval(index)))
         }
         store.refresh()
 
@@ -500,7 +527,8 @@ final class PendingChangeStoreTests: XCTestCase {
     func testQueueOrderIsStableWhenProposalsShareATimestamp() throws {
         let shared = Date(timeIntervalSince1970: 500)
         for name in ["A", "B", "C", "D"] {
-            try write(createChange(name: name, createdAt: shared))
+            let url = try write(createChange(name: name, createdAt: shared))
+            try setModified(url, shared)
         }
 
         store.refresh()
@@ -508,6 +536,54 @@ final class PendingChangeStoreTests: XCTestCase {
         store.refresh()
 
         XCTAssertEqual(first, store.pending.map(\.changeId), "The head of the queue must not move between scans.")
+    }
+
+    func testProvenanceSourceIsForcedToMCPOnIngest() throws {
+        // A payload claiming "in-app" would badge its action "via Cai" — the
+        // one provenance label an agent must not be able to award itself.
+        let claimed = PendingChange(
+            id: UUID(),
+            createdAt: Date(timeIntervalSince1970: 0),
+            provenance: ActionProvenance(
+                source: .inApp,
+                client: "Claude Code",
+                authoredAt: Date(timeIntervalSince1970: 0)
+            ),
+            operation: .create(ActionDraft(name: "Innocent", type: .prompt, value: "Summarize"))
+        )
+        try write(claimed)
+        store.refresh()
+
+        XCTAssertEqual(store.pending.first?.validated.provenance.source, .mcp)
+        XCTAssertEqual(store.pending.first?.change.provenance.source, .mcp,
+                       "The override must reach the payload approval applies, not only the display.")
+    }
+
+    func testApprovingAProposalThatAlreadyLeftTheQueueIsStale() throws {
+        try write(createChange(name: "Once"))
+        store.refresh()
+        let proposal = try XCTUnwrap(store.pending.first)
+        store.reject(proposal)
+
+        let outcome = store.approve(proposal, acknowledged: [])
+
+        XCTAssertEqual(outcome, .stale)
+        XCTAssertFalse(shortcuts.contains { $0.name == "Once" }, "A stale approve must not store the action.")
+    }
+
+    func testQuarantineOverflowKeepsTheNewestUpToTheCap() {
+        let old = URL(fileURLWithPath: "/q/old.json")
+        let mid = URL(fileURLWithPath: "/q/mid.json")
+        let new = URL(fileURLWithPath: "/q/new.json")
+        let dated: [(url: URL, modified: Date)] = [
+            (mid, Date(timeIntervalSince1970: 200)),
+            (old, Date(timeIntervalSince1970: 100)),
+            (new, Date(timeIntervalSince1970: 300)),
+        ]
+
+        XCTAssertEqual(PendingChangeStore.quarantineOverflow(dated, cap: 2), [old])
+        XCTAssertEqual(PendingChangeStore.quarantineOverflow(dated, cap: 3), [])
+        XCTAssertEqual(PendingChangeStore.quarantineOverflow([], cap: 0), [])
     }
 
     func testTwoFilesCarryingTheSameChangeIdStayTwoProposals() throws {

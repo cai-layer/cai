@@ -18,6 +18,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var destinationsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
     private var modelSetupWindow: NSWindow?
+    /// The agent-proposal approval sheet. Reused while open, same as the
+    /// model setup window.
+    private var actionReviewWindow: NSWindow?
+    /// Watches for the review sheet losing key focus, so clicking away defers
+    /// it the same way Esc does.
+    private var actionReviewResignObserver: NSObjectProtocol?
     private var pendingLLMSetup = false
     /// Subscription to `BackgroundTaskTracker` — drives the menu bar icon
     /// pulse while a background shell action is running.
@@ -38,20 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            // Render CaiLogo Shape into a template NSImage for the menu bar
-            let logoHeight: CGFloat = 11
-            let logoWidth: CGFloat = logoHeight * (217.0 / 127.0)  // Preserve aspect ratio
-            let size = NSSize(width: logoWidth, height: logoHeight)
-            let image = NSImage(size: size, flipped: true) { rect in
-                guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-                let swiftPath = CaiLogoShape().path(in: CGRect(origin: .zero, size: rect.size))
-                ctx.addPath(swiftPath.cgPath)
-                ctx.setFillColor(NSColor.black.cgColor)
-                ctx.fillPath()
-                return true
-            }
-            image.isTemplate = true  // Adapts to light/dark menu bar
-            button.image = image
+            button.image = Self.statusItemImage(showsPendingDot: false)
             button.action = #selector(handleStatusItemClick(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -91,6 +84,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.stopStatusBarPulse()
                 }
             }
+
+        // A proposal arriving never steals focus: the icon grows a dot and one
+        // toast fires. The review window opens only when the user asks for it.
+        //
+        // Registered BEFORE the store starts: its first scan posts this
+        // notification, and anything an agent queued while Cai was closed has
+        // to raise the dot on this launch, not wait for the next proposal.
+        NotificationCenter.default.addObserver(
+            forName: .caiPendingChangesChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updatePendingBadge() }
+        }
+
+        // The action list's notice banner asks for the review sheet; this
+        // delegate owns that window.
+        NotificationCenter.default.addObserver(
+            forName: .caiShowActionReview,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showActionReview() }
+        }
+
+        // Start watching for agent-authored proposals. No-ops when the kill
+        // switch is off, and in Debug builds without CAI_MCP_PENDING=1 (both
+        // bundle IDs share Application Support, so an unguarded Debug build
+        // would race the Release build for the same pending files).
+        PendingChangeStore.shared.startIfEnabled()
+        updatePendingBadge()
 
         // Check accessibility permission
         permissionsManager.checkAccessibilityPermission()
@@ -186,6 +210,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let openItem = NSMenuItem(title: "Open Cai", action: #selector(openCai), keyEquivalent: "")
         menu.addItem(openItem)
+
+        // Only present while something waits: the review window is the one
+        // place a proposal can be approved, so it needs a click path, but an
+        // always-visible entry would advertise a queue that is usually empty.
+        let pendingCount = MainActor.assumeIsolated { PendingChangeStore.shared.pending.count }
+        if pendingCount > 0 {
+            let title = pendingCount == 1
+                ? "Review proposed action"
+                : "Review proposed actions (\(pendingCount))"
+            menu.addItem(NSMenuItem(title: title, action: #selector(showActionReview), keyEquivalent: ""))
+        }
 
         menu.addItem(NSMenuItem.separator())
 
@@ -433,6 +468,171 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Model Setup Window
+
+    // MARK: - Agent Proposals
+
+    /// Renders the menu bar logo, optionally with the pending-proposal dot.
+    ///
+    /// A template image, so the dot inherits the menu bar's own tint in light
+    /// and dark rather than introducing colour where macOS expects none.
+    private static func statusItemImage(showsPendingDot: Bool) -> NSImage {
+        let logoHeight: CGFloat = 11
+        let logoWidth: CGFloat = logoHeight * (217.0 / 127.0)  // Preserve aspect ratio
+        let dotDiameter: CGFloat = 4
+        let dotGap: CGFloat = 2
+        let size = NSSize(
+            width: logoWidth + (showsPendingDot ? dotGap + dotDiameter : 0),
+            height: logoHeight
+        )
+
+        let image = NSImage(size: size, flipped: true) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let logoRect = CGRect(x: 0, y: 0, width: logoWidth, height: rect.height)
+            let swiftPath = CaiLogoShape().path(in: logoRect)
+            ctx.addPath(swiftPath.cgPath)
+            ctx.setFillColor(NSColor.black.cgColor)
+            ctx.fillPath()
+
+            if showsPendingDot {
+                let dot = CGRect(
+                    x: logoWidth + dotGap,
+                    y: (rect.height - dotDiameter) / 2,
+                    width: dotDiameter,
+                    height: dotDiameter
+                )
+                ctx.addEllipse(in: dot)
+                ctx.fillPath()
+            }
+            return true
+        }
+        image.isTemplate = true  // Adapts to light/dark menu bar
+        return image
+    }
+
+    /// Adds or clears the dot, and keeps an open review window sized to the
+    /// proposal it is now showing.
+    @MainActor
+    private func updatePendingBadge() {
+        let hasPending = !PendingChangeStore.shared.pending.isEmpty
+        statusItem?.button?.image = Self.statusItemImage(showsPendingDot: hasPending)
+        statusItem?.button?.toolTip = hasPending ? "Cai has a proposed action waiting for review" : nil
+
+        // Re-fit on the next runloop pass, not now: this notification is posted
+        // synchronously from the store, before SwiftUI has re-rendered for the
+        // new queue. Measuring here would size the window to the proposal that
+        // just left, clipping the payload of the one that replaced it.
+        if let window = actionReviewWindow, window.isVisible {
+            DispatchQueue.main.async { [weak self] in
+                self?.resizeActionReviewWindow(window)
+            }
+        }
+    }
+
+    @MainActor
+    @objc func showActionReview() {
+        // Same reuse-if-open presentation as the model setup window.
+        if let existing = actionReviewWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let reviewView = ActionReviewView(
+            store: PendingChangeStore.shared,
+            onClose: { [weak self] in
+                self?.closeActionReviewWindow()
+            },
+            onOpenSettings: { [weak self] in
+                self?.windowController.showSettingsWindow()
+            }
+        )
+        let hostingView = NSHostingView(rootView: reviewView)
+
+        // Frosted, borderless, 20pt radius per docs/design/DESIGN.md. CaiPanel
+        // rather than NSWindow because a borderless window cannot become key,
+        // and this surface is keyboard-first (Return approves, Esc defers).
+        let panel = CaiPanel(
+            contentRect: NSRect(x: 0, y: 0, width: Self.reviewWindowWidth, height: hostingView.fittingSize.height),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .floating
+        panel.isMovableByWindowBackground = true
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = false
+        panel.hidesOnDeactivate = false
+        panel.contentView = hostingView
+        panel.isReleasedWhenClosed = false
+        panel.center()
+
+        actionReviewWindow = panel
+        resizeActionReviewWindow(panel)
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Clicking away defers the sheet, matching the ⌥C panel's dismissal
+        // and matching what Esc already does here. Deferring only closes the
+        // window: the proposal stays queued and the dot stays lit, because
+        // rejecting is always an explicit click.
+        //
+        // Registered after presentation so the activation handoff that makes
+        // the panel key cannot immediately close it.
+        actionReviewResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.closeActionReviewWindow() }
+        }
+    }
+
+    @MainActor
+    private func closeActionReviewWindow() {
+        if let observer = actionReviewResignObserver {
+            NotificationCenter.default.removeObserver(observer)
+            actionReviewResignObserver = nil
+        }
+        actionReviewWindow?.close()
+        actionReviewWindow = nil
+    }
+
+    /// The window fits its content, so advancing the queue from a one-line
+    /// prompt to a 30-line shell script must not leave the payload clipped.
+    private func resizeActionReviewWindow(_ window: NSWindow) {
+        guard let hostingView = window.contentView else { return }
+        guard let frame = Self.reviewWindowFrame(
+            current: window.frame,
+            contentHeight: hostingView.fittingSize.height
+        ) else { return }
+        window.setFrame(frame, display: true, animate: false)
+    }
+
+    /// Where the review window goes for a given content height, or nil when it
+    /// is already the right size.
+    ///
+    /// Pure because the growth direction is the part that goes wrong: AppKit
+    /// origins are bottom-left, so keeping the header still while the sheet
+    /// grows means moving the origin, and getting that backwards makes the
+    /// window crawl down the screen every time the queue advances.
+    static func reviewWindowFrame(current: NSRect, contentHeight: CGFloat) -> NSRect? {
+        let height = max(contentHeight, minimumReviewWindowHeight)
+        guard abs(current.height - height) > 0.5 else { return nil }
+        return NSRect(
+            x: current.origin.x,
+            y: current.origin.y + (current.height - height),
+            width: reviewWindowWidth,
+            height: height
+        )
+    }
+
+    /// 540pt fixed, per docs/design/DESIGN.md.
+    static let reviewWindowWidth: CGFloat = 540
+    /// Floor for the empty state, so the window can never collapse to a sliver.
+    static let minimumReviewWindowHeight: CGFloat = 120
 
     private func showModelSetupWindow() {
         // If already open, bring to front

@@ -1,3 +1,4 @@
+import CaiActionCore
 import XCTest
 @testable import Cai
 

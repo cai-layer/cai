@@ -29,10 +29,23 @@ Tokens are defined in [`CaiColors.swift`](../../Cai/Cai/Views/CaiColors.swift) â
 | `caiTextPrimary` / `caiTextSecondary` | Primary/secondary text. NSColor-based. |
 | `caiSelection` | Text selection only (system blue). Do NOT use for interactive states â€” use `caiPrimarySubtle`. |
 | `caiDivider` | Separator hairlines. NSColor-based. |
+| `caiDiffRemoved` / `caiDiffAdded` | System red / green. **Diff row tints only.** See "Red" below. |
 
 **Never hardcode a background or text color.** All NSColor tokens auto-adapt to Light/Dark/System.
 
 **Dark mode:** three modes (System default, Light, Dark) via `NSApp.appearance` in `CaiSettings`. NSColor tokens handle it; no overrides needed.
+
+### Red
+
+Cai has no red. Warnings are `caiError` (system orange), failures are stated in words, and nothing is styled as alarm. The reason is that a utility interrupting your work has not earned the right to shout.
+
+**One exception, added 2026-08-02: diffs.** The approval sheet for agent-authored actions renders changes as a unified diff, and red-removed / green-added is a convention every developer reads without thinking. An approval surface is the wrong place to make someone learn a house dialect, so the diff uses `caiDiffRemoved` and `caiDiffAdded`.
+
+Scope of the exception, do not widen it without a design decision:
+
+- Row background tints only, at 12% (removed) and 14% (added). Never text, never a control, never a border.
+- Only inside a diff. Errors elsewhere stay orange or textual.
+- Code text stays `caiTextPrimary` on every row, including removals, so the payload is equally legible in all three states.
 
 ### Indigo discipline
 

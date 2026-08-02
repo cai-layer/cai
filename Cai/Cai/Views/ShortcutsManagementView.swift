@@ -1,3 +1,4 @@
+import CaiActionCore
 import SwiftUI
 
 /// Management screen for creating, editing, and deleting custom shortcuts.
@@ -376,9 +377,23 @@ struct ShortcutsManagementView: View {
 
             // Name + value preview
             VStack(alignment: .leading, spacing: 1) {
-                Text(shortcut.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.caiTextPrimary)
+                HStack(spacing: 6) {
+                    Text(shortcut.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.caiTextPrimary)
+
+                    // Answers "where did this come from" long after the
+                    // approval sheet is forgotten. Only on authored rows.
+                    if let badge = ActionReviewPresentation.provenanceBadge(for: shortcut.provenance) {
+                        Text(badge)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.caiTextSecondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.caiSurface.opacity(0.6)))
+                            .accessibilityLabel("Authored \(badge)")
+                    }
+                }
 
                 Text(shortcut.value)
                     .font(.system(size: 11))

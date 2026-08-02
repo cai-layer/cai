@@ -1,4 +1,5 @@
 import AppKit
+import CaiActionCore
 import SwiftUI
 
 /// SwiftUI-native chip editor for `[ChainStep]` — supports three step types:

@@ -1,3 +1,4 @@
+import CaiActionCore
 import Foundation
 
 // MARK: - Custom Shortcut Model
@@ -6,6 +7,11 @@ import Foundation
 /// Two types: prompt (sends clipboard text + saved prompt to LLM) and url
 /// (opens a URL template with clipboard text substituted for %s).
 struct CaiShortcut: Codable, Identifiable, Equatable {
+    /// The type enum lives in `CaiActionCore` so the validator and the
+    /// `cai-mcp` helper speak the same one. Raw values are unchanged, so
+    /// shortcuts persisted by earlier versions decode as before.
+    typealias ShortcutType = CaiActionType
+
     let id: UUID
     var name: String
     var type: ShortcutType
@@ -34,41 +40,14 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
     /// Shortcuts (by name) — see `ChainStep`. Cycle detection + max-depth-10
     /// guard the executor against runaway loops.
     var next: [ChainStep]
+    /// Who authored this shortcut and when, when it did not come from the
+    /// user's own hands. Set for actions approved from an agent proposal and
+    /// carried forever after, so the shortcuts list can badge them with "via
+    /// Claude Code". `nil` for everything a user created in the editor, which
+    /// is also what every already-stored shortcut decodes to.
+    var provenance: ActionProvenance?
 
-    enum ShortcutType: String, Codable, CaseIterable {
-        case prompt
-        case url
-        case shell
-
-        var icon: String {
-            switch self {
-            case .prompt: return "bolt.circle.fill"
-            case .url: return "safari.fill"
-            case .shell: return "terminal.fill"
-            }
-        }
-
-        var label: String {
-            switch self {
-            case .prompt: return "Prompt"
-            case .url: return "URL"
-            case .shell: return "Shell"
-            }
-        }
-
-        var placeholder: String {
-            switch self {
-            case .prompt: return "e.g. Rewrite as a professional email reply"
-            case .url: return "e.g. https://www.reddit.com/search/?q=%s"
-            // Bare `{{result}}` is safe by default in shell templates — Cai
-            // escapes via the |shell filter automatically. No surrounding
-            // quotes needed.
-            case .shell: return "e.g. echo {{result}} | base64 -D"
-            }
-        }
-    }
-
-    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false, runInBackground: Bool = false, next: [ChainStep] = []) {
+    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false, runInBackground: Bool = false, next: [ChainStep] = [], provenance: ActionProvenance? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -77,10 +56,11 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         self.pinned = pinned
         self.runInBackground = runInBackground
         self.next = next
+        self.provenance = provenance
     }
 
     // Custom decoder so previously-persisted shortcuts (without newer flags)
-    // still decode, defaulting them to false / empty.
+    // still decode, defaulting them to false / empty / nil.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(UUID.self, forKey: .id)
@@ -91,36 +71,80 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         self.pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         self.runInBackground = try c.decodeIfPresent(Bool.self, forKey: .runInBackground) ?? false
         self.next = try c.decodeIfPresent([ChainStep].self, forKey: .next) ?? []
+        self.provenance = try c.decodeIfPresent(ActionProvenance.self, forKey: .provenance)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, type, value, autoReplaceSelection, pinned, runInBackground, next
+        case id, name, type, value, autoReplaceSelection, pinned, runInBackground, next, provenance
     }
 }
 
-// MARK: - Smart-quote normalization
+// MARK: - Action Type Presentation
+//
+// The type itself is shared with the helper via CaiActionCore; how it looks in
+// the shortcuts editor is the app's business and stays here.
 
-extension String {
-    /// Replaces macOS "smart quotes" (curly typographic quotes inserted
-    /// automatically by NSTextView / SwiftUI TextField when Substitutions →
-    /// Smart Quotes is on) with straight ASCII quotes. Shell (zsh), URL
-    /// schemes, JSON, and AppleScript all reject curly quotes — a user
-    /// pasting or typing `'{{result}}'` into a Shortcut or Destination
-    /// template gets `'{{result}}'`, which fails at runtime with an
-    /// unhelpful "command not found" or parse error.
-    ///
-    /// Applied at save-time in ShortcutsManagementView and
-    /// DestinationsManagementView. Not applied to user clipboard text —
-    /// only to template definitions where curly quotes have no valid use.
-    func normalizingSmartQuotes() -> String {
-        self
-            .replacingOccurrences(of: "\u{2018}", with: "'")   // ' left single
-            .replacingOccurrences(of: "\u{2019}", with: "'")   // ' right single
-            .replacingOccurrences(of: "\u{201A}", with: "'")   // ‚ low single
-            .replacingOccurrences(of: "\u{201B}", with: "'")   // ‛ reversed single
-            .replacingOccurrences(of: "\u{201C}", with: "\"")  // " left double
-            .replacingOccurrences(of: "\u{201D}", with: "\"")  // " right double
-            .replacingOccurrences(of: "\u{201E}", with: "\"")  // „ low double
-            .replacingOccurrences(of: "\u{201F}", with: "\"")  // ‟ reversed double
+extension CaiActionType {
+
+    var icon: String {
+        switch self {
+        case .prompt: return "bolt.circle.fill"
+        case .url: return "safari.fill"
+        case .shell: return "terminal.fill"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .prompt: return "Prompt"
+        case .url: return "URL"
+        case .shell: return "Shell"
+        }
+    }
+
+    var placeholder: String {
+        switch self {
+        case .prompt: return "e.g. Rewrite as a professional email reply"
+        case .url: return "e.g. https://www.reddit.com/search/?q=%s"
+        // Bare `{{result}}` is safe by default in shell templates — Cai
+        // escapes via the |shell filter automatically. No surrounding
+        // quotes needed.
+        case .shell: return "e.g. echo {{result}} | base64 -D"
+        }
+    }
+}
+
+// MARK: - CaiActionCore Bridging
+
+extension CaiShortcut {
+
+    /// The shortcut as the validator and the helper see it. Provenance is
+    /// deliberately not part of the snapshot: it describes where the action
+    /// came from, not what it does, and an agent has no business patching it.
+    var actionSnapshot: ActionSnapshot {
+        ActionSnapshot(
+            id: id,
+            name: name,
+            type: type,
+            value: value,
+            autoReplaceSelection: autoReplaceSelection,
+            runInBackground: runInBackground,
+            pinned: pinned,
+            next: next
+        )
+    }
+
+    init(snapshot: ActionSnapshot, provenance: ActionProvenance?) {
+        self.init(
+            id: snapshot.id,
+            name: snapshot.name,
+            type: snapshot.type,
+            value: snapshot.value,
+            autoReplaceSelection: snapshot.autoReplaceSelection,
+            pinned: snapshot.pinned,
+            runInBackground: snapshot.runInBackground,
+            next: snapshot.next,
+            provenance: provenance
+        )
     }
 }

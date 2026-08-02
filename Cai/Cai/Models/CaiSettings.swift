@@ -1,4 +1,5 @@
 import AppKit
+import CaiActionCore
 import Foundation
 import HotKey
 import os.log
@@ -38,6 +39,7 @@ class CaiSettings: ObservableObject {
         static let appearance = "cai_appearance"
         static let anthropicModelName = "cai_anthropicModelName"
         static let openRouterModelName = "cai_openRouterModelName"
+        static let allowAgentProposals = "cai_allowAgentProposals"
         static let migratedPasteBackDefaultsV3 = "cai_migratedPasteBackDefaultsV3"
         static let migratedShellTemplatesV2 = "cai_migratedShellTemplatesV2"
         // apiKey moved to Keychain — see KeychainHelper
@@ -213,6 +215,28 @@ class CaiSettings: ObservableObject {
     @Published var pressReturnToSend: Bool {
         didSet {
             defaults.set(pressReturnToSend, forKey: Keys.pressReturnToSend)
+        }
+    }
+
+    /// The kill switch for agent authoring: "Allow agents to propose actions".
+    ///
+    /// Default ON, because wiring the `cai-mcp` helper into an agent is itself
+    /// the explicit opt-in and nothing an agent proposes can run before the
+    /// user approves it here. Off means the app stops looking at the pending
+    /// directory entirely and the helper refuses new proposals.
+    @Published var allowAgentProposals: Bool {
+        didSet {
+            defaults.set(allowAgentProposals, forKey: Keys.allowAgentProposals)
+            // Takes effect immediately rather than at next launch, so the
+            // switch means what its caption says.
+            let enabled = allowAgentProposals
+            Task { @MainActor in
+                if enabled {
+                    PendingChangeStore.shared.startIfEnabled()
+                } else {
+                    PendingChangeStore.shared.stop()
+                }
+            }
         }
     }
 
@@ -443,6 +467,10 @@ class CaiSettings: ObservableObject {
 
         self.pressReturnToSend = defaults.bool(forKey: Keys.pressReturnToSend)
 
+        // Defaults ON: `bool(forKey:)` is false for an unset key, so read the
+        // object first and only fall back to true when nothing is stored.
+        self.allowAgentProposals = defaults.object(forKey: Keys.allowAgentProposals) as? Bool ?? true
+
         self.hotKeyComboDict = defaults.dictionary(forKey: Keys.hotKeyCombo) as? [String: Int]
         self.aboutYou = defaults.string(forKey: Keys.aboutYou) ?? ""
 
@@ -629,11 +657,50 @@ class CaiSettings: ObservableObject {
     ///   the runtime surface a clear error if it's missing
     /// - `.inlineLLM`: always resolvable (only requires LLM configured)
     func unresolvedChainSteps(in next: [ChainStep]) -> [String] {
-        next.compactMap { step in
-            guard case .action(let name) = step else { return nil }
-            let resolved = shortcuts.contains { $0.name == name }
-                || outputDestinations.contains { $0.name == name }
-            return resolved ? nil : name
+        // Built-ins are deliberately excluded here: this call feeds the "chain
+        // needs: ..." badge on imported extensions, which has always flagged
+        // only shortcuts and destinations.
+        //
+        // Called once per row while the management lists render, and those
+        // rebuild on every hover, so the name set is built lazily: an action
+        // with no chain steps costs nothing.
+        ChainResolution.unresolvedChainStepNames(
+            in: next,
+            knownNames: Set(shortcuts.map(\.name)).union(outputDestinations.map(\.name))
+        )
+    }
+
+    // MARK: - CaiActionCore Bridging
+
+    /// Everything an authored action can collide with or chain into, in the
+    /// shape `ActionValidator` and the approval sheet expect. Built here so
+    /// the validator never reaches for this singleton itself.
+    var knownActions: KnownActions {
+        KnownActions(
+            shortcuts: shortcutSnapshots,
+            destinations: destinationSummaries,
+            builtInActionNames: BuiltInActionID.allCases.filter(\.isChainable).map(\.displayLabel)
+        )
+    }
+
+    private var shortcutSnapshots: [ActionSnapshot] {
+        shortcuts.map(\.actionSnapshot)
+    }
+
+    /// Destination names and kinds only. Configs (webhook URLs, headers,
+    /// AppleScript templates) deliberately stay out of the authoring surface.
+    private var destinationSummaries: [DestinationSummary] {
+        outputDestinations.map { destination in
+            let kind: DestinationSummary.Kind
+            switch destination.type {
+            case .applescript: kind = .applescript
+            case .webhook: kind = .webhook
+            case .deeplink: kind = .deeplink
+            case .shell: kind = .shell
+            case .pasteBack: kind = .pasteBack
+            case .clipboardCopy: kind = .clipboardCopy
+            }
+            return DestinationSummary(name: destination.name, kind: kind)
         }
     }
 

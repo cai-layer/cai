@@ -2,10 +2,10 @@ import Foundation
 
 /// One step in a chain (`CaiShortcut.next` / `OutputDestination.next`).
 ///
-/// Replaces the v1.6 `[String]` representation. The string-only form was
-/// adequate for "list of named Cai actions" but couldn't carry the metadata
-/// inline-LLM steps (a per-step directive) and Apple Shortcuts integration
-/// (provenance tag — Cai vs. Shortcuts.app) needed.
+/// Moved from `Cai/Cai/Models/ChainStep.swift` into CaiActionCore so the
+/// helper, the validator and the app share one definition. The Codable shape
+/// is unchanged (auto-synthesized tagged union), so chains already persisted
+/// in UserDefaults decode exactly as before.
 ///
 /// **Cases:**
 /// - `.action(name:)` — references an existing `CaiShortcut` or
@@ -21,16 +21,12 @@ import Foundation
 ///   ones that don't silently ignore it). Stdout flows back into the pipe.
 ///
 /// **Codable:** uses a tagged-union representation (`{"type": "...", ...}`).
-/// Auto-synthesized — no custom encoder/decoder needed. Storage migration
-/// from v1.6's `[String]`: not implemented because the v1.6 chain-feature
-/// code never shipped (still on `feat/template-engine` branch). Once we
-/// merge to master, in-progress branch users would need `git stash` of any
-/// chain config.
+/// Auto-synthesized — no custom encoder/decoder needed.
 ///
 /// **Future:** `.mcpAction(presetId:)` is reserved for v1.8 once we design
 /// "preset MCP actions" (saved partial-fill of an MCP form, e.g. "create
 /// GitHub issue in cai/cai with the bug label").
-enum ChainStep: Codable, Equatable, Hashable {
+public enum ChainStep: Codable, Equatable, Hashable, Sendable {
     case action(name: String)
     case inlineLLM(directive: String)
     case appleShortcut(name: String)
@@ -39,7 +35,7 @@ enum ChainStep: Codable, Equatable, Hashable {
     /// - `.action` → the action name
     /// - `.inlineLLM` → the directive (italic in chip render)
     /// - `.appleShortcut` → the shortcut name
-    var displayLabel: String {
+    public var displayLabel: String {
         switch self {
         case .action(let name): return name
         case .inlineLLM(let directive): return directive
@@ -49,12 +45,23 @@ enum ChainStep: Codable, Equatable, Hashable {
 
     /// True when the step has no meaningful content. Used by the editor to
     /// auto-remove inline-LLM chips whose directive is left empty after edit
-    /// (matches NSTokenField / Linear pill convention: empty token = no token).
-    var isEmpty: Bool {
+    /// (matches NSTokenField / Linear pill convention: empty token = no token),
+    /// and by the validator to reject an authored chain carrying a blank step.
+    public var isEmpty: Bool {
         switch self {
         case .action(let name): return name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .inlineLLM(let directive): return directive.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .appleShortcut(let name): return name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// Wire-facing tag used in rejection messages and the approval sheet, so
+    /// the agent and the user see the same word for a step kind.
+    public var kindLabel: String {
+        switch self {
+        case .action: return "action"
+        case .inlineLLM: return "llm"
+        case .appleShortcut: return "apple_shortcut"
         }
     }
 }

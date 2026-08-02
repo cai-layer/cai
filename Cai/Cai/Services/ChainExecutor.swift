@@ -1,4 +1,5 @@
 import AppKit
+import CaiActionCore
 import Foundation
 
 // MARK: - Chain Executor

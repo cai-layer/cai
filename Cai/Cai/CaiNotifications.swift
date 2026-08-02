@@ -32,5 +32,12 @@ extension NSNotification.Name {
 
     // MCP
     static let caiMCPStatusChanged = NSNotification.Name("CaiMCPStatusChanged")  // userInfo["configId": UUID]
+    /// Posted by `PendingChangeStore` whenever the approval queue gains or
+    /// loses a proposal. Drives the menu-bar dot and the review window's
+    /// "1 of N" title.
+    static let caiPendingChangesChanged = NSNotification.Name("CaiPendingChangesChanged")
+    /// Posted by the action list's notice banner to open the approval sheet.
+    /// Observed by `AppDelegate`, which owns that window.
+    static let caiShowActionReview = NSNotification.Name("CaiShowActionReview")
     static let caiMCPFormSubmit = NSNotification.Name("CaiMCPFormSubmit")         // Triggers form submission
 }

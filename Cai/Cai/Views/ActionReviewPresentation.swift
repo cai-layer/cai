@@ -280,6 +280,93 @@ enum ActionReviewPresentation {
         }
     }
 
+    // MARK: - Line diff
+
+    /// One rendered line of a unified diff, in the shape every developer
+    /// already knows: old and new line numbers, a marker, tinted rows.
+    struct DiffLine: Equatable, Identifiable {
+        enum Kind: Equatable {
+            case context
+            case removed
+            case added
+        }
+
+        let id: Int
+        let kind: Kind
+        let text: String
+        /// Line number on the old side, absent for additions.
+        let oldNumber: Int?
+        /// Line number on the new side, absent for removals.
+        let newNumber: Int?
+
+        var marker: String {
+            switch kind {
+            case .context: return " "
+            case .removed: return "−"
+            case .added: return "+"
+            }
+        }
+    }
+
+    /// True when a field's change is worth a line diff rather than the compact
+    /// old-above-new form. A one-word name change reads fine as two rows; a
+    /// 30-line shell script where one line moved does not.
+    static func needsLineDiff(before: String, after: String) -> Bool {
+        before.contains("\n") || after.contains("\n")
+    }
+
+    /// A unified line diff over the whole value, nothing hidden.
+    ///
+    /// No collapsing: on an approval surface, "N unchanged lines" is a claim
+    /// the user has to take on trust, and the whole point of this sheet is
+    /// that nothing about the payload is taken on trust. The view scrolls
+    /// instead.
+    static func lineDiff(before: String, after: String) -> [DiffLine] {
+        let old = before.components(separatedBy: "\n")
+        let new = after.components(separatedBy: "\n")
+
+        var removals: [Int: String] = [:]
+        var insertions: [Int: String] = [:]
+        for change in new.difference(from: old) {
+            switch change {
+            case .remove(let offset, let element, _): removals[offset] = element
+            case .insert(let offset, let element, _): insertions[offset] = element
+            }
+        }
+
+        // Walk both sides in step, emitting removals at their old offsets and
+        // insertions at their new ones, numbering each side as it advances.
+        var lines: [DiffLine] = []
+        var oldIndex = 0
+        var newIndex = 0
+        while oldIndex < old.count || newIndex < new.count {
+            if let removed = removals[oldIndex] {
+                lines.append(DiffLine(
+                    id: lines.count, kind: .removed, text: removed,
+                    oldNumber: oldIndex + 1, newNumber: nil
+                ))
+                oldIndex += 1
+            } else if let inserted = insertions[newIndex] {
+                lines.append(DiffLine(
+                    id: lines.count, kind: .added, text: inserted,
+                    oldNumber: nil, newNumber: newIndex + 1
+                ))
+                newIndex += 1
+            } else if oldIndex < old.count, newIndex < new.count {
+                lines.append(DiffLine(
+                    id: lines.count, kind: .context, text: old[oldIndex],
+                    oldNumber: oldIndex + 1, newNumber: newIndex + 1
+                ))
+                oldIndex += 1
+                newIndex += 1
+            } else {
+                break
+            }
+        }
+
+        return lines
+    }
+
     static func fieldLabel(_ field: ActionField) -> String {
         switch field {
         case .name: return "Name"

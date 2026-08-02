@@ -60,8 +60,9 @@ public enum ActionRejection: Error, Equatable, Sendable {
         case .missingExpectedValue(let field):
             return "The update changes '\(field)' without saying which value it expected to find there."
         case .valueMismatch(let field, let expected, let current):
+            let (expectedExcerpt, currentExcerpt) = Self.excerptsAroundDifference(expected, current)
             return "'\(field)' changed in Cai after this update was prepared, so it was not applied. "
-                + "Expected \(Self.excerpt(expected)) but found \(Self.excerpt(current)). "
+                + "Expected \(expectedExcerpt) but found \(currentExcerpt). "
                 + "Read the action again and send a fresh update."
         }
     }
@@ -73,6 +74,40 @@ public enum ActionRejection: Error, Equatable, Sendable {
         let collapsed = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         if collapsed.count <= limit { return "\"\(collapsed)\"" }
         return "\"\(collapsed.prefix(limit))…\""
+    }
+
+    /// A pair of excerpts positioned so the difference is actually visible.
+    ///
+    /// Clipping both values from the start is useless when they share a long
+    /// prefix, which two versions of the same script almost always do: the
+    /// message then reads "expected X but found X" with two identical strings,
+    /// and the agent has nothing to correct against. Both windows are centered
+    /// on the first character that differs instead.
+    static func excerptsAroundDifference(
+        _ expected: String,
+        _ current: String,
+        width: Int = 120
+    ) -> (String, String) {
+        let left = expected.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let right = current.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+
+        let divergence = zip(left, right).prefix(while: { $0 == $1 }).count
+        // Back up a little so the difference has context in front of it.
+        let start = max(0, divergence - width / 3)
+
+        return (excerptWindow(into: left, from: start, length: width),
+                excerptWindow(into: right, from: start, length: width))
+    }
+
+    private static func excerptWindow(into text: String, from start: Int, length: Int) -> String {
+        guard start < text.count else {
+            return text.isEmpty ? "\"\"" : "\"…\""
+        }
+        let begin = text.index(text.startIndex, offsetBy: start)
+        let end = text.index(begin, offsetBy: length, limitedBy: text.endIndex) ?? text.endIndex
+        let leading = start > 0 ? "…" : ""
+        let trailing = end < text.endIndex ? "…" : ""
+        return "\"\(leading)\(text[begin..<end])\(trailing)\""
     }
 }
 

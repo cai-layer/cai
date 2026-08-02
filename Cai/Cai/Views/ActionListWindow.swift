@@ -57,6 +57,7 @@ struct ActionListWindow: View {
     @StateObject private var customPromptState = CustomPromptState()
     @ObservedObject private var settings = CaiSettings.shared
     @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
+    @ObservedObject private var proposals = PendingChangeStore.shared
 
     // Follow-up conversation state
     @State private var conversationHistory: [ChatMessage] = []
@@ -634,8 +635,7 @@ struct ActionListWindow: View {
                 filterBarView
             }
 
-            updateBanner
-            crashReportingPrompt
+            noticeBanner
 
             Divider()
                 .background(Color.caiDivider)
@@ -753,31 +753,47 @@ struct ActionListWindow: View {
         .background(Color.caiSurface.opacity(0.4))
     }
 
-    // MARK: - Update Banner
+    // MARK: - Notice Banner
 
+    /// One strip, one notice, priority decided by `ActionListNotice`.
+    ///
+    /// Proposals come first because an action an agent authored cannot run
+    /// until it is approved, and a dot on the menu bar icon is easy to never
+    /// notice. The review window itself opens from here, so the ⌥C panel is
+    /// still just a signpost: nothing is approved without the sheet.
     @ViewBuilder
-    private var updateBanner: some View {
-        if sparkleUpdater.updateAvailable {
+    private var noticeBanner: some View {
+        if let notice = ActionListNotice.active(
+            pendingProposals: proposals.pending.count,
+            updateAvailable: sparkleUpdater.updateAvailable,
+            crashPromptShown: settings.crashReportingPromptShown
+        ) {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.down.circle")
+                Image(systemName: notice.icon)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white.opacity(0.8))
 
-                Text("A new version of Cai is available")
+                Text(notice.message)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
 
                 Spacer()
 
-                Button("Update") {
-                    // Dismiss Cai first so the Sparkle update dialog isn't obscured
-                    // by our floating panel.
-                    onDismiss()
-                    sparkleUpdater.checkForUpdates()
+                Button(notice.actionTitle) {
+                    perform(notice)
                 }
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(.white)
                 .buttonStyle(.plain)
+
+                if let declineTitle = notice.declineTitle {
+                    Button(declineTitle) {
+                        decline(notice)
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.6))
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
@@ -785,40 +801,30 @@ struct ActionListWindow: View {
         }
     }
 
-    // MARK: - Crash Reporting Prompt
+    private func perform(_ notice: ActionListNotice) {
+        switch notice {
+        case .proposals:
+            // Dismiss the panel first: the review sheet is its own window and
+            // must not open behind this floating one.
+            onDismiss()
+            NotificationCenter.default.post(name: .caiShowActionReview, object: nil)
+        case .update:
+            // Dismiss Cai first so the Sparkle update dialog isn't obscured
+            // by our floating panel.
+            onDismiss()
+            sparkleUpdater.checkForUpdates()
+        case .crashReporting:
+            settings.crashReportingEnabled = true
+            settings.crashReportingPromptShown = true
+        }
+    }
 
-    @ViewBuilder
-    private var crashReportingPrompt: some View {
-        if !settings.crashReportingPromptShown && !sparkleUpdater.updateAvailable {
-            HStack(spacing: 8) {
-                Image(systemName: "ladybug")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
-
-                Text("Send anonymous crash reports?")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
-
-                Spacer()
-
-                Button("Enable") {
-                    settings.crashReportingEnabled = true
-                    settings.crashReportingPromptShown = true
-                }
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white)
-                .buttonStyle(.plain)
-
-                Button("Nope") {
-                    settings.crashReportingPromptShown = true
-                }
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.6))
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .background(Color.caiPrimary)
+    private func decline(_ notice: ActionListNotice) {
+        switch notice {
+        case .crashReporting:
+            settings.crashReportingPromptShown = true
+        case .proposals, .update:
+            break
         }
     }
 

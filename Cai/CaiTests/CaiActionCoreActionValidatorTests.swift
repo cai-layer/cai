@@ -327,6 +327,21 @@ final class ActionValidatorTests: XCTestCase {
         XCTAssertTrue(rejection.reason.contains("\"new text\""))
     }
 
+    func testMismatchMessageShowsWhereTheValuesActuallyDiverge() {
+        // Two versions of the same script: identical for the first 200
+        // characters, differing at the end. Clipping from the start would
+        // print the same excerpt twice and tell the agent nothing.
+        let shared = String(repeating: "echo same line\n", count: 20)
+        let rejection = ActionRejection.valueMismatch(
+            field: "value",
+            expected: shared + "echo OLD ending",
+            current: shared + "echo NEW ending"
+        )
+
+        XCTAssertTrue(rejection.reason.contains("OLD ending"), rejection.reason)
+        XCTAssertTrue(rejection.reason.contains("NEW ending"), rejection.reason)
+    }
+
     func testMismatchMessageClipsHugeValues() {
         let rejection = ActionRejection.valueMismatch(
             field: "value",

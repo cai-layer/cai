@@ -90,14 +90,18 @@ struct ActionReviewView: View {
         let validated = proposal.validated
 
         VStack(alignment: .leading, spacing: 12) {
-            payloadBlock(for: validated.after)
+            // One frame, not two. A create shows its payload; an update shows
+            // the diff, which already contains the whole new value as its
+            // context lines. Rendering both would make the user read the same
+            // script twice and decide which one to trust.
+            if let before = validated.before {
+                diffBlock(before: before, after: validated.after, changed: validated.changedFields)
+            } else {
+                payloadBlock(for: validated.after)
+            }
 
             if !validated.after.next.isEmpty {
                 chainBlock(for: validated.after)
-            }
-
-            if let before = validated.before {
-                diffBlock(before: before, after: validated.after, changed: validated.changedFields)
             }
 
             callout(for: validated.escalationReasons)
@@ -174,7 +178,7 @@ struct ActionReviewView: View {
     /// stay out of the way.
     private func diffBlock(before: ActionSnapshot, after: ActionSnapshot, changed: [ActionField]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Changes")
+            Text("Proposed changes")
                 .font(.system(size: 11))
                 .foregroundColor(.caiTextSecondary)
 
@@ -184,16 +188,20 @@ struct ActionReviewView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.caiTextSecondary)
 
-                    Text(row.before)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.caiTextSecondary.opacity(0.7))
-                        .strikethrough(true, color: .caiTextSecondary.opacity(0.5))
-                        .lineLimit(3)
+                    if ActionReviewPresentation.needsLineDiff(before: row.before, after: row.after) {
+                        lineDiff(before: row.before, after: row.after)
+                    } else {
+                        Text(row.before)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.caiTextSecondary.opacity(0.7))
+                            .strikethrough(true, color: .caiTextSecondary.opacity(0.5))
+                            .lineLimit(3)
 
-                    Text(row.after)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.caiTextPrimary)
-                        .lineLimit(3)
+                        Text(row.after)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.caiTextPrimary)
+                            .lineLimit(3)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
@@ -202,6 +210,51 @@ struct ActionReviewView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(row.label) changes from \(row.before) to \(row.after)")
             }
+        }
+    }
+
+    /// Unified line diff for multi-line values. Markers rather than colour:
+    /// green would say the added line is the good one, and on this sheet the
+    /// added line is exactly the one under suspicion.
+    /// The whole value as a unified diff, in the shape every developer reads
+    /// without thinking: line numbers, `−`/`+`, tinted rows. Nothing is
+    /// collapsed and nothing is truncated; long payloads scroll.
+    private func lineDiff(before: String, after: String) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(ActionReviewPresentation.lineDiff(before: before, after: after)) { line in
+                    HStack(alignment: .top, spacing: 0) {
+                        Text(line.oldNumber.map(String.init) ?? "")
+                            .frame(width: 26, alignment: .trailing)
+                        Text(line.newNumber.map(String.init) ?? "")
+                            .frame(width: 26, alignment: .trailing)
+                            .padding(.trailing, 8)
+                        Text(line.marker)
+                            .frame(width: 10, alignment: .leading)
+                        Text(line.text.isEmpty ? " " : line.text)
+                            .foregroundColor(.caiTextPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.caiTextSecondary.opacity(0.5))
+                    .padding(.vertical, 1)
+                    .padding(.horizontal, 8)
+                    .background(diffTint(for: line.kind))
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        .frame(maxHeight: 260)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.6)))
+    }
+
+    private func diffTint(for kind: ActionReviewPresentation.DiffLine.Kind) -> Color {
+        switch kind {
+        case .added: return .caiDiffAdded.opacity(0.14)
+        case .removed: return .caiDiffRemoved.opacity(0.12)
+        case .context: return .clear
         }
     }
 

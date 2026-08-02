@@ -21,6 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// The agent-proposal approval sheet. Reused while open, same as the
     /// model setup window.
     private var actionReviewWindow: NSWindow?
+    /// Watches for the review sheet losing key focus, so clicking away defers
+    /// it the same way Esc does.
+    private var actionReviewResignObserver: NSObjectProtocol?
     private var pendingLLMSetup = false
     /// Subscription to `BackgroundTaskTracker` — drives the menu bar icon
     /// pulse while a background shell action is running.
@@ -94,6 +97,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.updatePendingBadge() }
+        }
+
+        // The action list's notice banner asks for the review sheet; this
+        // delegate owns that window.
+        NotificationCenter.default.addObserver(
+            forName: .caiShowActionReview,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showActionReview() }
         }
 
         // Start watching for agent-authored proposals. No-ops when the kill
@@ -527,8 +540,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let reviewView = ActionReviewView(
             store: PendingChangeStore.shared,
             onClose: { [weak self] in
-                self?.actionReviewWindow?.close()
-                self?.actionReviewWindow = nil
+                self?.closeActionReviewWindow()
             },
             onOpenSettings: { [weak self] in
                 self?.windowController.showSettingsWindow()
@@ -561,6 +573,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         resizeActionReviewWindow(panel)
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Clicking away defers the sheet, matching the ⌥C panel's dismissal
+        // and matching what Esc already does here. Deferring only closes the
+        // window: the proposal stays queued and the dot stays lit, because
+        // rejecting is always an explicit click.
+        //
+        // Registered after presentation so the activation handoff that makes
+        // the panel key cannot immediately close it.
+        actionReviewResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.closeActionReviewWindow() }
+        }
+    }
+
+    @MainActor
+    private func closeActionReviewWindow() {
+        if let observer = actionReviewResignObserver {
+            NotificationCenter.default.removeObserver(observer)
+            actionReviewResignObserver = nil
+        }
+        actionReviewWindow?.close()
+        actionReviewWindow = nil
     }
 
     /// The window fits its content, so advancing the queue from a one-line

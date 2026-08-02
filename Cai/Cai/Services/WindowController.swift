@@ -48,6 +48,10 @@ class WindowController: NSObject, ObservableObject {
     private var globalMonitor: Any?
     private var keyMonitor: Any?
     private var toastObserver: NSObjectProtocol?
+    /// Messages waiting for the pill. See `ToastQueue`.
+    private var toastQueue = ToastQueue()
+    /// The message on screen right now, or nil when the slot is free.
+    private var showingToastMessage: String?
 
     /// Resume support: keep the last-dismissed window alive briefly so
     /// reopening with the same clipboard text restores the exact view state.
@@ -690,12 +694,42 @@ class WindowController: NSObject, ObservableObject {
 
     // MARK: - Toast Notification
 
-    /// Shows a pill-shaped toast notification that auto-dismisses after `duration` seconds.
-    /// Default is 1.5s. Callers can override per-message via the `duration` arg or
-    /// the notification userInfo `"duration"` key when a message needs more read time.
+    /// Queues a pill-shaped toast. Each message gets its full `duration` on
+    /// screen (1.5s by default) before the next one appears, so two events a
+    /// moment apart produce two readable toasts rather than one flicker.
+    /// Callers can override per-message via the `duration` arg or the
+    /// notification userInfo `"duration"` key.
     func showToast(message: String, duration: TimeInterval = 1.5) {
-        hideToast()
+        toastQueue.enqueue(
+            ToastQueue.Request(message: message, duration: duration),
+            showing: showingToastMessage
+        )
+        presentNextToastIfIdle()
+    }
 
+    private func presentNextToastIfIdle() {
+        guard showingToastMessage == nil, let request = toastQueue.next() else { return }
+        showingToastMessage = request.message
+        presentToast(request.message)
+
+        // Scheduled once per shown toast, and only while the slot is occupied,
+        // so a previous toast's timer can never dismiss its successor early.
+        DispatchQueue.main.asyncAfter(deadline: .now() + request.duration) { [weak self] in
+            self?.finishCurrentToast()
+        }
+    }
+
+    private func finishCurrentToast() {
+        hideToast()
+        showingToastMessage = nil
+        // Slightly longer than the 0.2s fade, so consecutive toasts read as
+        // two messages instead of one that changed its mind.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.presentNextToastIfIdle()
+        }
+    }
+
+    private func presentToast(_ message: String) {
         // Pure AppKit toast — no NSHostingView. NSHostingView on borderless
         // panels triggers an infinite constraint update loop that crashes in
         // _postWindowNeedsUpdateConstraints during the display cycle.
@@ -759,10 +793,6 @@ class WindowController: NSObject, ObservableObject {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
             panel.animator().alphaValue = 1
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
-            self?.hideToast()
         }
     }
 

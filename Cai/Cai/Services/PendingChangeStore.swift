@@ -281,6 +281,10 @@ final class PendingChangeStore: ObservableObject {
         pending = accepted
         notifyQueueChanged()
 
+        // One announcement per scan. Several arriving at once is one event to
+        // the user; several arriving seconds apart are separate events, and
+        // `ToastQueue` gives each its full time on screen rather than letting
+        // the second cut off the first.
         if let arrival = arrivals.first {
             NotificationCenter.default.post(
                 name: .caiShowToast,

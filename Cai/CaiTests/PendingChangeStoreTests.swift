@@ -194,7 +194,6 @@ final class PendingChangeStoreTests: XCTestCase {
     func testUnparseableFileIsQuarantinedRatherThanIgnored() throws {
         try writeRaw("{ not json at all", name: "broken")
         store.refresh()
-        store.refresh()  // a parse failure gets one retry before it is set aside
 
         XCTAssertTrue(store.pending.isEmpty)
         XCTAssertTrue(quarantinedFiles.contains("broken.json"))
@@ -230,7 +229,6 @@ final class PendingChangeStoreTests: XCTestCase {
 
         try writeRaw("nope", name: "broken")
         store.refresh()
-        store.refresh()
 
         XCTAssertEqual(messages, ["Received an invalid action proposal. It was set aside and won't run."])
     }
@@ -245,7 +243,6 @@ final class PendingChangeStoreTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(token) }
 
         for index in 0..<5 { try writeRaw("nope", name: "broken-\(index)") }
-        store.refresh()
         store.refresh()
 
         XCTAssertEqual(messages.count, 1, "Five bad files must not stack five toasts.")
@@ -264,7 +261,6 @@ final class PendingChangeStoreTests: XCTestCase {
 
     func testQuarantinedFileIsNotReprocessedOnTheNextScan() throws {
         try writeRaw("nope", name: "broken")
-        store.refresh()
         store.refresh()
         let after = quarantinedFiles
         store.refresh()
@@ -598,31 +594,6 @@ final class PendingChangeStoreTests: XCTestCase {
 
         store.reject(store.pending[0])
         XCTAssertEqual(store.pending.count, 1, "Deciding one file must not silently drop the other.")
-    }
-
-    func testAHalfWrittenFileGetsASecondChanceBeforeQuarantine() throws {
-        let url = try writeRaw("{\"schemaVersion\": 1, \"id\":", name: "midwrite")
-        store.refresh()
-
-        XCTAssertTrue(quarantinedFiles.isEmpty, "A file caught mid-write must not be set aside on first sight.")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
-
-        // The writer finished; the retry pass picks it up.
-        try ActionCoding.encoder.encode(createChange(name: "Finished")).write(to: url)
-        store.refresh()
-
-        XCTAssertEqual(store.pending.count, 1)
-        XCTAssertEqual(store.pending.first?.validated.after.name, "Finished")
-        XCTAssertTrue(quarantinedFiles.isEmpty)
-    }
-
-    func testAFileThatStaysMalformedIsQuarantinedOnTheSecondPass() throws {
-        try writeRaw("{ not json", name: "broken")
-        store.refresh()
-        XCTAssertTrue(quarantinedFiles.isEmpty)
-
-        store.refresh()
-        XCTAssertTrue(quarantinedFiles.contains("broken.json"))
     }
 
     // MARK: - Reject

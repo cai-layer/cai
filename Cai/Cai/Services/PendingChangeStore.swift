@@ -129,8 +129,6 @@ final class PendingChangeStore: ObservableObject {
     /// Quarantines during the current `refresh()`, so a burst of bad files
     /// raises one toast rather than one per file.
     private var quarantinedThisPass = 0
-    /// Files that read as malformed once and get a second chance next pass.
-    private var malformedOnce: Set<URL> = []
     /// One recheck timer at a time: a pass over 200 half-written files must
     /// schedule one follow-up scan, not 200 of them.
     private var recheckScheduled = false
@@ -223,10 +221,6 @@ final class PendingChangeStore: ObservableObject {
         // without a ceiling here a directory stuffed with thousands of files
         // would be read in full on the main actor before any could be refused.
         let candidates = files.filter { $0.pathExtension == "json" }.sorted { $0.path < $1.path }
-        // Forget malformed-once verdicts for files that no longer exist, or a
-        // writer looping on write-partial-then-delete grows this set for the
-        // app's lifetime.
-        malformedOnce.formIntersection(candidates)
         let examined = candidates.prefix(ActionSchema.maxPendingFilesScanned)
         if candidates.count > examined.count {
             print("PendingChanges: \(candidates.count - examined.count) file(s) beyond the per-scan cap were left for the next pass")
@@ -235,19 +229,9 @@ final class PendingChangeStore: ObservableObject {
         for file in examined {
             switch load(file, known: known) {
             case .success(let proposal):
-                malformedOnce.remove(file)
                 accepted.append(proposal)
-            case .failure(let failure):
-                // A file caught mid-write reads as malformed. Give it one more
-                // pass before setting it aside, so a writer that is not atomic
-                // does not lose a proposal it believes it wrote.
-                if failure.isRetryable, !malformedOnce.contains(file) {
-                    malformedOnce.insert(file)
-                    scheduleRecheck()
-                    continue
-                }
-                malformedOnce.remove(file)
-                quarantine(file, reason: failure.rejection, change: nil)
+            case .failure(let rejection):
+                quarantine(file, reason: rejection, change: nil)
             }
         }
 
@@ -319,17 +303,7 @@ final class PendingChangeStore: ObservableObject {
         }
     }
 
-    /// Why a file did not become a proposal, and whether reading it again
-    /// later could plausibly give a different answer. Only a parse failure is
-    /// retryable: it is the one that a half-written file produces. A payload
-    /// the validator refuses, or a file that is not a regular file, will read
-    /// exactly the same next pass.
-    private struct LoadFailure: Error {
-        let rejection: ActionRejection
-        let isRetryable: Bool
-    }
-
-    private func load(_ file: URL, known: KnownActions) -> Result<PendingProposal, LoadFailure> {
+    private func load(_ file: URL, known: KnownActions) -> Result<PendingProposal, ActionRejection> {
         // Size first: a huge file must not be read into memory just to find out
         // it was never a proposal. `resourceValues` resolves symlinks, which
         // `attributesOfItem` does not: without that, a link to /dev/zero would
@@ -338,22 +312,13 @@ final class PendingChangeStore: ObservableObject {
             .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
         ])
         guard values?.isRegularFile == true else {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON("only regular files are read from the pending directory"),
-                isRetryable: false
-            ))
+            return .failure(.malformedJSON("only regular files are read from the pending directory"))
         }
         guard (values?.fileSize ?? 0) <= ActionSchema.maxPendingFileBytes else {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON("the file is larger than \(ActionSchema.maxPendingFileBytes) bytes"),
-                isRetryable: false
-            ))
+            return .failure(.malformedJSON("the file is larger than \(ActionSchema.maxPendingFileBytes) bytes"))
         }
         guard let data = try? Data(contentsOf: file) else {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON("the file could not be read"),
-                isRetryable: true
-            ))
+            return .failure(.malformedJSON("the file could not be read"))
         }
         do {
             var change = try ActionCoding.decoder.decode(PendingChange.self, from: data)
@@ -386,12 +351,9 @@ final class PendingChangeStore: ObservableObject {
                 validated: validated
             ))
         } catch let rejection as ActionRejection {
-            return .failure(LoadFailure(rejection: rejection, isRetryable: false))
+            return .failure(rejection)
         } catch {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON(Self.decodeDescription(error)),
-                isRetryable: true
-            ))
+            return .failure(.malformedJSON(Self.decodeDescription(error)))
         }
     }
 
@@ -608,19 +570,6 @@ final class PendingChangeStore: ObservableObject {
         guard let data = try? ActionCoding.encoder.encode(payload) else { return }
         try? data.write(to: sidecar, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sidecar.path)
-    }
-
-    /// Re-runs the scan shortly, for a file that may still have been being
-    /// written when we read it. Guarantees the retry happens even if no
-    /// further filesystem event arrives, so a half-written file cannot sit
-    /// unexamined forever.
-    private func scheduleRecheck() {
-        guard !recheckScheduled else { return }
-        recheckScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.recheckScheduled = false
-            self?.refresh()
-        }
     }
 
     private func notifyQueueChanged() {

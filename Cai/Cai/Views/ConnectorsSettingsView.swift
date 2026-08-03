@@ -398,6 +398,9 @@ struct ConnectorsSettingsView: View {
         guard !trimmed.isEmpty else { return }
 
         KeychainHelper.set(trimmed, forKey: keychainKey)
+        // The Keychain is not observable: publish so the "N of M" counts
+        // (the MCP screen's Client badge, the Settings row) re-read it.
+        configManager.credentialsDidChange()
         // Clear the field after save — the "Key saved in Keychain" indicator below
         // confirms success. Leaving the raw token in the field is a minor privacy risk.
         apiKeyInputs[config.id] = ""

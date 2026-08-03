@@ -73,6 +73,15 @@ class MCPServerConfigManager: ObservableObject {
         }.count
     }
 
+    /// Call after writing or removing a credential in Keychain. The Keychain
+    /// is not observable, so views deriving state from it (`configuredCount`
+    /// on the MCP screen's Client badge and the Settings row) only re-read
+    /// when this object publishes; without the nudge the badge sits one inch
+    /// above the save button showing the old count.
+    func credentialsDidChange() {
+        objectWillChange.send()
+    }
+
     /// Checks if a server has its API key configured in Keychain.
     func isServerConfigured(_ serverConfigId: UUID) -> Bool {
         guard let config = serverConfigs.first(where: { $0.id == serverConfigId }) else { return false }

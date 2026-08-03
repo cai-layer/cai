@@ -91,6 +91,21 @@ final class AgentConnectionTests: XCTestCase {
         }
     }
 
+    func testTheJSONFormSurvivesAHomePathWithAQuoteOrBackslash() throws {
+        // A quote or backslash interpolated raw into the snippet is invalid
+        // JSON, and the config silently never loads in the user's client.
+        let home = URL(fileURLWithPath: "/Users/A\"User\\Odd")
+        let snippet = AgentConnection.snippet(for: .other, home: home)
+
+        let parsed = try JSONSerialization.jsonObject(with: Data(snippet.utf8)) as? [String: Any]
+        let servers = try XCTUnwrap(parsed?["mcpServers"] as? [String: Any])
+        let cai = try XCTUnwrap(servers["cai"] as? [String: Any])
+        XCTAssertEqual(
+            cai["command"] as? String,
+            "/Users/A\"User\\Odd/Library/Application Support/Cai/bin/cai-mcp"
+        )
+    }
+
     func testEveryClientSaysWhatToDoWithIt() {
         for client in AgentClient.allCases {
             XCTAssertFalse(client.instruction.isEmpty, client.label)

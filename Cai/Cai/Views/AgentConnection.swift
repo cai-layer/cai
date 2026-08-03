@@ -102,17 +102,39 @@ enum AgentConnection {
             // would never load there; its own CLI writes the right format.
             return "codex mcp add cai -- \(shellHelperPath(home: home))"
         case .cursor, .other:
-            // Absolute path, unescaped: this is JSON, not a shell.
+            // Absolute path, unescaped by shell rules: this is JSON, not a
+            // shell. The value still goes through the JSON encoder, so a home
+            // path carrying a quote or backslash cannot produce a config that
+            // fails to parse.
             return """
                 {
                   "mcpServers": {
                     "cai": {
-                      "command": "\(helperPath(home: home))"
+                      "command": \(jsonStringLiteral(helperPath(home: home)))
                     }
                   }
                 }
                 """
         }
+    }
+
+    /// A JSON string literal, quotes included. JSONEncoder rather than manual
+    /// replacement, same convention as webhook templates: hand-escaping is how
+    /// a stray backslash slips through.
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let encoder = JSONEncoder()
+        // The default output escapes every "/" as "\/", which is valid JSON
+        // but turns a readable path into line noise in the snippet.
+        encoder.outputFormatting = .withoutEscapingSlashes
+        guard
+            let data = try? encoder.encode([value]),
+            let array = String(data: data, encoding: .utf8)
+        else {
+            return "\"\(value)\""
+        }
+        // Encoded as a one-element array for a stable top-level form; the
+        // brackets around ["..."] come off to leave the bare literal.
+        return String(array.dropFirst().dropLast())
     }
 
     /// Cursor publishes an install deeplink, so for that one client the whole

@@ -32,7 +32,9 @@ struct ActionReviewView: View {
     @State private var isArmed = false
 
     /// Which proposal is on screen. Browsing is allowed; deciding is still one
-    /// at a time, and every card keeps its own acknowledgments.
+    /// at a time. The acknowledgment is deliberately NOT kept per card: it is
+    /// dropped on every card change, browsing away and back included, because
+    /// a tick belongs to the payload that was on screen when it was made.
     @State private var browseIndex = 0
 
     private var proposal: PendingProposal? {
@@ -76,7 +78,10 @@ struct ActionReviewView: View {
         }
         .task(id: proposal) {
             isArmed = false
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            // A cancelled sleep throws immediately. Arming anyway would hand
+            // the card that replaced this one an instantly live Approve, and
+            // stepping the queue cancels this task on every arrow press.
+            guard (try? await Task.sleep(nanoseconds: 350_000_000)) != nil else { return }
             isArmed = true
         }
     }

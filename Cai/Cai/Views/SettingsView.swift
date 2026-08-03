@@ -354,9 +354,9 @@ struct SettingsView: View {
                         settingsDivider
 
                         // Context Snippets — per-app context (JSON-only in v1, UI coming in v1.1)
-                        settingsSection(title: "Context Snippets", badge: "ALPHA") {
+                        settingsSection(title: "Context Snippets") {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Give Cai custom per-app context.\nExamples: 'Terminal: Rails debug logs' | 'GitHub: BUG:/FEAT: prefixes' | 'Slack: keep professional tone'.")
+                                Text("Give Cai custom per-app context. The snippets file starts with an example to copy.")
                                     .font(.system(size: 11))
                                     .foregroundColor(.caiTextSecondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -372,7 +372,7 @@ struct SettingsView: View {
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("Open snippets.json in Finder")
-                                    .help("Open ~/.config/cai/snippets.json in Finder. Edit the file in your preferred editor, then restart Cai.")
+                                    .help("Open ~/.config/cai/snippets.json in Finder. Edit the file in your preferred editor. Changes apply automatically.")
 
                                     Text("·")
                                         .font(.system(size: 11))
@@ -780,8 +780,9 @@ struct SettingsView: View {
     // MARK: - Context Snippets Helpers
 
     /// Opens `~/.config/cai/snippets.json` in Finder with the file highlighted.
-    /// Creates the file first via `ContextSnippetsManager.shared` (which seeds an
-    /// empty template if missing) so the user always sees something to click.
+    /// Creates the file first via `ContextSnippetsManager.shared` (which seeds a
+    /// starter file with a disabled example if missing) so the user always sees
+    /// something to click and a shape to copy.
     private func openSnippetsFileInFinder() {
         // Touch the shared manager to ensure the file exists (seeds on first access)
         _ = ContextSnippetsManager.shared

@@ -127,8 +127,8 @@ extension ProposalStatus {
                 id: file.deletingPathExtension().lastPathComponent,
                 state: .waitingForApproval,
                 reason: nil,
-                label: change.map(Self.label(for:)),
-                client: change?.provenance.client
+                label: change.map { Self.clamp(Self.label(for: $0)) },
+                client: change?.provenance.client.map { Self.clamp($0) }
             ))
         }
 
@@ -144,8 +144,8 @@ extension ProposalStatus {
                 id: file.lastPathComponent.replacingOccurrences(of: ".rejection.json", with: ""),
                 state: record?.outcome == .declined ? .declined : .refused,
                 reason: record?.reason,
-                label: record?.actionName,
-                client: record?.client
+                label: record?.actionName.map { Self.clamp($0) },
+                client: record?.client.map { Self.clamp($0) }
             ))
         }
 
@@ -162,5 +162,13 @@ extension ProposalStatus {
         case .update(let update):
             return "update to action \(update.targetId.uuidString)"
         }
+    }
+
+    /// These strings come out of files any local process can write, and they
+    /// go straight into every connected agent's context. A valid name is at
+    /// most 60 characters (`ActionValidator`), but validation has not run yet
+    /// when a pending file is listed, so the length has to be enforced here.
+    static func clamp(_ text: String, limit: Int = 80) -> String {
+        text.count <= limit ? text : String(text.prefix(limit)) + "…"
     }
 }

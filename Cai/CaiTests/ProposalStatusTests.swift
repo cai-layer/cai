@@ -88,6 +88,23 @@ final class ProposalStatusTests: XCTestCase {
         XCTAssertNil(status.client)
     }
 
+    // MARK: - Untrusted lengths
+
+    /// Pending files are written by any local process and the name is only
+    /// length-validated later, at approval time. Left unclamped, a hostile
+    /// file would pump megabytes into every connected agent's context.
+    func testAGiantNameInAPendingFileIsClampedBeforeItReachesAgents() throws {
+        let giant = CoreFixture.repeating("x", 100_000)
+        try ProposalWriter.write(
+            CoreFixture.createChange(CoreFixture.draft(name: giant)), root: root
+        )
+
+        let status = try XCTUnwrap(ProposalStatus.all(root: root).first)
+        let label = try XCTUnwrap(status.label)
+        XCTAssertLessThan(label.count, 100, "80 characters plus the ellipsis.")
+        XCTAssertTrue(label.hasSuffix("…"))
+    }
+
     private func writeSidecar(_ record: QuarantineRecord) throws {
         let directory = CaiSupportPaths.quarantine(in: root)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

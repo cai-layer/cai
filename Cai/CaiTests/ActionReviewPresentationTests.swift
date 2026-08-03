@@ -11,18 +11,11 @@ final class ActionReviewPresentationTests: XCTestCase {
 
     // MARK: - Escalation copy
 
-    func testEveryReasonHasACalloutAndAMatchingAcknowledgment() {
+    func testEveryReasonHasACallout() {
         for reason in EscalationReason.allCases {
             let callout = ActionReviewPresentation.callout(for: reason)
-            let acknowledgment = ActionReviewPresentation.acknowledgment(for: reason)
-
             XCTAssertFalse(callout.isEmpty, "\(reason) has no callout")
             XCTAssertTrue(callout.hasSuffix("."), "Callouts are sentences: \(callout)")
-            XCTAssertTrue(
-                acknowledgment.hasPrefix("I understand this action "),
-                "The acknowledgment must restate the claim in the first person: \(acknowledgment)"
-            )
-            XCTAssertFalse(acknowledgment.hasSuffix("."), "Checkbox labels are not sentences: \(acknowledgment)")
         }
     }
 
@@ -42,10 +35,6 @@ final class ActionReviewPresentationTests: XCTestCase {
         XCTAssertEqual(
             ActionReviewPresentation.callout(for: .runsWithoutShowingOutput),
             "This action runs without showing its output."
-        )
-        XCTAssertEqual(
-            ActionReviewPresentation.acknowledgment(for: .runsShellCommands),
-            "I understand this action can run terminal commands"
         )
     }
 
@@ -97,7 +86,7 @@ final class ActionReviewPresentationTests: XCTestCase {
             ActionReviewPresentation.approvedToast(isUpdate: true),
         ]
         strings += EscalationReason.allCases.map(ActionReviewPresentation.callout)
-        strings += EscalationReason.allCases.map(ActionReviewPresentation.acknowledgment)
+        strings.append(ActionReviewPresentation.acknowledgmentLabel)
         strings += ActionField.allCases.map(ActionReviewPresentation.fieldLabel)
 
         for string in strings {
@@ -107,65 +96,45 @@ final class ActionReviewPresentationTests: XCTestCase {
 
     // MARK: - The approve interlock
 
-    private struct InterlockCase {
-        let label: String
-        let tier: ApprovalTier
-        let reasons: [EscalationReason]
-        let acknowledged: Set<EscalationReason>
-        let expected: Bool
-        let line: UInt
+    func testApproveNeedsTheAcknowledgmentOnlyOnTheEscalatedTier() {
+        XCTAssertTrue(ActionReviewPresentation.canApprove(tier: .standard, acknowledged: false))
+        XCTAssertTrue(ActionReviewPresentation.canApprove(tier: .standard, acknowledged: true))
+        XCTAssertFalse(
+            ActionReviewPresentation.canApprove(tier: .escalated, acknowledged: false),
+            "An escalated proposal must not be approvable on one click."
+        )
+        XCTAssertTrue(ActionReviewPresentation.canApprove(tier: .escalated, acknowledged: true))
     }
 
-    func testApproveInterlockMatrix() {
-        let cases: [InterlockCase] = [
-            InterlockCase(
-                label: "standard tier needs no acknowledgment",
-                tier: .standard, reasons: [], acknowledged: [], expected: true, line: #line
-            ),
-            InterlockCase(
-                label: "escalated with nothing checked stays blocked",
-                tier: .escalated, reasons: [.runsShellCommands], acknowledged: [], expected: false, line: #line
-            ),
-            InterlockCase(
-                label: "escalated with its one box checked unblocks",
-                tier: .escalated, reasons: [.runsShellCommands], acknowledged: [.runsShellCommands],
-                expected: true, line: #line
-            ),
-            InterlockCase(
-                label: "two risks, one acknowledged, still blocked",
-                tier: .escalated,
-                reasons: [.runsShellCommands, .replacesSelection],
-                acknowledged: [.runsShellCommands],
-                expected: false, line: #line
-            ),
-            InterlockCase(
-                label: "two risks, both acknowledged",
-                tier: .escalated,
-                reasons: [.runsShellCommands, .replacesSelection],
-                acknowledged: [.runsShellCommands, .replacesSelection],
-                expected: true, line: #line
-            ),
-            InterlockCase(
-                label: "acknowledging a risk this action does not carry does not unblock it",
-                tier: .escalated,
-                reasons: [.runsShellCommands],
-                acknowledged: [.runsWithoutShowingOutput],
-                expected: false, line: #line
-            ),
-        ]
+    func testTheAcknowledgmentRefersToTheCalloutRatherThanRestatingIt() {
+        // "This action can run terminal commands on your Mac." directly above
+        // "I understand this action can run terminal commands" is the same
+        // sentence twice, which costs height and teaches the eye to skip it.
+        let label = ActionReviewPresentation.acknowledgment(for: [.runsShellCommands])
 
-        for testCase in cases {
-            XCTAssertEqual(
-                ActionReviewPresentation.canApprove(
-                    tier: testCase.tier,
-                    reasons: testCase.reasons,
-                    acknowledged: testCase.acknowledged
-                ),
-                testCase.expected,
-                testCase.label,
-                line: testCase.line
+        XCTAssertEqual(label, "I understand what this action can do")
+        XCTAssertFalse(
+            label?.contains("terminal") ?? true,
+            "The risk is stated in the callout; the checkbox points at it."
+        )
+    }
+
+    func testTheAcknowledgmentIsTheSameWhateverTheRisks() {
+        // One box, one wording. The callout carries the specifics, so the label
+        // does not grow a clause per risk.
+        XCTAssertEqual(
+            ActionReviewPresentation.acknowledgment(for: [.runsShellCommands]),
+            ActionReviewPresentation.acknowledgment(
+                for: [.runsShellCommands, .sendsSelectionToURL, .runsWithoutShowingOutput]
             )
-        }
+        )
+    }
+
+    func testNoRisksNeedNoAcknowledgment() {
+        XCTAssertNil(
+            ActionReviewPresentation.acknowledgment(for: []),
+            "No callout, so nothing for a checkbox to point at."
+        )
     }
 
     // MARK: - Queue counter

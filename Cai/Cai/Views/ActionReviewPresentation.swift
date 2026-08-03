@@ -269,23 +269,6 @@ enum ActionReviewPresentation {
         var id: String { field.rawValue }
     }
 
-    /// True when an update's diff rows alone would hide what actually runs.
-    ///
-    /// The diff shows only the fields the patch touched. A patch that flips
-    /// execution semantics — `type: prompt → shell`, `runInBackground`,
-    /// `autoReplaceSelection` — without touching `value` therefore renders a
-    /// one-line diff and never the payload, and the user acknowledges "runs
-    /// terminal commands" without being shown which command. Those updates
-    /// render the full payload block beneath the diff. When the patch touches
-    /// `value`, the diff already carries the whole new value as context lines
-    /// and repeating it would make the user decide which copy to trust.
-    static func updateShowsPayload(changed: [ActionField]) -> Bool {
-        guard !changed.contains(.value) else { return false }
-        return changed.contains { field in
-            field == .type || field == .runInBackground || field == .autoReplaceSelection
-        }
-    }
-
     static func diffRows(before: ActionSnapshot, after: ActionSnapshot, changed: [ActionField]) -> [DiffRow] {
         changed.map { field in
             DiffRow(
@@ -295,6 +278,86 @@ enum ActionReviewPresentation {
                 after: after.rendered(field)
             )
         }
+    }
+
+    // MARK: - The action as a document
+
+    /// The whole action as text, for diffing an update.
+    ///
+    /// Shaped like the YAML Cai already uses for sharing an action, because
+    /// that is the one serialized form a user may have seen. It is a *display*
+    /// rendering and nothing parses it back: the stored action is a struct,
+    /// and inventing a round-trippable format here would risk the sheet
+    /// showing something subtly different from what gets saved, which is the
+    /// one mistake this surface cannot make.
+    ///
+    /// Every field is always present, including the flags. An update that
+    /// flips `type` from prompt to shell leaves `value` untouched while
+    /// completely changing what it does, so the payload has to stay on screen
+    /// beside the change rather than being filtered out as unmodified.
+    /// Gutter for lines belonging to the value block.
+    ///
+    /// Not the two-space indent YAML would use. `value` is the one field that
+    /// legitimately keeps its newlines, so with a plain indent a payload line
+    /// reading `- action: Copy to Clipboard` rendered *byte-identical* to a
+    /// real chain step, in the same font, with the same diff tint, directly
+    /// above the real `next:` block. A payload could therefore draw flags and
+    /// chain steps the action does not have, on the one surface whose whole job
+    /// is to not be misread. A visible gutter cannot be confused with `- `,
+    /// and it reads as continuation rather than structure.
+    static let documentBlockGutter = "│ "
+
+    static func renderDocument(_ action: ActionSnapshot) -> String {
+        var lines: [String] = [
+            "name: \(oneLine(action.name))",
+            "type: \(action.type.rawValue)",
+            "pinned: \(action.pinned)",
+            "autoReplaceSelection: \(action.autoReplaceSelection)",
+            "runInBackground: \(action.runInBackground)",
+        ]
+
+        // Block scalar, so a multi-line command keeps its shape and every line
+        // of it takes part in the diff.
+        //
+        // Split on every line break, not just `\n`. `Text` breaks on U+2028
+        // and U+2029 too, and `components(separatedBy: "\n")` does not, so a
+        // value carrying one would get a single gutter and render as two
+        // lines, the second unmarked and starting where structure lines start.
+        // Splitting here gives every rendered line its own gutter.
+        lines.append("value: |")
+        for line in action.value.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            lines.append("\(documentBlockGutter)\(line)")
+        }
+
+        if action.next.isEmpty {
+            lines.append("next: []")
+        } else {
+            lines.append("next:")
+            for step in action.next {
+                switch step {
+                case .action(let name): lines.append("  - action: \(oneLine(name))")
+                case .inlineLLM(let directive): lines.append("  - llm: \(oneLine(directive))")
+                case .appleShortcut(let name): lines.append("  - apple_shortcut: \(oneLine(name))")
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    /// Collapses a field that must occupy exactly one rendered line.
+    ///
+    /// `ActionValidator.normalize` already strips control characters from
+    /// these, but it only ever sees the *proposed* side. The `before` side is
+    /// the stored action, handed over by `CaiSettings.knownActions` as a plain
+    /// mapping with no normalization, and `ExtensionParser` stores names and
+    /// chain-step text raw. So a clipboard-installed extension can put a
+    /// newline into a field that this function then renders, and one field
+    /// would become several lines at column zero: fabricated structure in the
+    /// diff the user is reading to decide. Escaping here rather than trusting
+    /// the caller keeps that guarantee inside the function that needs it.
+    private static func oneLine(_ text: String) -> String {
+        text.strippingControlCharacters(keepingNewlines: false)
     }
 
     // MARK: - Line diff
@@ -323,13 +386,6 @@ enum ActionReviewPresentation {
             case .added: return "+"
             }
         }
-    }
-
-    /// True when a field's change is worth a line diff rather than the compact
-    /// old-above-new form. A one-word name change reads fine as two rows; a
-    /// 30-line shell script where one line moved does not.
-    static func needsLineDiff(before: String, after: String) -> Bool {
-        before.contains("\n") || after.contains("\n")
     }
 
     /// A unified line diff over the whole value, nothing hidden.

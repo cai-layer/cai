@@ -14,7 +14,9 @@
 		CAI00150 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00151 /* Sparkle */; };
 		CAI00160 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00161 /* Yams */; };
 		CAI00170 /* CaiActionCore in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00171 /* CaiActionCore */; };
-		CAI00172 /* CaiActionCore in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00173 /* CaiActionCore */; };
+		CAI00180 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00181 /* MCP */; };
+		CAI00182 /* CaiActionCore in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00183 /* CaiActionCore */; };
+		CAI00184 /* cai-mcp in Embed Helpers */ = {isa = PBXBuildFile; fileRef = CAI00185 /* cai-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,11 +27,33 @@
 			remoteGlobalIDString = CAI00016;
 			remoteInfo = Cai;
 		};
+		CAI00193 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CAI00020 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CAI00188;
+			remoteInfo = "cai-mcp";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CAI00191 /* Embed Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				CAI00184 /* cai-mcp in Embed Helpers */,
+			);
+			name = "Embed Helpers";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		CAI00009 /* Cai.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cai.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CAI00049 /* CaiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CaiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CAI00185 /* cai-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "cai-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -45,6 +69,7 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		70B2E7AE2FF7F108006F0575 /* Cai */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (70B2E7FA2FF7F109006F0575 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Cai; sourceTree = "<group>"; };
 		70B2E8072FF7F10D006F0575 /* CaiTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = CaiTests; sourceTree = "<group>"; };
+		CAI00186 /* CaiMCPHelper */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = CaiMCPHelper; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,7 +91,15 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CAI00172 /* CaiActionCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CAI00187 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CAI00180 /* MCP in Frameworks */,
+				CAI00182 /* CaiActionCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +111,7 @@
 			children = (
 				70B2E7AE2FF7F108006F0575 /* Cai */,
 				70B2E8072FF7F10D006F0575 /* CaiTests */,
+				CAI00186 /* CaiMCPHelper */,
 				CAI00015 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -87,6 +121,7 @@
 			children = (
 				CAI00009 /* Cai.app */,
 				CAI00049 /* CaiTests.xctest */,
+				CAI00185 /* cai-mcp */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -101,10 +136,12 @@
 				CAI00018 /* Sources */,
 				CAI00012 /* Frameworks */,
 				CAI00019 /* Resources */,
+				CAI00191 /* Embed Helpers */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				CAI00192 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				70B2E7AE2FF7F108006F0575 /* Cai */,
@@ -140,12 +177,32 @@
 				70B2E8072FF7F10D006F0575 /* CaiTests */,
 			);
 			name = CaiTests;
-			packageProductDependencies = (
-				CAI00173 /* CaiActionCore */,
-			);
 			productName = CaiTests;
 			productReference = CAI00049 /* CaiTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		CAI00188 /* cai-mcp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CAI00189 /* Build configuration list for PBXNativeTarget "cai-mcp" */;
+			buildPhases = (
+				CAI00190 /* Sources */,
+				CAI00187 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CAI00186 /* CaiMCPHelper */,
+			);
+			name = "cai-mcp";
+			packageProductDependencies = (
+				CAI00181 /* MCP */,
+				CAI00183 /* CaiActionCore */,
+			);
+			productName = "cai-mcp";
+			productReference = CAI00185 /* cai-mcp */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -182,6 +239,7 @@
 				CAI00152 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				CAI00162 /* XCRemoteSwiftPackageReference "Yams" */,
 				702858732F800433002527EC /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				CAI00196 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 			);
 			productRefGroup = CAI00015 /* Products */;
 			projectDirPath = "";
@@ -189,6 +247,7 @@
 			targets = (
 				CAI00016 /* Cai */,
 				CAI00048 /* CaiTests */,
+				CAI00188 /* cai-mcp */,
 			);
 		};
 /* End PBXProject section */
@@ -225,6 +284,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CAI00190 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -232,6 +298,11 @@
 			isa = PBXTargetDependency;
 			target = CAI00016 /* Cai */;
 			targetProxy = CAI00052 /* PBXContainerItemProxy */;
+		};
+		CAI00192 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CAI00188 /* cai-mcp */;
+			targetProxy = CAI00193 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -458,6 +529,32 @@
 			};
 			name = Release;
 		};
+		CAI00194 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = T666G8244T;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = "cai-mcp";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		CAI00195 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = T666G8244T;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_NAME = "cai-mcp";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -484,6 +581,15 @@
 			buildConfigurations = (
 				CAI00059 /* Debug */,
 				CAI00060 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CAI00189 /* Build configuration list for PBXNativeTarget "cai-mcp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CAI00194 /* Debug */,
+				CAI00195 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -538,6 +644,14 @@
 				minimumVersion = 5.0.0;
 			};
 		};
+		CAI00196 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.12.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -575,7 +689,12 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = CaiActionCore;
 		};
-		CAI00173 /* CaiActionCore */ = {
+		CAI00181 /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CAI00196 /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
+		};
+		CAI00183 /* CaiActionCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CaiActionCore;
 		};

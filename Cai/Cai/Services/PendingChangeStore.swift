@@ -129,11 +129,6 @@ final class PendingChangeStore: ObservableObject {
     /// Quarantines during the current `refresh()`, so a burst of bad files
     /// raises one toast rather than one per file.
     private var quarantinedThisPass = 0
-    /// Files that read as malformed once and get a second chance next pass.
-    private var malformedOnce: Set<URL> = []
-    /// One recheck timer at a time: a pass over 200 half-written files must
-    /// schedule one follow-up scan, not 200 of them.
-    private var recheckScheduled = false
 
     init(
         root: URL = CaiSupportPaths.root,
@@ -223,10 +218,6 @@ final class PendingChangeStore: ObservableObject {
         // without a ceiling here a directory stuffed with thousands of files
         // would be read in full on the main actor before any could be refused.
         let candidates = files.filter { $0.pathExtension == "json" }.sorted { $0.path < $1.path }
-        // Forget malformed-once verdicts for files that no longer exist, or a
-        // writer looping on write-partial-then-delete grows this set for the
-        // app's lifetime.
-        malformedOnce.formIntersection(candidates)
         let examined = candidates.prefix(ActionSchema.maxPendingFilesScanned)
         if candidates.count > examined.count {
             print("PendingChanges: \(candidates.count - examined.count) file(s) beyond the per-scan cap were left for the next pass")
@@ -235,19 +226,9 @@ final class PendingChangeStore: ObservableObject {
         for file in examined {
             switch load(file, known: known) {
             case .success(let proposal):
-                malformedOnce.remove(file)
                 accepted.append(proposal)
-            case .failure(let failure):
-                // A file caught mid-write reads as malformed. Give it one more
-                // pass before setting it aside, so a writer that is not atomic
-                // does not lose a proposal it believes it wrote.
-                if failure.isRetryable, !malformedOnce.contains(file) {
-                    malformedOnce.insert(file)
-                    scheduleRecheck()
-                    continue
-                }
-                malformedOnce.remove(file)
-                quarantine(file, reason: failure.rejection, change: nil)
+            case .failure(let rejection):
+                quarantine(file, reason: rejection, change: nil)
             }
         }
 
@@ -267,6 +248,7 @@ final class PendingChangeStore: ObservableObject {
 
         // Everything past the cap is quarantined rather than held invisibly:
         // an agent looping on create_action must hit a wall it can read about.
+        var overflowed = 0
         if accepted.count > ActionSchema.maxPendingChanges {
             for overflow in accepted[ActionSchema.maxPendingChanges...] {
                 quarantine(
@@ -274,15 +256,36 @@ final class PendingChangeStore: ObservableObject {
                     reason: .queueFull(max: ActionSchema.maxPendingChanges),
                     change: overflow.validated
                 )
+                overflowed += 1
             }
             accepted = Array(accepted.prefix(ActionSchema.maxPendingChanges))
         }
 
-        if quarantinedThisPass > 0 {
+        // Counted apart from the overflow above, which also quarantines. An
+        // overflowed proposal was perfectly valid and was dropped because the
+        // queue was full, so telling the user it was invalid blames their
+        // agent for producing garbage it did not produce.
+        if quarantinedThisPass - overflowed > 0 {
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
-                userInfo: ["message": "Received an invalid action proposal. It was set aside and won't run."]
+                userInfo: [
+                    "message": "Received an invalid action proposal. It was set aside and won't run.",
+                    "icon": ToastQueue.Icon.warning.rawValue,
+                ]
+            )
+        }
+        if overflowed > 0 {
+            NotificationCenter.default.post(
+                name: .caiShowToast,
+                object: nil,
+                userInfo: [
+                    // Not "until you review some": an overflowed proposal is
+                    // quarantined and never comes back. Reviewing frees room
+                    // for the next one, not for this one.
+                    "message": "Too many proposals waiting. The newest were set aside and the agent was told.",
+                    "icon": ToastQueue.Icon.warning.rawValue,
+                ]
             )
         }
 
@@ -305,25 +308,18 @@ final class PendingChangeStore: ObservableObject {
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
-                userInfo: ["message": ActionReviewPresentation.arrivalToast(
-                    client: arrival.provenance.client,
-                    isUpdate: arrival.validated.isUpdate
-                )]
+                userInfo: [
+                    "message": ActionReviewPresentation.arrivalToast(
+                        client: arrival.provenance.client,
+                        isUpdate: arrival.validated.isUpdate
+                    ),
+                    "icon": ToastQueue.Icon.cai.rawValue,
+                ]
             )
         }
     }
 
-    /// Why a file did not become a proposal, and whether reading it again
-    /// later could plausibly give a different answer. Only a parse failure is
-    /// retryable: it is the one that a half-written file produces. A payload
-    /// the validator refuses, or a file that is not a regular file, will read
-    /// exactly the same next pass.
-    private struct LoadFailure: Error {
-        let rejection: ActionRejection
-        let isRetryable: Bool
-    }
-
-    private func load(_ file: URL, known: KnownActions) -> Result<PendingProposal, LoadFailure> {
+    private func load(_ file: URL, known: KnownActions) -> Result<PendingProposal, ActionRejection> {
         // Size first: a huge file must not be read into memory just to find out
         // it was never a proposal. `resourceValues` resolves symlinks, which
         // `attributesOfItem` does not: without that, a link to /dev/zero would
@@ -332,22 +328,13 @@ final class PendingChangeStore: ObservableObject {
             .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
         ])
         guard values?.isRegularFile == true else {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON("only regular files are read from the pending directory"),
-                isRetryable: false
-            ))
+            return .failure(.malformedJSON("only regular files are read from the pending directory"))
         }
         guard (values?.fileSize ?? 0) <= ActionSchema.maxPendingFileBytes else {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON("the file is larger than \(ActionSchema.maxPendingFileBytes) bytes"),
-                isRetryable: false
-            ))
+            return .failure(.malformedJSON("the file is larger than \(ActionSchema.maxPendingFileBytes) bytes"))
         }
         guard let data = try? Data(contentsOf: file) else {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON("the file could not be read"),
-                isRetryable: true
-            ))
+            return .failure(.malformedJSON("the file could not be read"))
         }
         do {
             var change = try ActionCoding.decoder.decode(PendingChange.self, from: data)
@@ -380,12 +367,9 @@ final class PendingChangeStore: ObservableObject {
                 validated: validated
             ))
         } catch let rejection as ActionRejection {
-            return .failure(LoadFailure(rejection: rejection, isRetryable: false))
+            return .failure(rejection)
         } catch {
-            return .failure(LoadFailure(
-                rejection: .malformedJSON(Self.decodeDescription(error)),
-                isRetryable: true
-            ))
+            return .failure(.malformedJSON(Self.decodeDescription(error)))
         }
     }
 
@@ -485,7 +469,23 @@ final class PendingChangeStore: ObservableObject {
             after: validated.after,
             reason: nil
         ))
-        remove(proposal)
+        // Filed, not deleted. Absence is how the agent reads "approved", so
+        // deleting a rejected proposal made the user's No indistinguishable
+        // from a Yes: it would poll, find nothing, and carry on building on an
+        // action that was refused. `list_actions` has always promised it would
+        // see "rejected by Cai" here.
+        moveToQuarantine(
+            proposal.fileURL,
+            reason: "The user reviewed this and declined it.",
+            outcome: .declined
+        )
+        pending.removeAll { $0.id == proposal.id }
+        notifyQueueChanged()
+        // Not for `remove`'s reason: rejecting changes nothing the rest of the
+        // queue was judged against, since only an approval touches
+        // `knownActions`. This re-scans because the queue just gained a slot,
+        // so anything held back by the cap can come in now.
+        refresh()
     }
 
     /// Quarantine path for a proposal that stopped being applicable while it
@@ -498,7 +498,10 @@ final class PendingChangeStore: ObservableObject {
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
-                userInfo: ["message": ActionReviewPresentation.refusedToast]
+                userInfo: [
+                    "message": ActionReviewPresentation.refusedToast,
+                    "icon": ToastQueue.Icon.warning.rawValue,
+                ]
             )
         }
         pending.removeAll { $0.id == proposal.id }
@@ -519,9 +522,17 @@ final class PendingChangeStore: ObservableObject {
 
     // MARK: - Quarantine
 
-    /// Moves a refused proposal out of the queue without destroying it, writes
-    /// the reason next to it, and tells the user once.
-    private func quarantine(_ file: URL, reason: ActionRejection, change: ValidatedChange?) {
+    /// Moves a proposal out of the queue without destroying it and writes the
+    /// reason next to it, so the agent can read what became of it.
+    ///
+    /// Shared by refusal and by the user's own Reject: both need the file
+    /// filed rather than deleted, and filing it here means the quarantine cap
+    /// bounds them together instead of one growing unwatched.
+    private func moveToQuarantine(
+        _ file: URL,
+        reason: String,
+        outcome: QuarantineRecord.Outcome
+    ) {
         CaiSupportPaths.ensureDirectories(in: root)
         let destination = quarantineDirectory.appendingPathComponent(file.lastPathComponent)
         try? FileManager.default.removeItem(at: destination)
@@ -534,8 +545,14 @@ final class PendingChangeStore: ObservableObject {
             try? FileManager.default.removeItem(at: file)
         }
 
-        writeRejectionSidecar(for: destination, reason: reason)
+        writeRejectionSidecar(for: destination, reason: reason, outcome: outcome)
         pruneQuarantine()
+    }
+
+    /// Moves a refused proposal out of the queue without destroying it, writes
+    /// the reason next to it, and tells the user once.
+    private func quarantine(_ file: URL, reason: ActionRejection, change: ValidatedChange?) {
+        moveToQuarantine(file, reason: reason.reason, outcome: .refused)
 
         history.append(ActionAuditEntry(
             timestamp: now(),
@@ -589,29 +606,21 @@ final class PendingChangeStore: ObservableObject {
     /// `<uuid>.rejection.json` beside the quarantined file. The original bytes
     /// may not even be JSON, so the reason cannot live inside them; the helper
     /// reads this to answer "what happened to my proposal" in `list_actions`.
-    private func writeRejectionSidecar(for file: URL, reason: ActionRejection) {
+    private func writeRejectionSidecar(
+        for file: URL,
+        reason: String,
+        outcome: QuarantineRecord.Outcome
+    ) {
         let sidecar = file.deletingPathExtension().appendingPathExtension("rejection.json")
         let payload = QuarantineRecord(
             schemaVersion: ActionSchema.version,
             rejectedAt: now(),
-            reason: reason.reason
+            reason: reason,
+            outcome: outcome
         )
         guard let data = try? ActionCoding.encoder.encode(payload) else { return }
         try? data.write(to: sidecar, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sidecar.path)
-    }
-
-    /// Re-runs the scan shortly, for a file that may still have been being
-    /// written when we read it. Guarantees the retry happens even if no
-    /// further filesystem event arrives, so a half-written file cannot sit
-    /// unexamined forever.
-    private func scheduleRecheck() {
-        guard !recheckScheduled else { return }
-        recheckScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.recheckScheduled = false
-            self?.refresh()
-        }
     }
 
     private func notifyQueueChanged() {
@@ -634,11 +643,4 @@ final class PendingChangeStore: ObservableObject {
             return "unreadable payload"
         }
     }
-}
-
-/// Written beside a quarantined proposal so the reason survives the app quitting.
-struct QuarantineRecord: Codable, Equatable {
-    let schemaVersion: Int
-    let rejectedAt: Date
-    let reason: String
 }

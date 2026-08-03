@@ -236,6 +236,16 @@ class CaiSettings: ObservableObject {
                 } else {
                     PendingChangeStore.shared.stop()
                 }
+                // Republish, or the switch is a lie to the helper. The flag
+                // travels inside the snapshot and the publisher only rewrites
+                // it on `caiInvalidateActionCache`, which flipping this does
+                // not post. Without this the helper keeps reading the old
+                // value: switched off, it accepts proposals and tells the
+                // agent they are waiting while the app has stopped watching,
+                // so they pile up unseen until the queue caps out; switched
+                // back on, it refuses with "the user turned this off" until
+                // some unrelated edit happens to fire the notification.
+                ActionsSnapshotPublisher.shared.publishNow()
             }
         }
     }

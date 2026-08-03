@@ -22,6 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned deliberately. The runner's default is Xcode 16.4, and the MCP
+      # SDK the cai-mcp helper depends on is toolchain-sensitive: version
+      # 0.11.0 fails to compile on Swift 6.3 with a data race inside its own
+      # NetworkTransport.swift. If a Swift bump ever breaks the build here and
+      # not locally, that dependency is the first place to look.
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.2.app
 

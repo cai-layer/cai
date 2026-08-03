@@ -286,22 +286,6 @@ final class ActionReviewPresentationTests: XCTestCase {
 
     // MARK: - Update diff
 
-    func testUpdateShowsPayloadExactlyWhenSemanticsChangeWithoutTheValue() {
-        // A `type: prompt → shell` patch renders a one-row diff; without this
-        // rule the command that will run never appears on the card.
-        XCTAssertTrue(ActionReviewPresentation.updateShowsPayload(changed: [.type]))
-        XCTAssertTrue(ActionReviewPresentation.updateShowsPayload(changed: [.runInBackground]))
-        XCTAssertTrue(ActionReviewPresentation.updateShowsPayload(changed: [.autoReplaceSelection, .name]))
-
-        // When the patch touches the value, the diff already carries the
-        // whole payload as context lines; repeating it would be two copies.
-        XCTAssertFalse(ActionReviewPresentation.updateShowsPayload(changed: [.type, .value]))
-        XCTAssertFalse(ActionReviewPresentation.updateShowsPayload(changed: [.value]))
-        XCTAssertFalse(ActionReviewPresentation.updateShowsPayload(changed: [.name]))
-        XCTAssertFalse(ActionReviewPresentation.updateShowsPayload(changed: [.next, .pinned]))
-        XCTAssertFalse(ActionReviewPresentation.updateShowsPayload(changed: []))
-    }
-
     func testDiffShowsOnlyTheFieldsThePatchTouched() {
         let id = UUID()
         let before = ActionSnapshot(id: id, name: "Old name", type: .prompt, value: "Old value")

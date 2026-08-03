@@ -213,6 +213,29 @@ public struct ActionPatch: Equatable, Sendable {
         }
     }
 
+    /// The action's current values for exactly the fields this patch touches.
+    ///
+    /// This is what the helper attaches as `expected`, and it is why the
+    /// agent-facing `update_action` stays `{id, changes}`: the agent says what
+    /// it wants changed, the helper records what it saw when it read the
+    /// action, and the app refuses the patch if the user has changed those
+    /// fields in between.
+    public func capturingCurrentValues(from snapshot: ActionSnapshot) -> ActionPatch {
+        var expected = ActionPatch()
+        for field in fields {
+            switch field {
+            case .name: expected.name = snapshot.name
+            case .type: expected.type = snapshot.type
+            case .value: expected.value = snapshot.value
+            case .autoReplaceSelection: expected.autoReplaceSelection = snapshot.autoReplaceSelection
+            case .runInBackground: expected.runInBackground = snapshot.runInBackground
+            case .pinned: expected.pinned = snapshot.pinned
+            case .next: expected.next = snapshot.next
+            }
+        }
+        return expected
+    }
+
     /// Applies every present field to `snapshot`. Pure: the caller decides
     /// whether the result is worth persisting.
     public func applied(to snapshot: ActionSnapshot) -> ActionSnapshot {

@@ -27,7 +27,10 @@ extension Decoder {
     /// would approve an action that isn't the one the agent described. Every
     /// DTO in this package rejects loudly instead, and the rejection reason
     /// names the field so the agent can fix it in one retry.
-    func rejectUnknownKeys<K: CodingKey & CaseIterable>(known: K.Type, at context: String) throws {
+    /// Public so the helper's own argument types get the same loud rejection
+    /// as the wire format: an agent that misspells a field should be told,
+    /// wherever the misspelling happens.
+    public func rejectUnknownKeys<K: CodingKey & CaseIterable>(known: K.Type, at context: String) throws {
         let declared = Set(K.allCases.map(\.stringValue))
         let present = try container(keyedBy: AnyCodingKey.self).allKeys.map(\.stringValue)
         // Sorted so the reported field is stable when a payload carries more

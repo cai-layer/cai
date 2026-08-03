@@ -16,6 +16,29 @@ public struct ValidatedChange: Equatable, Sendable {
     public let escalationReasons: [EscalationReason]
 
     public var isUpdate: Bool { before != nil }
+
+    /// Public so callers other than the validator can describe a verdict:
+    /// tests of what the user and the agent are told, and the in-app authoring
+    /// front-end when it arrives.
+    public init(
+        changeId: UUID,
+        provenance: ActionProvenance,
+        before: ActionSnapshot?,
+        after: ActionSnapshot,
+        changedFields: [ActionField],
+        warnings: [ActionWarning],
+        tier: ApprovalTier,
+        escalationReasons: [EscalationReason]
+    ) {
+        self.changeId = changeId
+        self.provenance = provenance
+        self.before = before
+        self.after = after
+        self.changedFields = changedFields
+        self.warnings = warnings
+        self.tier = tier
+        self.escalationReasons = escalationReasons
+    }
 }
 
 /// The single source of trust for authored actions.

@@ -116,6 +116,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         PendingChangeStore.shared.startIfEnabled()
         updatePendingBadge()
 
+        // Publish what the helper reads, and keep the stable path an agent's
+        // config points at aimed at this bundle. Both run regardless of the
+        // kill switch: the switch's state travels inside the snapshot, so a
+        // connected agent can be told it was turned off rather than finding
+        // nothing at all.
+        ActionsSnapshotPublisher.shared.start()
+        HelperInstaller.refreshSymlink()
+
         // Check accessibility permission
         permissionsManager.checkAccessibilityPermission()
 

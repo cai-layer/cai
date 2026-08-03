@@ -91,16 +91,13 @@ struct ActionReviewView: View {
 
         VStack(alignment: .leading, spacing: 12) {
             // One frame, not two. A create shows its payload; an update shows
-            // the diff, which carries the whole new value as context lines
-            // WHEN the patch touches the value. A patch that only flips
-            // execution semantics (type, a flag) would otherwise never show
-            // the payload that runs, so those get the payload block too —
-            // see `updateShowsPayload`.
+            // the diff, and the diff renders the whole action, so the payload
+            // is always in it as context lines however small the patch. Adding
+            // the payload block underneath would put the same bytes on screen
+            // twice with nothing saying they are the same bytes, leaving the
+            // user to decide which copy to trust.
             if let before = validated.before {
                 diffBlock(before: before, after: validated.after, changed: validated.changedFields)
-                if ActionReviewPresentation.updateShowsPayload(changed: validated.changedFields) {
-                    payloadBlock(for: validated.after)
-                }
             } else {
                 payloadBlock(for: validated.after)
             }

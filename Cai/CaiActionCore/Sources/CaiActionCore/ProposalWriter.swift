@@ -69,11 +69,16 @@ public struct ProposalStatus: Equatable, Sendable {
     public enum State: Equatable, Sendable {
         case waitingForApproval
         case refused
+        /// The user read the proposal and said no. Distinct from `refused`,
+        /// which is Cai declining to accept it at all: a refusal is worth
+        /// fixing and retrying, a decline is an answer.
+        case declined
 
         public var description: String {
             switch self {
             case .waitingForApproval: return "waiting for approval"
             case .refused: return "rejected by Cai"
+            case .declined: return "declined by the user — do not re-send it unless they ask"
             }
         }
     }
@@ -118,13 +123,12 @@ extension ProposalStatus {
             options: [.skipsHiddenFiles]
         )) ?? []
         for file in quarantined where file.lastPathComponent.hasSuffix(".rejection.json") {
-            let reason = (try? Data(contentsOf: file))
-                .flatMap { try? ActionCoding.decoder.decode(QuarantineRecord.self, from: $0) }?
-                .reason
+            let record = (try? Data(contentsOf: file))
+                .flatMap { try? ActionCoding.decoder.decode(QuarantineRecord.self, from: $0) }
             statuses.append(ProposalStatus(
                 id: file.lastPathComponent.replacingOccurrences(of: ".rejection.json", with: ""),
-                state: .refused,
-                reason: reason
+                state: record?.outcome == .declined ? .declined : .refused,
+                reason: record?.reason
             ))
         }
 

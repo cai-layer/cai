@@ -85,8 +85,39 @@ public enum AgentReply {
         return sentence
     }
 
+    /// The answer to `get_action`: one action, verbatim.
+    ///
+    /// Exists because the listing shortens values and `update_action` accepts
+    /// a whole new one. Without a way to read the real thing, an agent asked
+    /// to edit a long script rewrites the fragment it was shown and silently
+    /// drops the rest; the guard that catches a user editing underneath it
+    /// cannot catch this, because the helper captured `expected` from the full
+    /// value the agent never saw.
+    public static func actionDetail(_ action: ActionSnapshot) -> String {
+        var lines = [
+            "\(action.name) [\(action.type.rawValue)] id=\(action.id.uuidString)",
+            "pinned=\(action.pinned) autoReplaceSelection=\(action.autoReplaceSelection)"
+                + " runInBackground=\(action.runInBackground)",
+        ]
+        if !action.next.isEmpty {
+            lines.append("chain=\(ActionSnapshot.renderChain(action.next))")
+        }
+        lines.append("")
+        lines.append("value (\(action.value.count) characters, verbatim below this line):")
+        lines.append(action.value)
+        return lines.joined(separator: "\n")
+    }
+
+    /// One line per action for the listing, with the cut announced.
+    ///
+    /// Saying only "…" left an agent unable to tell a short value from a
+    /// shortened one, so it would rewrite from the fragment believing it had
+    /// the whole thing. The real length plus the name of the tool that returns
+    /// it turns that into something it can act on.
     private static func singleLine(_ text: String, limit: Int = 100) -> String {
         let collapsed = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return collapsed.count <= limit ? collapsed : String(collapsed.prefix(limit)) + "…"
+        guard collapsed.count > limit else { return collapsed }
+        return String(collapsed.prefix(limit))
+            + "… [shortened; \(text.count) characters in full, call get_action before rewriting it]"
     }
 }

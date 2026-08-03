@@ -16,6 +16,8 @@ enum ToolDispatch {
             switch params.name {
             case Tools.listActions.name:
                 return reply(try listActions())
+            case Tools.getAction.name:
+                return reply(try getAction(params.arguments))
             case Tools.createAction.name:
                 return reply(try await createAction(params.arguments))
             case Tools.updateAction.name:
@@ -41,6 +43,15 @@ enum ToolDispatch {
             snapshot: try CaiBridge.snapshot(),
             statuses: ProposalStatus.all()
         )
+    }
+
+    /// No preflight: reading is harmless, and an agent should still be able to
+    /// see what exists when the user has authoring switched off, so it can say
+    /// what it *would* propose rather than failing blind.
+    private static func getAction(_ arguments: [String: Value]?) throws -> String {
+        let snapshot = try CaiBridge.snapshot()
+        let ref = try AgentAuthoring.decodeActionRef(arguments: json(arguments))
+        return AgentReply.actionDetail(try AgentAuthoring.action(id: ref.id, snapshot: snapshot))
     }
 
     private static func createAction(_ arguments: [String: Value]?) async throws -> String {

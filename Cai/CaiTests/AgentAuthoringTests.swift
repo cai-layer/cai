@@ -169,6 +169,32 @@ final class AgentAuthoringTests: XCTestCase {
         }
     }
 
+    // MARK: - get_action
+
+    func testActionRefDecodesTheDocumentedShape() throws {
+        let ref = try AgentAuthoring.decodeActionRef(
+            arguments: Data(#"{"id": "\#(CoreFixture.targetId.uuidString)"}"#.utf8)
+        )
+        XCTAssertEqual(ref.id, CoreFixture.targetId)
+    }
+
+    func testActionRefRejectsAnInventedArgument() {
+        XCTAssertThrowsError(try AgentAuthoring.decodeActionRef(
+            arguments: Data(#"{"id": "\#(CoreFixture.targetId.uuidString)", "fields": ["value"]}"#.utf8)
+        ))
+    }
+
+    func testActionLookupFailsWithTheSameWordingAsAnUpdate() {
+        XCTAssertThrowsError(try AgentAuthoring.action(id: CoreFixture.otherId, snapshot: snapshot())) { error in
+            XCTAssertEqual(error as? ActionRejection, .unknownTargetAction(id: CoreFixture.otherId.uuidString))
+        }
+    }
+
+    func testActionLookupReturnsTheStoredActionUntouched() throws {
+        let found = try AgentAuthoring.action(id: CoreFixture.targetId, snapshot: snapshot())
+        XCTAssertEqual(found, snapshot().actions.first)
+    }
+
     func testCreateProposalCarriesProvenanceAndTheGivenClock() {
         let change = AgentAuthoring.createProposal(
             draft: CoreFixture.draft(),

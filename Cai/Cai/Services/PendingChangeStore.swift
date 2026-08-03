@@ -129,9 +129,6 @@ final class PendingChangeStore: ObservableObject {
     /// Quarantines during the current `refresh()`, so a burst of bad files
     /// raises one toast rather than one per file.
     private var quarantinedThisPass = 0
-    /// One recheck timer at a time: a pass over 200 half-written files must
-    /// schedule one follow-up scan, not 200 of them.
-    private var recheckScheduled = false
 
     init(
         root: URL = CaiSupportPaths.root,
@@ -251,6 +248,7 @@ final class PendingChangeStore: ObservableObject {
 
         // Everything past the cap is quarantined rather than held invisibly:
         // an agent looping on create_action must hit a wall it can read about.
+        var overflowed = 0
         if accepted.count > ActionSchema.maxPendingChanges {
             for overflow in accepted[ActionSchema.maxPendingChanges...] {
                 quarantine(
@@ -258,16 +256,34 @@ final class PendingChangeStore: ObservableObject {
                     reason: .queueFull(max: ActionSchema.maxPendingChanges),
                     change: overflow.validated
                 )
+                overflowed += 1
             }
             accepted = Array(accepted.prefix(ActionSchema.maxPendingChanges))
         }
 
-        if quarantinedThisPass > 0 {
+        // Counted apart from the overflow above, which also quarantines. An
+        // overflowed proposal was perfectly valid and was dropped because the
+        // queue was full, so telling the user it was invalid blames their
+        // agent for producing garbage it did not produce.
+        if quarantinedThisPass - overflowed > 0 {
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
                 userInfo: [
                     "message": "Received an invalid action proposal. It was set aside and won't run.",
+                    "icon": ToastQueue.Icon.warning.rawValue,
+                ]
+            )
+        }
+        if overflowed > 0 {
+            NotificationCenter.default.post(
+                name: .caiShowToast,
+                object: nil,
+                userInfo: [
+                    // Not "until you review some": an overflowed proposal is
+                    // quarantined and never comes back. Reviewing frees room
+                    // for the next one, not for this one.
+                    "message": "Too many proposals waiting. The newest were set aside and the agent was told.",
                     "icon": ToastQueue.Icon.warning.rawValue,
                 ]
             )
@@ -453,7 +469,23 @@ final class PendingChangeStore: ObservableObject {
             after: validated.after,
             reason: nil
         ))
-        remove(proposal)
+        // Filed, not deleted. Absence is how the agent reads "approved", so
+        // deleting a rejected proposal made the user's No indistinguishable
+        // from a Yes: it would poll, find nothing, and carry on building on an
+        // action that was refused. `list_actions` has always promised it would
+        // see "rejected by Cai" here.
+        moveToQuarantine(
+            proposal.fileURL,
+            reason: "The user reviewed this and declined it.",
+            outcome: .declined
+        )
+        pending.removeAll { $0.id == proposal.id }
+        notifyQueueChanged()
+        // Not for `remove`'s reason: rejecting changes nothing the rest of the
+        // queue was judged against, since only an approval touches
+        // `knownActions`. This re-scans because the queue just gained a slot,
+        // so anything held back by the cap can come in now.
+        refresh()
     }
 
     /// Quarantine path for a proposal that stopped being applicable while it
@@ -490,9 +522,17 @@ final class PendingChangeStore: ObservableObject {
 
     // MARK: - Quarantine
 
-    /// Moves a refused proposal out of the queue without destroying it, writes
-    /// the reason next to it, and tells the user once.
-    private func quarantine(_ file: URL, reason: ActionRejection, change: ValidatedChange?) {
+    /// Moves a proposal out of the queue without destroying it and writes the
+    /// reason next to it, so the agent can read what became of it.
+    ///
+    /// Shared by refusal and by the user's own Reject: both need the file
+    /// filed rather than deleted, and filing it here means the quarantine cap
+    /// bounds them together instead of one growing unwatched.
+    private func moveToQuarantine(
+        _ file: URL,
+        reason: String,
+        outcome: QuarantineRecord.Outcome
+    ) {
         CaiSupportPaths.ensureDirectories(in: root)
         let destination = quarantineDirectory.appendingPathComponent(file.lastPathComponent)
         try? FileManager.default.removeItem(at: destination)
@@ -505,8 +545,14 @@ final class PendingChangeStore: ObservableObject {
             try? FileManager.default.removeItem(at: file)
         }
 
-        writeRejectionSidecar(for: destination, reason: reason)
+        writeRejectionSidecar(for: destination, reason: reason, outcome: outcome)
         pruneQuarantine()
+    }
+
+    /// Moves a refused proposal out of the queue without destroying it, writes
+    /// the reason next to it, and tells the user once.
+    private func quarantine(_ file: URL, reason: ActionRejection, change: ValidatedChange?) {
+        moveToQuarantine(file, reason: reason.reason, outcome: .refused)
 
         history.append(ActionAuditEntry(
             timestamp: now(),
@@ -560,12 +606,17 @@ final class PendingChangeStore: ObservableObject {
     /// `<uuid>.rejection.json` beside the quarantined file. The original bytes
     /// may not even be JSON, so the reason cannot live inside them; the helper
     /// reads this to answer "what happened to my proposal" in `list_actions`.
-    private func writeRejectionSidecar(for file: URL, reason: ActionRejection) {
+    private func writeRejectionSidecar(
+        for file: URL,
+        reason: String,
+        outcome: QuarantineRecord.Outcome
+    ) {
         let sidecar = file.deletingPathExtension().appendingPathExtension("rejection.json")
         let payload = QuarantineRecord(
             schemaVersion: ActionSchema.version,
             rejectedAt: now(),
-            reason: reason.reason
+            reason: reason,
+            outcome: outcome
         )
         guard let data = try? ActionCoding.encoder.encode(payload) else { return }
         try? data.write(to: sidecar, options: [.atomic])

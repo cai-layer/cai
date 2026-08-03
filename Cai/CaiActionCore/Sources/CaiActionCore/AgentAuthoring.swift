@@ -84,6 +84,38 @@ public enum AgentAuthoring {
         try decode(UpdateInput.self, from: arguments)
     }
 
+    /// `{id}`, for `get_action`.
+    public struct ActionRef: Equatable, Decodable {
+        public let id: UUID
+
+        private enum CodingKeys: String, CodingKey, CaseIterable {
+            case id
+        }
+
+        public init(id: UUID) {
+            self.id = id
+        }
+
+        public init(from decoder: Decoder) throws {
+            try decoder.rejectUnknownKeys(known: CodingKeys.self, at: "")
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.id = try container.decode(UUID.self, forKey: .id)
+        }
+    }
+
+    public static func decodeActionRef(arguments: Data) throws -> ActionRef {
+        try decode(ActionRef.self, from: arguments)
+    }
+
+    /// Resolves an id against the snapshot, with the same rejection an update
+    /// gives, so an agent gets one wording for "no such action".
+    public static func action(id: UUID, snapshot: ActionsSnapshot) throws -> ActionSnapshot {
+        guard let target = snapshot.actions.first(where: { $0.id == id }) else {
+            throw ActionRejection.unknownTargetAction(id: id.uuidString)
+        }
+        return target
+    }
+
     private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try ActionCoding.decoder.decode(type, from: data)

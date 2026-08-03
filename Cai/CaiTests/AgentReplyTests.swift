@@ -79,6 +79,46 @@ final class AgentReplyTests: XCTestCase {
         XCTAssertTrue(text.contains("…"))
     }
 
+    /// The listing shortens, `update_action` replaces wholesale, and the
+    /// clobber guard cannot tell the difference because the helper captured
+    /// `expected` from the full value. So the cut has to announce itself, or
+    /// an agent rewrites a fragment believing it is the whole action.
+    func testAShortenedValueSaysSoAndNamesTheToolThatReturnsIt() {
+        let long = CoreFixture.snapshot(value: CoreFixture.repeating("x", 5_000))
+        let text = AgentReply.actionsListing(snapshot: snapshot(actions: [long]), statuses: [])
+
+        XCTAssertTrue(text.contains("5000 characters in full"), text)
+        XCTAssertTrue(text.contains("get_action"), text)
+    }
+
+    func testAValueShortEnoughToShowIsNotAnnouncedAsShortened() {
+        let text = AgentReply.actionsListing(
+            snapshot: snapshot(actions: [CoreFixture.snapshot(value: "Summarize this")]),
+            statuses: []
+        )
+
+        XCTAssertFalse(text.contains("shortened"), text)
+    }
+
+    // MARK: - get_action
+
+    func testDetailReturnsTheValueVerbatimIncludingItsLineBreaks() {
+        let script = "#!/bin/sh\nset -e\necho one\necho two"
+        let text = AgentReply.actionDetail(CoreFixture.snapshot(type: .shell, value: script))
+
+        XCTAssertTrue(text.contains(script), "The value must come back byte for byte:\n\(text)")
+        XCTAssertFalse(text.contains("…"), "Detail never truncates:\n\(text)")
+        XCTAssertTrue(text.contains("\(script.count) characters"), text)
+    }
+
+    func testDetailCarriesTheIdAndFlagsAnUpdateNeeds() {
+        let action = CoreFixture.snapshot()
+        let text = AgentReply.actionDetail(action)
+
+        XCTAssertTrue(text.contains("id=\(action.id.uuidString)"), text)
+        XCTAssertTrue(text.contains("runInBackground="), text)
+    }
+
     // MARK: - Acknowledging a proposal
 
     private func validated(tier: ApprovalTier, isUpdate: Bool, warnings: [ActionWarning] = []) -> ValidatedChange {

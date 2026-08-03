@@ -2,7 +2,7 @@ import CaiActionCore
 import Foundation
 import MCP
 
-/// The three tools an agent gets. No delete, no run.
+/// The four tools an agent gets. No delete, no run.
 ///
 /// Agents author, humans fire. Nothing here can execute an action or remove
 /// one, so the worst a compromised agent achieves is a proposal the user reads
@@ -13,7 +13,7 @@ import MCP
 /// belongs in them rather than in a README nobody fetches.
 enum Tools {
 
-    static let all: [Tool] = [listActions, createAction, updateAction]
+    static let all: [Tool] = [listActions, getAction, createAction, updateAction]
 
     // MARK: - list_actions
 
@@ -24,13 +24,40 @@ enum Tools {
             proposed. Call this before authoring: an action that already does the job should be \
             updated rather than duplicated, and chain steps must refer to names that exist.
 
+            Values are shortened to one line here. Any that was cut says so and gives its real \
+            length: call get_action before you rewrite one, or you will replace text you never read.
+
             There is no notification when the user approves or rejects something. Call this again \
-            to find out: proposals appear as "waiting for approval" or "rejected by Cai" with the \
-            reason.
+            to find out: proposals appear as "waiting for approval", "rejected by Cai" with the \
+            reason, or declined by the user.
             """,
         inputSchema: .object([
             "type": .string("object"),
             "properties": .object([:]),
+        ])
+    )
+
+    // MARK: - get_action
+
+    static let getAction = Tool(
+        name: "get_action",
+        description: """
+            Read one action in full, exactly as it is stored, with its value untruncated and its \
+            line breaks intact.
+
+            Required before any update_action that replaces `value`. list_actions shortens values \
+            to one line, so editing from that view means sending a rewrite of text you have only \
+            seen a fragment of, and the fragment is what the user would watch you delete.
+            """,
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "id": .object([
+                    "type": .string("string"),
+                    "description": .string("The action's id, as given by list_actions."),
+                ])
+            ]),
+            "required": .array([.string("id")]),
         ])
     )
 

@@ -42,12 +42,20 @@ public enum AgentReply {
 
         lines.append("")
         if statuses.isEmpty {
-            lines.append("No proposals of yours are waiting or rejected.")
+            lines.append("No proposals are waiting or rejected. An approved proposal leaves "
+                + "this list and appears as a real action above, so if yours is gone and "
+                + "its action is listed, the user approved it.")
         } else {
-            lines.append("Your proposals:")
+            lines.append("Proposals from connected agents (approved ones leave this list "
+                + "and appear as real actions above):")
             for status in statuses {
-                lines.append("- \(status.id): \(status.state.description)"
-                    + (status.reason.map { " (\($0))" } ?? ""))
+                var line = "- "
+                if let label = status.label { line += "\"\(label)\" " }
+                line += "proposal \(status.id)"
+                if let client = status.client { line += " from \(client)" }
+                line += ": \(status.state.description)"
+                line += status.reason.map { " (\($0))" } ?? ""
+                lines.append(line)
             }
         }
 
@@ -77,6 +85,7 @@ public enum AgentReply {
             ? " The user must acknowledge what it can do before they can approve it."
             : " It is waiting for the user to approve it in Cai."
         sentence += " Nothing happens until they do."
+        sentence += " list_actions reports it as proposal \(validated.changeId.uuidString)."
 
         if !validated.warnings.isEmpty {
             sentence += " Warnings shown to them: "

@@ -1312,7 +1312,10 @@ struct ActionListWindow: View {
             }
 
         case .shortcutURL(let template):
-            let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+            // Same RFC 3986 encoding the chain path applies via |url_encode:
+            // .urlQueryAllowed leaves & and = unencoded, which truncates the
+            // query when the selection contains them.
+            let encoded = UrlEncodeFilter.encode(text)
             let urlString = template.replacingOccurrences(of: "%s", with: encoded)
             if let url = URL(string: urlString) {
                 SystemActions.openURL(url)

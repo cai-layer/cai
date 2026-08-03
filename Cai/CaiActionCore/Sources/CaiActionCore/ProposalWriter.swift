@@ -86,11 +86,22 @@ public struct ProposalStatus: Equatable, Sendable {
     public let id: String
     public let state: State
     public let reason: String?
+    /// What the proposal is, so an agent with several in flight can tell the
+    /// status lines apart: the action name for a create, the target for an
+    /// update. `nil` when the file no longer says (older sidecars, unreadable
+    /// payloads); the line then carries the id alone.
+    public let label: String?
+    /// Which connected client sent it. Proposals from every agent share one
+    /// queue by design (that is what prevents duplicates); the label is what
+    /// keeps an agent from reading another's decline as its own.
+    public let client: String?
 
-    public init(id: String, state: State, reason: String?) {
+    public init(id: String, state: State, reason: String?, label: String? = nil, client: String? = nil) {
         self.id = id
         self.state = state
         self.reason = reason
+        self.label = label
+        self.client = client
     }
 }
 
@@ -110,10 +121,14 @@ extension ProposalStatus {
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         )) ?? []
         for file in pending where file.pathExtension == "json" {
+            let change = (try? Data(contentsOf: file))
+                .flatMap { try? ActionCoding.decoder.decode(PendingChange.self, from: $0) }
             statuses.append(ProposalStatus(
                 id: file.deletingPathExtension().lastPathComponent,
                 state: .waitingForApproval,
-                reason: nil
+                reason: nil,
+                label: change.map(Self.label(for:)),
+                client: change?.provenance.client
             ))
         }
 
@@ -128,10 +143,24 @@ extension ProposalStatus {
             statuses.append(ProposalStatus(
                 id: file.lastPathComponent.replacingOccurrences(of: ".rejection.json", with: ""),
                 state: record?.outcome == .declined ? .declined : .refused,
-                reason: record?.reason
+                reason: record?.reason,
+                label: record?.actionName,
+                client: record?.client
             ))
         }
 
         return statuses.sorted { $0.id < $1.id }
+    }
+
+    /// One line saying what a still-pending proposal is. Creates carry their
+    /// action name; updates name the action they target, which is the id the
+    /// agent itself passed to `update_action`.
+    static func label(for change: PendingChange) -> String {
+        switch change.operation {
+        case .create(let draft):
+            return draft.name
+        case .update(let update):
+            return "update to action \(update.targetId.uuidString)"
+        }
     }
 }

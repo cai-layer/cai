@@ -21,6 +21,7 @@ final class AgentInstructionsTests: XCTestCase {
     func testTheAgentIsToldToHandOffAndThenPoll() {
         XCTAssertTrue(text.contains("tell the user"), "a proposal nobody is told about sits unread")
         XCTAssertTrue(text.contains("list_actions"), "there is no notification back, so polling is the only way to learn the outcome")
+        XCTAssertTrue(text.contains("do not wait or poll"), "approval is human-scale; without this an agent busy-polls list_actions inside one turn")
     }
 
     func testTheEscalatedCasesCarryASelfCheck() {

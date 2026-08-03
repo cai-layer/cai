@@ -23,7 +23,7 @@ public enum AgentInstructions {
     public static let text = """
         Cai runs actions on whatever the user has selected, anywhere on their Mac, when they \
         press Option+C. You author those actions; they keep working after this conversation \
-        ends, offline, without you.
+        ends, without you.
 
         Reach for this when the user describes something they will want again on arbitrary text: \
         a rewrite they keep asking for, a lookup they keep pasting into a URL, a command they \
@@ -32,13 +32,13 @@ public enum AgentInstructions {
         Nothing you send here takes effect on its own. A proposal waits in Cai until the user \
         approves it, and you cannot approve, run, or delete anything. So after proposing, tell \
         the user it is waiting for them in Cai. There is no notification back to you: call \
-        list_actions to see whether they took it.
+        list_actions to see whether they took it. Approval takes human time, so do not wait \
+        or poll; check next time the user asks.
 
-        Before you propose an action that runs a shell command, opens a URL with the selection \
-        in it, or replaces the selection without showing the result first, check that the user \
-        actually asked for that, and that the value carries no secrets, no credentials, and no \
-        path outside what they named. The user sees these flagged and has to acknowledge them, \
-        so an action they did not ask for costs them their trust and costs you the approval.
+        Before proposing an action that runs a shell command, opens a URL with the selection \
+        in it, or replaces the selection unseen, check three things: the user asked for exactly \
+        this, the value carries no secrets or credentials, and no path reaches outside what \
+        they named. Cai flags these actions to the user at approval time.
 
         Propose one action for one real need. A batch of speculative actions is noise the user \
         has to read and refuse.

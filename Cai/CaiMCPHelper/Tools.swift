@@ -29,7 +29,8 @@ enum Tools {
 
             There is no notification when the user approves or rejects something. Call this again \
             to find out: proposals appear as "waiting for approval", "rejected by Cai" with the \
-            reason, or declined by the user.
+            reason, or declined by the user. An approved proposal leaves the proposals list and \
+            shows up as a real action, so gone plus listed means yes.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -126,7 +127,58 @@ enum Tools {
                 "next": .object([
                     "type": .string("array"),
                     "description": .string("Optional chain of steps to run after this action. Maximum 10."),
-                    "items": .object(["type": .string("object")]),
+                    "items": .object([
+                        "anyOf": .array([
+                            .object([
+                                "type": .string("object"),
+                                "required": .array([.string("action")]),
+                                "properties": .object([
+                                    "action": .object([
+                                        "type": .string("object"),
+                                        "required": .array([.string("name")]),
+                                        "properties": .object([
+                                            "name": .object([
+                                                "type": .string("string"),
+                                                "description": .string("Name of an existing Cai action or destination."),
+                                            ])
+                                        ]),
+                                    ])
+                                ]),
+                            ]),
+                            .object([
+                                "type": .string("object"),
+                                "required": .array([.string("inlineLLM")]),
+                                "properties": .object([
+                                    "inlineLLM": .object([
+                                        "type": .string("object"),
+                                        "required": .array([.string("directive")]),
+                                        "properties": .object([
+                                            "directive": .object([
+                                                "type": .string("string"),
+                                                "description": .string("System prompt for an ad-hoc model step over the piped value."),
+                                            ])
+                                        ]),
+                                    ])
+                                ]),
+                            ]),
+                            .object([
+                                "type": .string("object"),
+                                "required": .array([.string("appleShortcut")]),
+                                "properties": .object([
+                                    "appleShortcut": .object([
+                                        "type": .string("object"),
+                                        "required": .array([.string("name")]),
+                                        "properties": .object([
+                                            "name": .object([
+                                                "type": .string("string"),
+                                                "description": .string("Name of a Shortcuts.app shortcut."),
+                                            ])
+                                        ]),
+                                    ])
+                                ]),
+                            ]),
+                        ])
+                    ]),
                 ]),
             ]),
         ])
@@ -140,9 +192,10 @@ enum Tools {
             Propose a change to an existing Cai action. Send only the fields you are changing. \
             The user sees the change as a diff and approves it before it takes effect.
 
-            Get the id from list_actions, and call list_actions again first if your information \
-            might be stale: if the user has edited the action since you read it, the update is \
-            refused rather than applied, and you will need to read it again and re-propose.
+            Get the id from list_actions. Your changes replace whole fields over the action's \
+            current state; nothing is merged, and edits are not detected. If time has passed \
+            since you read the action, read it again with get_action before proposing, or your \
+            rewrite may silently discard an edit the user made in the meantime.
 
             Changeable fields: name, type, value, autoReplaceSelection, runInBackground, pinned, next.
             """,

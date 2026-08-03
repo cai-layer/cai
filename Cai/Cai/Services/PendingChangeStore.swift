@@ -477,7 +477,9 @@ final class PendingChangeStore: ObservableObject {
         moveToQuarantine(
             proposal.fileURL,
             reason: "The user reviewed this and declined it.",
-            outcome: .declined
+            outcome: .declined,
+            actionName: validated.after.name,
+            client: validated.provenance.client
         )
         pending.removeAll { $0.id == proposal.id }
         notifyQueueChanged()
@@ -531,7 +533,9 @@ final class PendingChangeStore: ObservableObject {
     private func moveToQuarantine(
         _ file: URL,
         reason: String,
-        outcome: QuarantineRecord.Outcome
+        outcome: QuarantineRecord.Outcome,
+        actionName: String? = nil,
+        client: String? = nil
     ) {
         CaiSupportPaths.ensureDirectories(in: root)
         let destination = quarantineDirectory.appendingPathComponent(file.lastPathComponent)
@@ -545,14 +549,21 @@ final class PendingChangeStore: ObservableObject {
             try? FileManager.default.removeItem(at: file)
         }
 
-        writeRejectionSidecar(for: destination, reason: reason, outcome: outcome)
+        writeRejectionSidecar(
+            for: destination, reason: reason, outcome: outcome,
+            actionName: actionName, client: client
+        )
         pruneQuarantine()
     }
 
     /// Moves a refused proposal out of the queue without destroying it, writes
     /// the reason next to it, and tells the user once.
     private func quarantine(_ file: URL, reason: ActionRejection, change: ValidatedChange?) {
-        moveToQuarantine(file, reason: reason.reason, outcome: .refused)
+        moveToQuarantine(
+            file, reason: reason.reason, outcome: .refused,
+            actionName: change?.after.name,
+            client: change?.provenance.client
+        )
 
         history.append(ActionAuditEntry(
             timestamp: now(),
@@ -609,14 +620,18 @@ final class PendingChangeStore: ObservableObject {
     private func writeRejectionSidecar(
         for file: URL,
         reason: String,
-        outcome: QuarantineRecord.Outcome
+        outcome: QuarantineRecord.Outcome,
+        actionName: String?,
+        client: String?
     ) {
         let sidecar = file.deletingPathExtension().appendingPathExtension("rejection.json")
         let payload = QuarantineRecord(
             schemaVersion: ActionSchema.version,
             rejectedAt: now(),
             reason: reason,
-            outcome: outcome
+            outcome: outcome,
+            actionName: actionName,
+            client: client
         )
         guard let data = try? ActionCoding.encoder.encode(payload) else { return }
         try? data.write(to: sidecar, options: [.atomic])

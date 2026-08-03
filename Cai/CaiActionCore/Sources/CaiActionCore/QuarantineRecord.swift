@@ -22,26 +22,40 @@ public struct QuarantineRecord: Codable, Equatable, Sendable {
     public let rejectedAt: Date
     public let reason: String
     public let outcome: Outcome
+    /// Name of the proposed action, so the agent can tell which of its
+    /// proposals this verdict is about. `nil` when the original file never
+    /// decoded far enough to have one.
+    public let actionName: String?
+    /// The connecting client's name from the proposal's provenance, so with
+    /// two agents connected each can tell whose proposal was decided.
+    public let client: String?
 
     public init(
         schemaVersion: Int = ActionSchema.version,
         rejectedAt: Date,
         reason: String,
-        outcome: Outcome = .refused
+        outcome: Outcome = .refused,
+        actionName: String? = nil,
+        client: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.rejectedAt = rejectedAt
         self.reason = reason
         self.outcome = outcome
+        self.actionName = actionName
+        self.client = client
     }
 
     /// `outcome` defaults rather than throwing, so a sidecar written by an
     /// older Cai still decodes and the agent keeps getting its reason.
+    /// `actionName` and `client` likewise: absent in older sidecars.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         self.rejectedAt = try container.decode(Date.self, forKey: .rejectedAt)
         self.reason = try container.decode(String.self, forKey: .reason)
         self.outcome = try container.decodeIfPresent(Outcome.self, forKey: .outcome) ?? .refused
+        self.actionName = try container.decodeIfPresent(String.self, forKey: .actionName)
+        self.client = try container.decodeIfPresent(String.self, forKey: .client)
     }
 }

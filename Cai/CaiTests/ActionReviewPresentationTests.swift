@@ -177,6 +177,29 @@ final class ActionReviewPresentationTests: XCTestCase {
         XCTAssertEqual(ActionReviewPresentation.queueCounter(index: 2, total: 3), "3 of 3")
     }
 
+    // MARK: - Browsing the queue
+
+    func testTheBrowsePositionStaysInsideALiveQueue() {
+        // Deciding the last of three leaves the index past the end; unclamped,
+        // the sheet renders nothing at all.
+        XCTAssertEqual(ActionReviewPresentation.clampedQueueIndex(2, count: 2), 1)
+        XCTAssertEqual(ActionReviewPresentation.clampedQueueIndex(5, count: 3), 2)
+        XCTAssertEqual(ActionReviewPresentation.clampedQueueIndex(-1, count: 3), 0)
+        XCTAssertEqual(ActionReviewPresentation.clampedQueueIndex(1, count: 3), 1)
+    }
+
+    func testAnEmptyQueueClampsToZeroRatherThanCrashing() {
+        XCTAssertEqual(ActionReviewPresentation.clampedQueueIndex(4, count: 0), 0)
+    }
+
+    func testTheCounterFollowsTheBrowsePosition() {
+        XCTAssertEqual(ActionReviewPresentation.queueCounter(index: 1, total: 3), "2 of 3")
+        XCTAssertNil(
+            ActionReviewPresentation.queueCounter(index: 0, total: 1),
+            "One proposal needs no position indicator, and no chevrons to go with it."
+        )
+    }
+
     // MARK: - Toasts and provenance
 
     func testArrivalToastNamesTheClientAndFallsBackWhenItIsMissing() {

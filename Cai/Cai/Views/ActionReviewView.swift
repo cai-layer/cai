@@ -31,7 +31,14 @@ struct ActionReviewView: View {
     /// arriving under the cursor can catch a click meant for the last one.
     @State private var isArmed = false
 
-    private var proposal: PendingProposal? { store.pending.first }
+    /// Which proposal is on screen. Browsing is allowed; deciding is still one
+    /// at a time, and every card keeps its own acknowledgments.
+    @State private var browseIndex = 0
+
+    private var proposal: PendingProposal? {
+        guard !store.pending.isEmpty else { return nil }
+        return store.pending[ActionReviewPresentation.clampedQueueIndex(browseIndex, count: store.pending.count)]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -50,6 +57,23 @@ struct ActionReviewView: View {
         // same file in place, keeping the id while the payload changes. Ticks
         // belong to the bytes the user read, not to a filename.
         .onChange(of: proposal) { _ in acknowledged = [] }
+        .onChange(of: store.pending.count) { count in
+            browseIndex = ActionReviewPresentation.clampedQueueIndex(browseIndex, count: count)
+        }
+        // Left and right step the queue. Return and Esc are taken by Approve
+        // and defer, and the arrows are the macOS convention for moving
+        // through a set of items anyway.
+        .background {
+            VStack {
+                Button("") { if canGoBack { browseIndex -= 1 } }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Button("") { if canGoForward { browseIndex += 1 } }
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+            }
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        }
         .task(id: proposal) {
             isArmed = false
             try? await Task.sleep(nanoseconds: 350_000_000)
@@ -67,20 +91,57 @@ struct ActionReviewView: View {
 
             Spacer()
 
-            if let counter = ActionReviewPresentation.queueCounter(index: 0, total: store.pending.count) {
-                Text(counter)
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundColor(.caiTextSecondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.caiSurface.opacity(0.6)))
-                    .accessibilityLabel("Proposal \(counter)")
+            if let counter = ActionReviewPresentation.queueCounter(
+                index: browseIndex, total: store.pending.count
+            ) {
+                HStack(spacing: 2) {
+                    queueStepButton(systemName: "chevron.left", enabled: canGoBack, help: "Previous proposal") {
+                        browseIndex -= 1
+                    }
+
+                    Text(counter)
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(.caiTextSecondary)
+                        .padding(.horizontal, 4)
+                        .accessibilityLabel("Proposal \(counter)")
+
+                    queueStepButton(systemName: "chevron.right", enabled: canGoForward, help: "Next proposal") {
+                        browseIndex += 1
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Color.caiSurface.opacity(0.6)))
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
         .padding(.bottom, 12)
+    }
+
+    private var canGoBack: Bool { browseIndex > 0 }
+    private var canGoForward: Bool { browseIndex < store.pending.count - 1 }
+
+    /// A chevron the size of the counter beside it. Disabled rather than hidden
+    /// at the ends, so the control does not change width as you step.
+    private func queueStepButton(
+        systemName: String,
+        enabled: Bool,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(enabled ? .caiTextSecondary : .caiTextSecondary.opacity(0.25))
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     // MARK: - Content

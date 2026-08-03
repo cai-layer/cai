@@ -121,6 +121,16 @@ enum ActionReviewPresentation {
         return "\(index + 1) of \(total)"
     }
 
+    /// Keeps a browse position inside the queue as it changes underneath.
+    ///
+    /// The queue is live: a proposal can arrive or be withdrawn while the user
+    /// is reading one. Without clamping, deciding the last of three leaves the
+    /// index past the end and the sheet renders nothing at all.
+    static func clampedQueueIndex(_ index: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(max(0, index), count - 1)
+    }
+
     // MARK: - Toasts
 
     /// Arrival is passive: one toast, no window, no focus steal.

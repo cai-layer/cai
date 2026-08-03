@@ -37,6 +37,8 @@ enum ActionReviewPresentation {
             return "This action replaces your selected text without showing a preview."
         case .runsWithoutShowingOutput:
             return "This action runs without showing its output."
+        case .chainsToUnknownAction:
+            return "This action triggers another action that doesn't exist yet, so Cai can't say what it will do."
         }
     }
 
@@ -57,6 +59,8 @@ enum ActionReviewPresentation {
             return "Replace your selected text without showing a preview"
         case .runsWithoutShowingOutput:
             return "Run without showing its output"
+        case .chainsToUnknownAction:
+            return "Trigger another action that doesn't exist yet"
         }
     }
 

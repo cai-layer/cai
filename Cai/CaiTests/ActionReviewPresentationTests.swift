@@ -36,6 +36,13 @@ final class ActionReviewPresentationTests: XCTestCase {
             ActionReviewPresentation.callout(for: .runsWithoutShowingOutput),
             "This action runs without showing its output."
         )
+        // Not in the design spec's original four: added when unresolved chain
+        // names started escalating, because a name no one has claimed yet can
+        // be claimed by a later shell action.
+        XCTAssertEqual(
+            ActionReviewPresentation.callout(for: .chainsToUnknownAction),
+            "This action triggers another action that doesn't exist yet, so Cai can't say what it will do."
+        )
     }
 
     // MARK: - Grouped callout

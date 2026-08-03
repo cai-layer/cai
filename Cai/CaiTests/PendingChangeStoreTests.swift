@@ -466,7 +466,11 @@ final class PendingChangeStoreTests: XCTestCase {
         store.refresh()
 
         XCTAssertEqual(store.pending.count, 2)
-        XCTAssertEqual(store.pending[1].tier, .standard, "Deploy does not exist yet, so the step resolves to nothing.")
+        XCTAssertEqual(
+            store.pending[1].validated.escalationReasons,
+            [.chainsToUnknownAction],
+            "Deploy does not exist yet: a blind handoff escalates on its own, so approving out of order is never one click either."
+        )
 
         XCTAssertEqual(
             store.approve(store.pending[0], acknowledged: [.runsShellCommands]),
@@ -475,9 +479,9 @@ final class PendingChangeStoreTests: XCTestCase {
 
         XCTAssertEqual(store.pending.count, 1)
         XCTAssertEqual(
-            store.pending[0].tier,
-            .escalated,
-            "The survivor now chains into a shell action and must say so before the user can click again."
+            store.pending[0].validated.escalationReasons,
+            [.runsShellCommands],
+            "The survivor now chains into a real shell action and must say that, not the unknown-name claim the user may have ticked."
         )
     }
 

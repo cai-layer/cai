@@ -5,8 +5,8 @@ public enum ApprovalTier: String, Codable, Equatable, Sendable {
     /// Prompt action, no flags, no executable chain: name, payload, approve.
     case standard
     /// Anything that can run code, reach the network, or change the user's
-    /// text without review. Warning styling plus a per-type acknowledgment
-    /// checkbox that gates the Approve button.
+    /// text without review. Warning styling plus an acknowledgment checkbox
+    /// that gates the Approve button.
     case escalated
 }
 
@@ -22,6 +22,13 @@ public enum EscalationReason: String, Codable, Equatable, Sendable, CaseIterable
     case replacesSelection
     /// `runInBackground`.
     case runsWithoutShowingOutput
+    /// A chain step naming an action that resolves to nothing. It runs
+    /// nothing today, but the name can be claimed by a later proposal: approve
+    /// this with one click, then approve a shell action carrying that name,
+    /// and this action reaches shell without its callout ever appearing. The
+    /// risk is the blind handoff, so it escalates now, while the user is
+    /// looking.
+    case chainsToUnknownAction
 }
 
 public enum ApprovalClassifier {
@@ -109,10 +116,16 @@ public enum ApprovalClassifier {
                         case .clipboardCopy:
                             continue
                         }
-                    case .builtIn, .unresolved:
-                        // Built-ins are leaf LLM transforms. An unresolved name
-                        // runs nothing at all; it surfaces as a warning instead.
+                    case .builtIn:
+                        // Built-ins are leaf LLM transforms.
                         continue
+                    case .unresolved:
+                        // Runs nothing today, but "today" is when the user is
+                        // deciding: a later proposal can claim the name and
+                        // this action starts reaching whatever it does. The
+                        // unresolved-step warning still names the steps; this
+                        // is what makes the approval a deliberate act.
+                        found.insert(.chainsToUnknownAction)
                     }
                 }
             }

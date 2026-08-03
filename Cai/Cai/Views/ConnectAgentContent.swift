@@ -15,13 +15,19 @@ struct ConnectAgentContent: View {
     /// Set for a beat after copying, so the button confirms rather than leaving
     /// the user wondering whether the click registered.
     @State private var copied = false
+    /// True when the helper symlink is absent even after a repair attempt.
+    /// The snippet is withheld then: a copied path that points at nothing
+    /// fails invisibly inside the user's agent.
+    @State private var helperMissing = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 killSwitchRow
 
-                if settings.allowAgentProposals {
+                if settings.allowAgentProposals, helperMissing {
+                    helperMissingRow
+                } else if settings.allowAgentProposals {
                     Picker("", selection: $selectedClient) {
                         ForEach(AgentClient.allCases) { client in
                             Text(client.label).tag(client)
@@ -64,6 +70,30 @@ struct ConnectAgentContent: View {
                 }
             }
             .padding(16)
+        }
+        .onAppear(perform: verifyHelper)
+        .onChange(of: settings.allowAgentProposals) { enabled in
+            if enabled { verifyHelper() }
+        }
+    }
+
+    /// Repairs the symlink the way launch does, then checks whether the path
+    /// every snippet names actually resolves. `fileExists` follows symlinks,
+    /// so a dangling link counts as missing.
+    private func verifyHelper() {
+        HelperInstaller.refreshSymlink()
+        helperMissing = !FileManager.default.fileExists(atPath: AgentConnection.helperPath())
+    }
+
+    private var helperMissingRow: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary)
+            Text(AgentConnection.helperMissingCaption)
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -129,10 +159,15 @@ struct ConnectAgentContent: View {
         PasteboardQueue.shared.write {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(snippet, forType: .string)
-        }
-        copied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            copied = false
+            // Confirm from inside the queued block: if the queue is busy
+            // draining a paste-back, "Copied" must not show while the
+            // pasteboard still holds the old contents.
+            DispatchQueue.main.async {
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    copied = false
+                }
+            }
         }
     }
 }

@@ -872,18 +872,10 @@ struct SettingsView: View {
     /// propose actions to it. The count stays the connector count, since that
     /// is the only side with a meaningful "N of M configured".
     private var mcpNavRow: some View {
-        let configs = mcpConfigManager.serverConfigs
-        let configured = configs.filter { config in
-            guard config.isEnabled else { return false }
-            guard let key = config.authKeychainKey else { return config.authType == .none }
-            return KeychainHelper.get(forKey: key) != nil
-        }.count
-        let total = configs.count
-
-        return navRow(
+        navRow(
             label: "MCP",
-            count: configured,
-            total: total,
+            count: mcpConfigManager.configuredCount,
+            total: mcpConfigManager.serverConfigs.count,
             action: onShowConnectors
         )
     }

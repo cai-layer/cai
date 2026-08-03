@@ -48,17 +48,29 @@ final class AgentConnectionTests: XCTestCase {
 
     // MARK: - Per-client shape
 
-    func testClaudeCodeGetsACommandToRun() {
+    func testClaudeCodeGetsAUserScopedCommandToRun() {
+        // --scope user, because the default is local: Cai is system-wide, and
+        // a local-scoped connection silently vanishes outside the directory
+        // the command happened to be run from.
         XCTAssertEqual(
             AgentConnection.snippet(for: .claudeCode, home: home),
-            "claude mcp add cai -- ~/Library/Application\\ Support/Cai/bin/cai-mcp"
+            "claude mcp add --scope user cai -- ~/Library/Application\\ Support/Cai/bin/cai-mcp"
+        )
+    }
+
+    func testCodexGetsItsOwnCLICommandBecauseItDoesNotReadJSON() {
+        // Codex reads TOML from ~/.codex/config.toml; the JSON payload would
+        // never load there. Its CLI writes the right format itself.
+        XCTAssertEqual(
+            AgentConnection.snippet(for: .codex, home: home),
+            "codex mcp add cai -- ~/Library/Application\\ Support/Cai/bin/cai-mcp"
         )
     }
 
     func testThereIsOneTabPerDistinctThingToDo() {
         // Claude Desktop used to have its own tab showing byte-identical JSON
-        // to "Other". Three tabs, two payloads.
-        XCTAssertEqual(AgentClient.allCases.count, 3)
+        // to "Other". Four tabs, four distinct payloads or delivery methods.
+        XCTAssertEqual(AgentClient.allCases.count, 4)
         XCTAssertEqual(
             AgentConnection.snippet(for: .cursor, home: home),
             AgentConnection.snippet(for: .other, home: home),
@@ -104,11 +116,46 @@ final class AgentConnectionTests: XCTestCase {
         XCTAssertEqual(config["command"], "/Users/tester/Library/Application Support/Cai/bin/cai-mcp")
     }
 
+    func testTheDeeplinkSurvivesAFormStyleDecoder() throws {
+        // A non-ASCII home path is the only way this payload's base64 grows a
+        // "+", and a form-style decoder reads a bare "+" as a space, so the
+        // config silently stops decoding for exactly those users. Cursor's own
+        // generators percent-encode it; so must we.
+        let home = URL(fileURLWithPath: "/Users/田中")
+        let url = try XCTUnwrap(AgentConnection.cursorInstallURL(home: home))
+        let query = try XCTUnwrap(url.query)
+
+        XCTAssertFalse(
+            query.contains("+"),
+            "A bare + in the query is a space to a form-style decoder: \(url.absoluteString)"
+        )
+
+        // Decode the way a form decoder would: percent-decode, then base64.
+        let encoded = try XCTUnwrap(
+            query.split(separator: "&")
+                .first { $0.hasPrefix("config=") }?
+                .dropFirst("config=".count)
+        )
+        let decoded = try XCTUnwrap(String(encoded).removingPercentEncoding)
+        let data = try XCTUnwrap(Data(base64Encoded: decoded))
+        let config = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(config["command"], "/Users/田中/Library/Application Support/Cai/bin/cai-mcp")
+    }
+
+    // MARK: - The instructions and the installer agree
+
+    func testTheDisplayedPathIsWhereTheInstallerActuallyWrites() {
+        // AgentConnection derives the path from $HOME; HelperInstaller creates
+        // the symlink under CaiSupportPaths.root. They resolve identically only
+        // while the app is unsandboxed — this pins the two together so a future
+        // support-root change cannot ship instructions pointing at nothing.
+        XCTAssertEqual(AgentConnection.helperPath(), CaiSupportPaths.helperSymlink().path)
+    }
+
     // MARK: - Copy
 
     func testNoConnectCopyUsesAnEmDash() {
         let strings = [
-            AgentConnection.sectionTitle,
             AgentConnection.killSwitchTitle,
             AgentConnection.killSwitchCaption,
             AgentConnection.copyButtonTitle,
@@ -116,6 +163,7 @@ final class AgentConnectionTests: XCTestCase {
             AgentConnection.cursorButtonTitle,
             AgentConnection.cursorFallbackCaption,
             AgentConnection.disabledCaption,
+            AgentConnection.helperMissingCaption,
         ]
         for string in strings {
             XCTAssertFalse(string.contains("—"), string)

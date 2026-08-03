@@ -33,7 +33,15 @@ struct MCPManagementView: View {
         case client, server
     }
 
-    @State private var selectedTab: Tab = .server
+    @State private var selectedTab: Tab
+
+    /// `initialTab` defaults to Server (the headline for this release), but
+    /// the missing-credentials redirect passes `.client`: a user sent here to
+    /// enter an API key must land on the form, not on agent setup.
+    init(onBack: @escaping () -> Void, initialTab: Tab = .server) {
+        self.onBack = onBack
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     var body: some View {
         ManagementScreen(
@@ -42,7 +50,7 @@ struct MCPManagementView: View {
             subtitle: subtitle,
             tabs: [
                 .init(id: .server, label: "Server"),
-                .init(id: .client, label: "Client", count: configuredConnectors),
+                .init(id: .client, label: "Client", count: configManager.configuredCount),
             ],
             selection: $selectedTab,
             customTabId: nil,
@@ -64,15 +72,5 @@ struct MCPManagementView: View {
         case .server:
             return "Agents that can propose actions to Cai"
         }
-    }
-
-    /// Enabled connectors that actually have their credentials, matching what
-    /// the old Settings row counted.
-    private var configuredConnectors: Int {
-        configManager.serverConfigs.filter { config in
-            guard config.isEnabled else { return false }
-            guard let key = config.authKeychainKey else { return config.authType == .none }
-            return KeychainHelper.get(forKey: key) != nil
-        }.count
     }
 }

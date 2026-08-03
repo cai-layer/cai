@@ -3,10 +3,10 @@ import Foundation
 
 /// What to hand a user so their agent can reach Cai.
 ///
-/// Three entries, not one per client. Claude Code takes a CLI command, Cursor
-/// has a one-click install deeplink, and everything else takes the same JSON
-/// object, so listing Claude Desktop separately was three tabs showing two
-/// things.
+/// One entry per distinct payload, not one per client. Claude Code and Codex
+/// take CLI commands, Cursor has a one-click install deeplink, and everything
+/// else takes the same JSON object, so listing Claude Desktop separately was
+/// a tab showing byte-identical JSON to "Other".
 ///
 /// Getting any of it wrong is invisible: a config that never loads produces no
 /// error anywhere the user will look. Pure and table-tested for the same reason
@@ -20,6 +20,7 @@ import Foundation
 enum AgentClient: String, CaseIterable, Identifiable {
     case claudeCode
     case cursor
+    case codex
     case other
 
     var id: String { rawValue }
@@ -28,6 +29,7 @@ enum AgentClient: String, CaseIterable, Identifiable {
         switch self {
         case .claudeCode: return "Claude Code"
         case .cursor: return "Cursor"
+        case .codex: return "Codex"
         case .other: return "Other"
         }
     }
@@ -35,12 +37,12 @@ enum AgentClient: String, CaseIterable, Identifiable {
     /// How the user applies it, in the fewest words that are still true.
     var instruction: String {
         switch self {
-        case .claudeCode:
+        case .claudeCode, .codex:
             return "Run this in your terminal."
         case .cursor:
             return "One click. Cursor opens and adds Cai for you."
         case .other:
-            return "Paste into Claude Desktop, Codex, or any other MCP client, under mcpServers."
+            return "Merge into your MCP client's JSON config, such as Claude Desktop's claude_desktop_config.json."
         }
     }
 }
@@ -49,7 +51,6 @@ enum AgentConnection {
 
     // MARK: - Copy
 
-    static let sectionTitle = "Connect your agent"
     static let killSwitchTitle = "Allow agents to propose actions"
     static let killSwitchCaption = "Proposed actions always wait for your approval here before they can run."
     static let copyButtonTitle = "Copy"
@@ -62,6 +63,10 @@ enum AgentConnection {
     /// Shown in place of the command when the switch is off, so the section
     /// explains itself rather than just dimming.
     static let disabledCaption = "Turn this on to let an agent propose actions. Nothing it proposes can run until you approve it."
+    /// Shown in place of the snippet when the helper symlink is missing even
+    /// after a repair attempt: handing out a path that points at nothing would
+    /// fail invisibly inside the user's agent.
+    static let helperMissingCaption = "Cai could not install its connection helper. Relaunch Cai to try again, or reinstall it if this keeps happening."
 
     // MARK: - The path everything points at
 
@@ -88,7 +93,14 @@ enum AgentConnection {
     ) -> String {
         switch client {
         case .claudeCode:
-            return "claude mcp add cai -- \(shellHelperPath(home: home))"
+            // --scope user, because the default is local: without it the
+            // connection exists only in the directory the command was run
+            // from, and Cai is a system-wide app.
+            return "claude mcp add --scope user cai -- \(shellHelperPath(home: home))"
+        case .codex:
+            // Codex reads TOML from ~/.codex/config.toml, so the JSON payload
+            // would never load there; its own CLI writes the right format.
+            return "codex mcp add cai -- \(shellHelperPath(home: home))"
         case .cursor, .other:
             // Absolute path, unescaped: this is JSON, not a shell.
             return """
@@ -123,6 +135,13 @@ enum AgentConnection {
             URLQueryItem(name: "name", value: "cai"),
             URLQueryItem(name: "config", value: json.base64EncodedString()),
         ]
+        // URLComponents leaves "+" bare in queries, but a form-style decoder
+        // reads a bare "+" as a space and the base64 stops decoding. Only
+        // non-ASCII home paths can put one in this payload, and for them the
+        // button would fail with nothing to see. Cursor's own generators run
+        // the config through encodeURIComponent, which escapes it too.
+        components.percentEncodedQuery = components.percentEncodedQuery?
+            .replacingOccurrences(of: "+", with: "%2B")
         return components.url
     }
 }

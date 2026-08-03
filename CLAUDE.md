@@ -30,7 +30,7 @@ Cai/Cai/
 ├── AppDelegate.swift         # Menu bar, hotkey, popover, lifecycle
 ├── Models/                   # ActionItem, CaiSettings, CaiShortcut, OutputDestination, BuiltInDestinations, MCPModels
 ├── Services/                 # Window/Clipboard/ContentDetector, LLMService + MLXInference, OutputDestinationService, MCP*, KeychainHelper, ClipboardHistory, OCRService, ExtensionParser/Service, HotKeyManager, PermissionsManager, UpdateChecker, CrashReportingService, PendingChangeStore/Watcher + ActionHistoryLog (agent proposals)
-└── Views/                    # ActionListWindow (router), ActionRow, ResultView, CustomPromptView, SettingsView, ShortcutsManagementView, DestinationsManagementView, ExtensionBrowserView, MCPFormView, ConnectorsSettingsView, ModelSetupView, OnboardingPermissionView, ToastWindow, ShortcutRecorderView, ActionReviewView (approval sheet), CaiColors, CaiLogo, KeyboardHint, AboutView, VisualEffectBackground
+└── Views/                    # ActionListWindow (router), ActionRow, ResultView, CustomPromptView, SettingsView, ShortcutsManagementView, DestinationsManagementView, ExtensionBrowserView, MCPFormView, MCPManagementView (Client/Server tabs), ConnectorsSettingsView, ConnectAgentContent + AgentConnection (connect-agent payloads), ModelSetupView, OnboardingPermissionView, ToastWindow, ShortcutRecorderView, ActionReviewView (approval sheet), CaiColors, CaiLogo, KeyboardHint, AboutView, VisualEffectBackground
 
 Cai/CaiActionCore/            # SPM package: authored-action schema, validator, approval tiers. Shared with the cai-mcp helper; every function pure and table-tested.
 ```

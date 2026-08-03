@@ -188,8 +188,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // validated at launch. If the file is malformed, the toast fires immediately
         // instead of waiting for the user to trigger their first LLM action.
         // Deferred one runloop tick so the toast observer is ready to receive it.
-        DispatchQueue.main.async {
+        // Then start the directory watcher so later hand edits apply without a restart.
+        Task { @MainActor in
             _ = ContextSnippetsManager.shared
+            ContextSnippetsManager.shared.startWatching()
         }
     }
 

@@ -218,7 +218,7 @@ final class ContextSnippetsTests: XCTestCase {
         try? FileManager.default.removeItem(at: url)
     }
 
-    func testManagerLoadMissingFileSeedsEmptyAndReturnsEmptyList() {
+    func testManagerSeedsStarterFileWithDisabledExample() {
         let dir = makeTempDir()
         defer { cleanupTempDir(dir) }
 
@@ -228,16 +228,23 @@ final class ContextSnippetsTests: XCTestCase {
 
         let manager = ContextSnippetsManager(configDirectory: dir)
 
-        // Empty snippets
-        XCTAssertTrue(manager.snippets.isEmpty)
-        // Seed file was created
+        // Seed file was created and decodes as a valid v1 envelope
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
-
-        // Seed file contains a valid empty envelope
         let data = try! Data(contentsOf: fileURL)
         let decoded = try! JSONDecoder().decode(ContextSnippetsFile.self, from: data)
         XCTAssertEqual(decoded.version, 1)
-        XCTAssertTrue(decoded.snippets.isEmpty)
+
+        // The starter example is present but disabled — seeding never changes behavior
+        XCTAssertEqual(decoded.snippets.count, 1)
+        XCTAssertFalse(decoded.snippets[0].enabled)
+        XCTAssertEqual(manager.snippets.count, 1)
+        XCTAssertNil(manager.snippet(forBundleId: decoded.snippets[0].bundleId),
+                     "Disabled starter example must be inert for lookups")
+
+        // The self-documentation link rides along as an ignored unknown key
+        let raw = String(data: data, encoding: .utf8)!
+        XCTAssertTrue(raw.contains("\"_docs\""),
+                      "Starter file should carry a _docs pointer to the manual")
     }
 
     func testManagerLoadEmptyFileReturnsEmptyList() throws {
@@ -342,6 +349,38 @@ final class ContextSnippetsTests: XCTestCase {
         let reloaded = try String(contentsOf: fileURL, encoding: .utf8)
         XCTAssertTrue(reloaded.contains("com.example.MyApp"))
         XCTAssertTrue(reloaded.contains("user content"))
+    }
+
+    // MARK: - Manager: Live Reload
+
+    @MainActor
+    func testWatcherReloadsSnippetsOnFileChange() throws {
+        let dir = makeTempDir()
+        defer { cleanupTempDir(dir) }
+
+        let manager = ContextSnippetsManager(configDirectory: dir)
+        manager.startWatching()
+        XCTAssertNil(manager.snippet(forBundleId: "com.example.Live"))
+
+        let updated = """
+        {
+          "version": 1,
+          "snippets": [
+            { "bundleId": "com.example.Live", "appName": "Live", "context": "hot reload" }
+          ]
+        }
+        """
+        try updated.write(to: dir.appendingPathComponent("snippets.json"),
+                          atomically: true, encoding: .utf8)
+
+        // The watcher debounces on the main queue (0.25s); pump the runloop
+        // until the reload lands or the generous cap expires.
+        let deadline = Date().addingTimeInterval(3)
+        while manager.snippet(forBundleId: "com.example.Live") == nil && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertNotNil(manager.snippet(forBundleId: "com.example.Live"),
+                        "Editing snippets.json should apply without restarting Cai")
     }
 
     // MARK: - Manager: Matching Logic

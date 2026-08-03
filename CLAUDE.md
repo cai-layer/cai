@@ -33,6 +33,7 @@ Cai/Cai/
 └── Views/                    # ActionListWindow (router), ActionRow, ResultView, CustomPromptView, SettingsView, ShortcutsManagementView, DestinationsManagementView, ExtensionBrowserView, MCPFormView, MCPManagementView (Client/Server tabs), ConnectorsSettingsView, ConnectAgentContent + AgentConnection (connect-agent payloads), ModelSetupView, OnboardingPermissionView, ToastWindow, ShortcutRecorderView, ActionReviewView (approval sheet), CaiColors, CaiLogo, KeyboardHint, AboutView, VisualEffectBackground
 
 Cai/CaiActionCore/            # SPM package: authored-action schema, validator, approval tiers. Shared with the cai-mcp helper; every function pure and table-tested.
+Cai/CaiMCPHelper/             # cai-mcp: the stdio MCP server agents talk to. main.swift (handshake), Tools.swift (the four tools), ToolDispatch, CaiBridge. Embedded in Contents/Helpers, symlinked into ~/Library/Application Support/Cai/bin.
 ```
 
 `ls Cai/Cai/{Models,Services,Views}` for the full file list.
@@ -47,6 +48,7 @@ Cai/CaiActionCore/            # SPM package: authored-action schema, validator, 
 | Community extensions (in-app browser + clipboard YAML) | [`_docs/architecture/ARCHITECTURE.md#community-extensions`](_docs/architecture/ARCHITECTURE.md#community-extensions) |
 | Built-in MLX LLM + provider routing | [`_docs/architecture/LLM.md`](_docs/architecture/LLM.md) |
 | MCP connectors (GitHub, Linear) | [`_docs/architecture/MCP.md`](_docs/architecture/MCP.md), [`_docs/connectors/`](_docs/connectors/) |
+| Agent-authored actions (Cai as an MCP server, `cai-mcp` helper, approval gate) | [`_docs/architecture/MCP.md#cai-as-a-server`](_docs/architecture/MCP.md#cai-as-a-server) |
 | Architecture patterns (No Sandbox, CGEvent, CaiPanel, PassThrough, actors) | [`_docs/architecture/ARCHITECTURE.md#key-architecture-patterns`](_docs/architecture/ARCHITECTURE.md#key-architecture-patterns) |
 | Crash reporting (Sentry, opt-in) | [`_docs/architecture/ARCHITECTURE.md#crash-reporting-sentry`](_docs/architecture/ARCHITECTURE.md#crash-reporting-sentry) |
 | Bundle IDs (Debug `com.soyasis.cai.dev`, Release `com.soyasis.cai`) | [`_docs/architecture/ARCHITECTURE.md#bundle-ids`](_docs/architecture/ARCHITECTURE.md#bundle-ids) |
@@ -101,6 +103,8 @@ Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) {
 - **Extension detection uses `# cai-extension` header** at priority 0 (before URL). Shell/AppleScript blocked from clipboard install.
 - **`github.logo` and `linear.logo` are NOT SF Symbols** — they map to `GitHubIcon()` and `LinearIcon()` SwiftUI shapes via `connectorIcon()`. Never `Image(systemName: "github.logo")`.
 - **Debug builds ignore `pending-changes/` unless `CAI_MCP_PENDING=1`** — both bundle IDs share Application Support, so an unguarded Debug build races the Release build for the same proposal files. Set it in the run scheme when working on agent proposals.
+- **In `cai-mcp`, stdout belongs to JSON-RPC** — a stray `print` corrupts the stream and the agent disconnects. Diagnostics go to stderr via `CaiMCPHelper.log`.
+- **Agent-facing guidance has two homes with different costs** — `AgentInstructions.text` rides in every request for the whole session (keep it short: when to reach for Cai, the approval boundary, the pre-proposal self-check), while `Tools.swift` descriptions are read on demand and carry the per-tool mechanics. Keep mechanics out of the instructions (`AgentInstructionsTests` fails if field names leak in); the approval boundary is deliberately stated in both, since an agent may only read one.
 - **Everything read from `pending-changes/` is untrusted** — always through `ActionValidator`, re-validated at approve time; provenance `source` is forced to `.mcp` on ingest. Never trust helper-side validation.
 
 ## Dependencies

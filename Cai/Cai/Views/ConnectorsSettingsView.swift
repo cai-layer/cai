@@ -2,10 +2,15 @@ import SwiftUI
 
 /// Settings sub-view for managing MCP server connections (GitHub, Linear, etc.).
 /// Shows configured servers with status indicators, API key entry, and test connection.
-/// Follows the same push-navigation pattern as DestinationsManagementView.
+///
+/// Embedded as the Client tab of `MCPManagementView`, which supplies the header
+/// and footer, so `showsChrome` suppresses its own (same convention as
+/// `ShortcutsManagementView` inside `ActionsManagementView`).
 struct ConnectorsSettingsView: View {
     @ObservedObject var configManager = MCPServerConfigManager.shared
     let onBack: () -> Void
+    /// False when a parent screen owns the chrome.
+    var showsChrome: Bool = true
 
     @State private var editingServerId: UUID?
     @State private var apiKeyInputs: [UUID: String] = [:]  // Temp input state per server
@@ -14,6 +19,7 @@ struct ConnectorsSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if showsChrome {
             // Header
             HStack {
                 Text("Connectors")
@@ -29,6 +35,7 @@ struct ConnectorsSettingsView: View {
 
             Divider()
                 .background(Color.caiDivider)
+            }
 
             // Content
             ScrollView {
@@ -67,16 +74,18 @@ struct ConnectorsSettingsView: View {
 
             Spacer(minLength: 0)
 
-            Divider()
-                .background(Color.caiDivider)
+            if showsChrome {
+                Divider()
+                    .background(Color.caiDivider)
 
-            // Footer
-            HStack {
-                KeyboardHint(key: "Esc", label: "Back")
-                Spacer()
+                // Footer
+                HStack {
+                    KeyboardHint(key: "Esc", label: "Back")
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
         .onAppear {
             WindowController.acceptsFilterInput = false
@@ -389,6 +398,9 @@ struct ConnectorsSettingsView: View {
         guard !trimmed.isEmpty else { return }
 
         KeychainHelper.set(trimmed, forKey: keychainKey)
+        // The Keychain is not observable: publish so the "N of M" counts
+        // (the MCP screen's Client badge, the Settings row) re-read it.
+        configManager.credentialsDidChange()
         // Clear the field after save — the "Key saved in Keychain" indicator below
         // confirms success. Leaving the raw token in the field is a minor privacy risk.
         apiKeyInputs[config.id] = ""

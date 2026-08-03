@@ -62,6 +62,26 @@ class MCPServerConfigManager: ObservableObject {
 
     // MARK: - Auth Check
 
+    /// Enabled servers whose credentials are actually present. The Settings
+    /// "N of M" row and the MCP screen's Client tab both show this number, so
+    /// it lives here rather than being computed separately by each view.
+    var configuredCount: Int {
+        serverConfigs.filter { config in
+            guard config.isEnabled else { return false }
+            guard let key = config.authKeychainKey else { return config.authType == .none }
+            return KeychainHelper.get(forKey: key) != nil
+        }.count
+    }
+
+    /// Call after writing or removing a credential in Keychain. The Keychain
+    /// is not observable, so views deriving state from it (`configuredCount`
+    /// on the MCP screen's Client badge and the Settings row) only re-read
+    /// when this object publishes; without the nudge the badge sits one inch
+    /// above the save button showing the old count.
+    func credentialsDidChange() {
+        objectWillChange.send()
+    }
+
     /// Checks if a server has its API key configured in Keychain.
     func isServerConfigured(_ serverConfigId: UUID) -> Bool {
         guard let config = serverConfigs.first(where: { $0.id == serverConfigId }) else { return false }

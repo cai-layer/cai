@@ -105,7 +105,7 @@ final class ApprovalTierTests: XCTestCase {
             TierCase(
                 label: "prompt chaining into a name nothing resolves to",
                 action: CoreFixture.snapshot(next: [.action(name: "Not installed")]),
-                expected: [],
+                expected: [.chainsToUnknownAction],
                 line: #line
             ),
             TierCase(
@@ -115,9 +115,12 @@ final class ApprovalTierTests: XCTestCase {
                     value: "say hi",
                     autoReplaceSelection: true,
                     runInBackground: true,
-                    next: [.action(name: "Slack")]
+                    next: [.action(name: "Slack"), .action(name: "Not installed")]
                 ),
-                expected: [.runsShellCommands, .sendsSelectionToURL, .replacesSelection, .runsWithoutShowingOutput],
+                expected: [
+                    .runsShellCommands, .sendsSelectionToURL, .replacesSelection,
+                    .runsWithoutShowingOutput, .chainsToUnknownAction,
+                ],
                 line: #line
             ),
         ]
@@ -180,6 +183,31 @@ final class ApprovalTierTests: XCTestCase {
             ApprovalClassifier.escalationReasons(for: proposal, known: known),
             [.runsShellCommands],
             "The chain step resolves to the user's existing shell action, not to the proposal itself."
+        )
+    }
+
+    /// The staging attack the unknown-name escalation exists to stop: propose
+    /// harmless-looking B chaining to "X" before X exists, get B approved on
+    /// one click, then propose shell action X. B now reaches shell and its
+    /// callout never appeared. The first approval is where the blind handoff
+    /// is visible, so that is where the interlock goes.
+    func testAChainStepNoOneHasClaimedYetEscalatesOnItsOwn() {
+        let before = CoreFixture.snapshot(name: "Tidy up", type: .prompt, next: [.action(name: "X")])
+        let empty = KnownActions(shortcuts: [], destinations: [], builtInActionNames: [])
+
+        XCTAssertEqual(
+            ApprovalClassifier.escalationReasons(for: before, known: empty),
+            [.chainsToUnknownAction]
+        )
+        XCTAssertEqual(ApprovalClassifier.tier(for: before, known: empty), .escalated)
+
+        // Once X is installed the reason changes to what X actually is, so
+        // the user is never told less than the truth in either order.
+        let x = CoreFixture.snapshot(id: CoreFixture.otherId, name: "X", type: .shell, value: "./x.sh")
+        let after = KnownActions(shortcuts: [x], destinations: [], builtInActionNames: [])
+        XCTAssertEqual(
+            ApprovalClassifier.escalationReasons(for: before, known: after),
+            [.runsShellCommands]
         )
     }
 

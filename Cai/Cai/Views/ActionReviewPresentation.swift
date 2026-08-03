@@ -37,6 +37,8 @@ enum ActionReviewPresentation {
             return "This action replaces your selected text without showing a preview."
         case .runsWithoutShowingOutput:
             return "This action runs without showing its output."
+        case .chainsToUnknownAction:
+            return "This action triggers another action that doesn't exist yet, so Cai can't say what it will do."
         }
     }
 
@@ -57,6 +59,8 @@ enum ActionReviewPresentation {
             return "Replace your selected text without showing a preview"
         case .runsWithoutShowingOutput:
             return "Run without showing its output"
+        case .chainsToUnknownAction:
+            return "Trigger another action that doesn't exist yet"
         }
     }
 
@@ -80,35 +84,43 @@ enum ActionReviewPresentation {
         }
     }
 
-    /// The per-type acknowledgment that gates Approve. Deliberately the same
-    /// claim as the callout in the first person: the habituation defense only
-    /// works if checking the box means reading the sentence.
-    static func acknowledgment(for reason: EscalationReason) -> String {
-        switch reason {
-        case .runsShellCommands:
-            return "I understand this action can run terminal commands"
-        case .sendsSelectionToURL:
-            return "I understand this action sends my selected text to the URL shown above"
-        case .replacesSelection:
-            return "I understand this action replaces my selected text without showing a preview"
-        case .runsWithoutShowingOutput:
-            return "I understand this action runs without showing its output"
-        }
-    }
-
     // MARK: - The approve interlock
 
-    /// Whether Approve can fire. On the escalated tier every reason shown must
-    /// be acknowledged first, which is also what makes Return inert until the
-    /// boxes are checked: the button owns the shortcut, so a disabled button
-    /// swallows the key.
-    static func canApprove(
-        tier: ApprovalTier,
-        reasons: [EscalationReason],
-        acknowledged: Set<EscalationReason>
-    ) -> Bool {
-        guard tier == .escalated else { return true }
-        return reasons.allSatisfy { acknowledged.contains($0) }
+    /// One acknowledgment, however many risks the action carries.
+    ///
+    /// It used to be one checkbox per risk, which is where habituation actually
+    /// comes from: tick-tick-approve becomes muscle memory faster than a single
+    /// deliberate act does, and then the interlock is theatre. It also
+    /// contradicted the merged callout, which states every risk once.
+    ///
+    /// Not zero, though. This approval is permanent: the action runs from ⌥C
+    /// forever afterwards with no further prompt, unlike a per-invocation
+    /// permission that expires. Permanence is what buys one extra deliberate
+    /// act beyond the button the user was going to click anyway.
+    ///
+    /// This is also what makes Return inert until the box is ticked: Approve
+    /// owns the shortcut, and a disabled button swallows the key.
+    static func canApprove(tier: ApprovalTier, acknowledged: Bool) -> Bool {
+        tier == .escalated ? acknowledged : true
+    }
+
+    /// The label for that one checkbox.
+    ///
+    /// It refers to the callout rather than restating it. The design spec had a
+    /// per-risk sentence in the first person, which put the same words on
+    /// screen twice: "This action can run terminal commands on your Mac."
+    /// immediately above "I understand this action can run terminal commands".
+    /// Repetition on a small sheet costs height and teaches the eye to skip the
+    /// second copy, which works against the reading the checkbox exists to
+    /// force.
+    ///
+    /// Generic wording is only a problem when the label is the sole statement
+    /// of risk. It never is: this returns nil unless there are risks, and risks
+    /// always render the callout directly above.
+    static let acknowledgmentLabel = "I understand what this action can do"
+
+    static func acknowledgment(for reasons: [EscalationReason]) -> String? {
+        reasons.isEmpty ? nil : acknowledgmentLabel
     }
 
     // MARK: - Queue
@@ -119,6 +131,16 @@ enum ActionReviewPresentation {
     static func queueCounter(index: Int, total: Int) -> String? {
         guard total > 1 else { return nil }
         return "\(index + 1) of \(total)"
+    }
+
+    /// Keeps a browse position inside the queue as it changes underneath.
+    ///
+    /// The queue is live: a proposal can arrive or be withdrawn while the user
+    /// is reading one. Without clamping, deciding the last of three leaves the
+    /// index past the end and the sheet renders nothing at all.
+    static func clampedQueueIndex(_ index: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(max(0, index), count - 1)
     }
 
     // MARK: - Toasts

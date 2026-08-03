@@ -20,10 +20,10 @@ struct ActionReviewView: View {
     let onClose: () -> Void
     let onOpenSettings: () -> Void
 
-    /// Reasons the user has ticked for the proposal on screen. Cleared whenever
-    /// the queue advances so the next proposal starts from zero: an
-    /// acknowledgment is about one payload, never inherited by the next.
-    @State private var acknowledged: Set<EscalationReason> = []
+    /// Whether the user has acknowledged what the proposal on screen can do.
+    /// Cleared whenever the card changes, so an acknowledgment is about one
+    /// payload and is never inherited by the next.
+    @State private var acknowledged = false
 
     /// False for a moment after the card changes. Approve owns the Return key
     /// and the queue advances in place, so without this a held or double
@@ -31,7 +31,16 @@ struct ActionReviewView: View {
     /// arriving under the cursor can catch a click meant for the last one.
     @State private var isArmed = false
 
-    private var proposal: PendingProposal? { store.pending.first }
+    /// Which proposal is on screen. Browsing is allowed; deciding is still one
+    /// at a time. The acknowledgment is deliberately NOT kept per card: it is
+    /// dropped on every card change, browsing away and back included, because
+    /// a tick belongs to the payload that was on screen when it was made.
+    @State private var browseIndex = 0
+
+    private var proposal: PendingProposal? {
+        guard !store.pending.isEmpty else { return nil }
+        return store.pending[ActionReviewPresentation.clampedQueueIndex(browseIndex, count: store.pending.count)]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,10 +58,30 @@ struct ActionReviewView: View {
         // Keyed on the whole proposal, not its id: a writer can rewrite the
         // same file in place, keeping the id while the payload changes. Ticks
         // belong to the bytes the user read, not to a filename.
-        .onChange(of: proposal) { _ in acknowledged = [] }
+        .onChange(of: proposal) { _ in acknowledged = false }
+        .onChange(of: store.pending.count) { count in
+            browseIndex = ActionReviewPresentation.clampedQueueIndex(browseIndex, count: count)
+        }
+        // Left and right step the queue. Return and Esc are taken by Approve
+        // and defer, and the arrows are the macOS convention for moving
+        // through a set of items anyway.
+        .background {
+            VStack {
+                Button("") { if canGoBack { browseIndex -= 1 } }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Button("") { if canGoForward { browseIndex += 1 } }
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+            }
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        }
         .task(id: proposal) {
             isArmed = false
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            // A cancelled sleep throws immediately. Arming anyway would hand
+            // the card that replaced this one an instantly live Approve, and
+            // stepping the queue cancels this task on every arrow press.
+            guard (try? await Task.sleep(nanoseconds: 350_000_000)) != nil else { return }
             isArmed = true
         }
     }
@@ -67,20 +96,57 @@ struct ActionReviewView: View {
 
             Spacer()
 
-            if let counter = ActionReviewPresentation.queueCounter(index: 0, total: store.pending.count) {
-                Text(counter)
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundColor(.caiTextSecondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.caiSurface.opacity(0.6)))
-                    .accessibilityLabel("Proposal \(counter)")
+            if let counter = ActionReviewPresentation.queueCounter(
+                index: browseIndex, total: store.pending.count
+            ) {
+                HStack(spacing: 2) {
+                    queueStepButton(systemName: "chevron.left", enabled: canGoBack, help: "Previous proposal") {
+                        browseIndex -= 1
+                    }
+
+                    Text(counter)
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(.caiTextSecondary)
+                        .padding(.horizontal, 4)
+                        .accessibilityLabel("Proposal \(counter)")
+
+                    queueStepButton(systemName: "chevron.right", enabled: canGoForward, help: "Next proposal") {
+                        browseIndex += 1
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Color.caiSurface.opacity(0.6)))
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
         .padding(.bottom, 12)
+    }
+
+    private var canGoBack: Bool { browseIndex > 0 }
+    private var canGoForward: Bool { browseIndex < store.pending.count - 1 }
+
+    /// A chevron the size of the counter beside it. Disabled rather than hidden
+    /// at the ends, so the control does not change width as you step.
+    private func queueStepButton(
+        systemName: String,
+        enabled: Bool,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(enabled ? .caiTextSecondary : .caiTextSecondary.opacity(0.25))
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     // MARK: - Content
@@ -114,8 +180,8 @@ struct ActionReviewView: View {
                 warnings(validated.warnings)
             }
 
-            if validated.tier == .escalated {
-                acknowledgments(for: validated.escalationReasons)
+            if let label = ActionReviewPresentation.acknowledgment(for: validated.escalationReasons) {
+                acknowledgmentRow(label)
             }
         }
         .padding(.horizontal, 16)
@@ -325,7 +391,7 @@ struct ActionReviewView: View {
             .truncationMode(.middle)
 
             HStack(spacing: 16) {
-                Text("Name: \(proposal.validated.after.name)")
+                Text("Action name: \(proposal.validated.after.name)")
                     .font(.system(size: 12))
                     .foregroundColor(.caiTextPrimary)
                     .lineLimit(1)
@@ -352,24 +418,16 @@ struct ActionReviewView: View {
         }
     }
 
-    /// The habituation defense. One box per risk, all of them required.
-    private func acknowledgments(for reasons: [EscalationReason]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(reasons, id: \.self) { reason in
-                Toggle(isOn: Binding(
-                    get: { acknowledged.contains(reason) },
-                    set: { isOn in
-                        if isOn { acknowledged.insert(reason) } else { acknowledged.remove(reason) }
-                    }
-                )) {
-                    Text(ActionReviewPresentation.acknowledgment(for: reason))
-                        .font(.system(size: 12))
-                        .foregroundColor(.caiTextPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .toggleStyle(.checkbox)
-            }
+    /// The habituation defense: one deliberate act, not one per risk. See
+    /// `ActionReviewPresentation.canApprove` for why it is one and not zero.
+    private func acknowledgmentRow(_ label: String) -> some View {
+        Toggle(isOn: $acknowledged) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .toggleStyle(.checkbox)
     }
 
     // MARK: - Footer
@@ -377,7 +435,6 @@ struct ActionReviewView: View {
     private func footer(for proposal: PendingProposal) -> some View {
         let canApprove = isArmed && ActionReviewPresentation.canApprove(
             tier: proposal.validated.tier,
-            reasons: proposal.validated.escalationReasons,
             acknowledged: acknowledged
         )
 
@@ -419,7 +476,15 @@ struct ActionReviewView: View {
     private func approve(_ proposal: PendingProposal) {
         let isUpdate = proposal.validated.isUpdate
 
-        switch store.approve(proposal, acknowledged: acknowledged) {
+        // The store is handed the risks that were on screen, not a bare flag.
+        // It re-validates at this moment, and if a new risk appeared since the
+        // card was drawn it must not be covered by a tick the user gave to the
+        // old set (CAI-25).
+        let acknowledgedReasons: Set<EscalationReason> = acknowledged
+            ? Set(proposal.validated.escalationReasons)
+            : []
+
+        switch store.approve(proposal, acknowledged: acknowledgedReasons) {
         case .approved:
             NotificationCenter.default.post(
                 name: .caiShowToast,
@@ -435,9 +500,9 @@ struct ActionReviewView: View {
 
         case .needsAcknowledgment:
             // The action grew a risk since this card was drawn. The store has
-            // replaced the verdict, so the sheet is about to show callouts the
-            // user has not read: drop the ticks they made against the old one.
-            acknowledged = []
+            // replaced the verdict, so the sheet is about to show a claim the
+            // user has not read: drop the tick they gave the old one.
+            acknowledged = false
 
         case .stale:
             // The click landed on a card that already left the queue. Nothing

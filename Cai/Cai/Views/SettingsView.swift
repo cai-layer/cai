@@ -290,7 +290,7 @@ struct SettingsView: View {
 
                         settingsDivider
 
-                        connectorsNavRow
+                        mcpNavRow
                     }
 
                     Button(action: onShowExtensions ?? {}) {
@@ -868,19 +868,14 @@ struct SettingsView: View {
 
     @ObservedObject private var mcpConfigManager = MCPServerConfigManager.shared
 
-    private var connectorsNavRow: some View {
-        let configs = mcpConfigManager.serverConfigs
-        let configured = configs.filter { config in
-            guard config.isEnabled else { return false }
-            guard let key = config.authKeychainKey else { return config.authType == .none }
-            return KeychainHelper.get(forKey: key) != nil
-        }.count
-        let total = configs.count
-
-        return navRow(
-            label: "Connectors",
-            count: configured,
-            total: total,
+    /// One row for both directions of MCP: tools Cai uses, and agents that
+    /// propose actions to it. The count stays the connector count, since that
+    /// is the only side with a meaningful "N of M configured".
+    private var mcpNavRow: some View {
+        navRow(
+            label: "MCP",
+            count: mcpConfigManager.configuredCount,
+            total: mcpConfigManager.serverConfigs.count,
             action: onShowConnectors
         )
     }

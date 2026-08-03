@@ -1518,7 +1518,7 @@ struct ActionListWindow: View {
                 }
             )
         } else if showConnectors {
-            ConnectorsSettingsView(
+            MCPManagementView(
                 onBack: {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showConnectors = false

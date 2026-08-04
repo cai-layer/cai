@@ -469,8 +469,14 @@ struct UrlEncodeFilter: Filter {
         return set
     }()
 
+    /// Also called directly by the non-chain url-action path in
+    /// `ActionListWindow`, so both execution paths encode identically.
+    static func encode(_ input: String) -> String {
+        input.addingPercentEncoding(withAllowedCharacters: unreserved) ?? input
+    }
+
     func apply(_ input: String, args: [String], sourceBundleId: String?) async throws -> String {
-        return input.addingPercentEncoding(withAllowedCharacters: Self.unreserved) ?? input
+        return Self.encode(input)
     }
 }
 

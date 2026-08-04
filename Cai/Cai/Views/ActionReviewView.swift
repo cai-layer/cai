@@ -508,6 +508,20 @@ struct ActionReviewView: View {
             // The click landed on a card that already left the queue. Nothing
             // happened; the sheet is about to redraw for whatever is next.
             closeIfQueueEmpty()
+
+        case .reloaded:
+            // The file changed under the card. The card stays, showing the
+            // new bytes; without a toast the click reads as a dud and the
+            // user's next click approves content they never re-read.
+            acknowledged = false
+            NotificationCenter.default.post(
+                name: .caiShowToast,
+                object: nil,
+                userInfo: [
+                    "message": ActionReviewPresentation.reloadedToast,
+                    "icon": ToastQueue.Icon.warning.rawValue,
+                ]
+            )
         }
     }
 

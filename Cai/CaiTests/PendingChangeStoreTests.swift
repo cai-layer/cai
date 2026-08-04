@@ -353,6 +353,86 @@ final class PendingChangeStoreTests: XCTestCase {
         XCTAssertTrue(reason.contains("changed in Cai"), reason)
     }
 
+    /// The helper names the pending file by change id, so a retry replaces it
+    /// atomically between the scan and the click. Approving must not act on
+    /// stale bytes and delete a revision nobody saw: the decision is refused
+    /// and the queue re-presents what is actually on disk. `.reloaded`, not
+    /// `.stale`: the card stays on screen, so the sheet must say why the
+    /// click did nothing.
+    func testApproveAfterAnInPlaceRewriteIsRefusedAndKeepsTheRevision() throws {
+        let id = UUID()
+        let url = try write(createChange(name: "Original", value: "first payload", id: id))
+        store.refresh()
+        let proposal = try XCTUnwrap(store.pending.first)
+
+        try write(createChange(name: "Original", value: "revised payload", id: id))
+
+        let outcome = store.approve(proposal, acknowledged: Set(proposal.validated.escalationReasons))
+
+        XCTAssertEqual(outcome, .reloaded)
+        XCTAssertEqual(shortcuts.count, 1, "Nothing may be persisted off bytes the user never saw.")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: url.path),
+            "The revision is not the file that was decided on; it stays."
+        )
+        XCTAssertEqual(
+            store.pending.first?.validated.after.value, "revised payload",
+            "The re-scan re-presents what is actually on disk."
+        )
+    }
+
+    /// The approve-time re-read must apply the same guards as the scan: a
+    /// path swapped for something oversized (or a FIFO) between the scan and
+    /// the click must refuse the decision, not read it on the main actor.
+    func testApproveAfterAnOversizedRewriteIsRefusedNotRead() throws {
+        let id = UUID()
+        let url = try write(createChange(name: "Original", value: "first payload", id: id))
+        store.refresh()
+        let proposal = try XCTUnwrap(store.pending.first)
+
+        try Data(count: ActionSchema.maxPendingFileBytes + 1).write(to: url)
+
+        let outcome = store.approve(proposal, acknowledged: Set(proposal.validated.escalationReasons))
+
+        XCTAssertEqual(outcome, .reloaded)
+        XCTAssertEqual(shortcuts.count, 1, "Nothing may be persisted off bytes nobody validated.")
+    }
+
+    /// A byte-identical rewrite bumps the file's mtime, and equality must not
+    /// notice: the sheet clears the user's acknowledgment on `.onChange(of:
+    /// proposal)`, and a tick belongs to the bytes read, not the timestamp.
+    /// (Store-level, this same equality is what makes `refresh` early-return
+    /// over an mtime bump instead of re-announcing a queue change.)
+    func testProposalEqualityIsThePayloadNotTheFileTimestamp() throws {
+        let change = createChange(name: "Stable payload")
+        let validated = try ActionValidator.validate(
+            change,
+            known: KnownActions(shortcuts: shortcuts.map(\.actionSnapshot))
+        )
+        let file = URL(fileURLWithPath: "/tmp/\(change.id.uuidString).json")
+        func proposal(arrivedAt: Date, change: PendingChange) -> PendingProposal {
+            PendingProposal(
+                changeId: change.id,
+                fileURL: file,
+                arrivedAt: arrivedAt,
+                createdAt: change.createdAt,
+                change: change,
+                validated: validated
+            )
+        }
+
+        XCTAssertEqual(
+            proposal(arrivedAt: Date(timeIntervalSince1970: 0), change: change),
+            proposal(arrivedAt: Date(timeIntervalSince1970: 5_000), change: change),
+            "Same file, same bytes, same proposal."
+        )
+        XCTAssertNotEqual(
+            proposal(arrivedAt: Date(timeIntervalSince1970: 0), change: change),
+            proposal(arrivedAt: Date(timeIntervalSince1970: 0), change: createChange(name: "Changed", id: change.id)),
+            "Different bytes are a different proposal."
+        )
+    }
+
     func testApproveRevalidatesSoALaterUserEditIsNotClobbered() throws {
         try write(change(.update(ActionUpdate(
             targetId: existingId,

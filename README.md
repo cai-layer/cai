@@ -55,12 +55,27 @@ No cloud. No telemetry. No accounts.
 
 → [Read the full How It Works guide](https://getcai.app/docs/usage/how-it-works/)
 
+## Let your coding agent build your actions
+
+Cai speaks [MCP](https://modelcontextprotocol.io), so Claude Code, Cursor, or Codex can author your actions for you. Describe what you want in the agent you already use and it proposes an action. Cai holds the proposal until you approve it, and from then on the action runs from ⌥C on its own, with no agent in the loop. Shell and prompt actions run locally by default.
+
+In Cai, open **Settings → MCP → Server** and copy the line for your agent. For Claude Code:
+
+```bash
+claude mcp add --scope user cai -- ~/Library/Application\ Support/Cai/bin/cai-mcp
+```
+
+Your agent gets four tools: `list_actions`, `get_action`, `create_action`, `update_action`. There is no tool that runs an action, deletes one, or approves a proposal, so the most a confused or hostile agent can achieve is a proposal you read and refuse. Cai shows you the whole action before anything is saved, and flags the parts that deserve a second look: running a shell command, putting your selection into a URL, or pasting over your selection without showing you first.
+
+The bridge is a small helper that your agent launches itself and talks to over stdin and stdout. There is no port and no listener, so nothing else on your Mac or your network can reach it.
+
 ## Features
 
 - **Smart content detection** — recognizes what you copied (text, image, URL, JSON, meeting, address) and shows the right actions
 - **Built-in AI** — [Apple Intelligence](https://getcai.app/docs/getting-started/llm-setup/) on macOS 26+, or in-process MLX inference on Apple Silicon. No server, no cloud, no setup
 - **GitHub & Linear** — create issues from any selected text with AI-generated title, body, and duplicate detection
 - **Custom actions** — save reusable AI prompts, URL templates, and shell commands as one-click actions
+- **Agent-authored actions** — let Claude Code, Cursor, or Codex write your actions over MCP, approve them once in Cai, run them from ⌥C forever ([see above](#let-your-coding-agent-build-your-actions))
 - **[Action chains](https://getcai.app/docs/usage/action-chains/)** — pipe selection through AI prompts, scripts, and destinations (Slack, GitHub, Apple Shortcuts) in one keystroke. Save the chain once, run it forever.
 - **Image to Text** — on-device OCR via Apple Vision framework
 - **Bring your own LLM** — works with [LM Studio](https://lmstudio.ai/), [Ollama](https://ollama.com/), any OpenAI-compatible server, or any model from [HuggingFace mlx-community](https://huggingface.co/mlx-community)

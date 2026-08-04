@@ -20,6 +20,7 @@ import MCP
 let server = Server(
     name: "cai",
     version: CaiMCPHelper.version,
+    instructions: AgentInstructions.text,
     capabilities: .init(tools: .init(listChanged: false))
 )
 

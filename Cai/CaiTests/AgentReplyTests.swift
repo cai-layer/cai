@@ -63,6 +63,32 @@ final class AgentReplyTests: XCTestCase {
         XCTAssertTrue(text.contains("def: rejected by Cai (Unknown field 'autoApprove'.)"), text)
     }
 
+    /// With two proposals in flight, a bare UUID line is unmappable: the
+    /// agent needs the action's name and, with two agents connected, whose
+    /// proposal it was.
+    func testStatusLinesCarryLabelAndClient() {
+        let statuses = [
+            ProposalStatus(
+                id: "abc", state: .waitingForApproval, reason: nil,
+                label: "File issue", client: "Claude Code"
+            )
+        ]
+        let text = AgentReply.actionsListing(snapshot: snapshot(), statuses: statuses)
+
+        XCTAssertTrue(text.contains("\"File issue\" proposal abc from Claude Code: waiting for approval"), text)
+    }
+
+    /// Approval deletes the pending file, so success is absence. The listing
+    /// has to say that, or an agent whose proposal was approved reports "I
+    /// cannot find my proposal" instead of "it went through".
+    func testTheListingExplainsThatApprovedProposalsLeaveTheList() {
+        for statuses in [[], [ProposalStatus(id: "abc", state: .waitingForApproval, reason: nil)]] {
+            let text = AgentReply.actionsListing(snapshot: snapshot(), statuses: statuses)
+            XCTAssertTrue(text.contains("leave"), text)
+            XCTAssertTrue(text.lowercased().contains("approved"), text)
+        }
+    }
+
     func testListingSaysWhenTheUserHasTurnedAuthoringOff() {
         let off = AgentReply.actionsListing(snapshot: snapshot(enabled: false), statuses: [])
         XCTAssertTrue(off.contains("turned off"), off)
@@ -145,6 +171,18 @@ final class AgentReplyTests: XCTestCase {
             text.contains("Nothing happens until they do"),
             "An agent that thinks the action exists will go on to use it: \(text)"
         )
+    }
+
+    /// The id is the key `list_actions` reports under; without echoing it the
+    /// agent can never map a status line back to this proposal.
+    func testProposalReplyEchoesTheIdTheListingReportsUnder() {
+        let text = AgentReply.proposalAccepted(
+            validated: validated(tier: .standard, isUpdate: false),
+            actionName: "File issue"
+        )
+
+        XCTAssertTrue(text.contains(CoreFixture.changeId.uuidString), text)
+        XCTAssertTrue(text.contains("list_actions"), text)
     }
 
     func testEscalatedProposalsSayTheUserMustAcknowledgeFirst() {

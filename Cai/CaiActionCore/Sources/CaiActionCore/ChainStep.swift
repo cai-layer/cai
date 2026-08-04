@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Moved from `Cai/Cai/Models/ChainStep.swift` into CaiActionCore so the
 /// helper, the validator and the app share one definition. The Codable shape
-/// is unchanged (auto-synthesized tagged union), so chains already persisted
-/// in UserDefaults decode exactly as before.
+/// is unchanged (auto-synthesized), so chains already persisted in
+/// UserDefaults decode exactly as before.
 ///
 /// **Cases:**
 /// - `.action(name:)` — references an existing `CaiShortcut` or
@@ -20,8 +20,10 @@ import Foundation
 ///   value is passed via stdin (Shortcuts that accept text input consume it;
 ///   ones that don't silently ignore it). Stdout flows back into the pipe.
 ///
-/// **Codable:** uses a tagged-union representation (`{"type": "...", ...}`).
-/// Auto-synthesized — no custom encoder/decoder needed.
+/// **Codable:** auto-synthesized case-keyed shape: one single-key object per
+/// step: `{"action": {"name": "..."}}`, `{"inlineLLM": {"directive": "..."}}`,
+/// `{"appleShortcut": {"name": "..."}}`. This is the wire shape everywhere:
+/// UserDefaults, pending-change files, and the MCP `next` parameter.
 ///
 /// **Future:** `.mcpAction(presetId:)` is reserved for v1.8 once we design
 /// "preset MCP actions" (saved partial-fill of an MCP form, e.g. "create

@@ -29,7 +29,8 @@ enum Tools {
 
             There is no notification when the user approves or rejects something. Call this again \
             to find out: proposals appear as "waiting for approval", "rejected by Cai" with the \
-            reason, or declined by the user.
+            reason, or declined by the user. An approved proposal leaves the proposals list and \
+            shows up as a real action, so gone plus listed means yes.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -74,8 +75,9 @@ enum Tools {
             Types:
             - prompt: sends the selection plus your prompt text to the user's model. Write the \
             prompt as an instruction about "the selected text".
-            - url: opens a URL. Use %s where the selection should be substituted, for example \
-            https://www.google.com/search?q=%s
+            - url: opens an https URL. Use %s where the selection should be substituted, for \
+            example https://www.google.com/search?q=%s. Other schemes are refused; the user can \
+            create those by hand in Cai.
             - shell: runs a shell command. Use {{result}} where the selection should go; Cai \
             escapes it for you, so do not add quotes around it. Shell actions always require an \
             extra confirmation from the user, so keep them to one obvious job.
@@ -126,7 +128,58 @@ enum Tools {
                 "next": .object([
                     "type": .string("array"),
                     "description": .string("Optional chain of steps to run after this action. Maximum 10."),
-                    "items": .object(["type": .string("object")]),
+                    "items": .object([
+                        "anyOf": .array([
+                            .object([
+                                "type": .string("object"),
+                                "required": .array([.string("action")]),
+                                "properties": .object([
+                                    "action": .object([
+                                        "type": .string("object"),
+                                        "required": .array([.string("name")]),
+                                        "properties": .object([
+                                            "name": .object([
+                                                "type": .string("string"),
+                                                "description": .string("Name of an existing Cai action or destination."),
+                                            ])
+                                        ]),
+                                    ])
+                                ]),
+                            ]),
+                            .object([
+                                "type": .string("object"),
+                                "required": .array([.string("inlineLLM")]),
+                                "properties": .object([
+                                    "inlineLLM": .object([
+                                        "type": .string("object"),
+                                        "required": .array([.string("directive")]),
+                                        "properties": .object([
+                                            "directive": .object([
+                                                "type": .string("string"),
+                                                "description": .string("System prompt for an ad-hoc model step over the piped value."),
+                                            ])
+                                        ]),
+                                    ])
+                                ]),
+                            ]),
+                            .object([
+                                "type": .string("object"),
+                                "required": .array([.string("appleShortcut")]),
+                                "properties": .object([
+                                    "appleShortcut": .object([
+                                        "type": .string("object"),
+                                        "required": .array([.string("name")]),
+                                        "properties": .object([
+                                            "name": .object([
+                                                "type": .string("string"),
+                                                "description": .string("Name of a Shortcuts.app shortcut."),
+                                            ])
+                                        ]),
+                                    ])
+                                ]),
+                            ]),
+                        ])
+                    ]),
                 ]),
             ]),
         ])
@@ -140,9 +193,12 @@ enum Tools {
             Propose a change to an existing Cai action. Send only the fields you are changing. \
             The user sees the change as a diff and approves it before it takes effect.
 
-            Get the id from list_actions, and call list_actions again first if your information \
-            might be stale: if the user has edited the action since you read it, the update is \
-            refused rather than applied, and you will need to read it again and re-propose.
+            Get the id from list_actions, and read the action with get_action right before \
+            proposing: your changes replace whole fields over the action's current state. An \
+            edit the user makes before you propose is not detected; your rewrite proposes \
+            replacing it and only the approval diff shows that. An edit made after you propose \
+            is refused at decision time with what changed; read again and re-propose. Nothing \
+            applies until the user approves the diff.
 
             Changeable fields: name, type, value, autoReplaceSelection, runInBackground, pinned, next.
             """,

@@ -226,44 +226,16 @@ actor OutputDestinationService {
             context: .shell, sourceBundleId: sourceBundleId
         )
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", resolved]
-        process.environment = Self.shellEnvironment()
+        // stderr is merged into stdout here, unlike the action paths: a failing
+        // destination reports one combined stream to the user.
+        let output = try await ShellRunner.run(resolved, stdin: text, mergeStderrIntoStdout: true)
 
-        // Pass text as stdin
-        let inputPipe = Pipe()
-        let inputData = text.data(using: .utf8) ?? Data()
-        inputPipe.fileHandleForWriting.write(inputData)
-        inputPipe.fileHandleForWriting.closeFile()
-        process.standardInput = inputPipe
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-
-        try process.run()
-
-        // Timeout after 60 seconds — comfortable buffer for `|llm` filter cold
-        // starts (~5-15s) plus the shell command itself (e.g. `say` reading a
-        // few sentences). Configurable per-action timeout is Phase 3 work.
-        let exitTask = Task.detached {
-            process.waitUntilExit()
-        }
-        let timeoutTask = Task.detached {
-            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-            process.terminate()
-        }
-        await exitTask.value
-        timeoutTask.cancel()
-
-        if process.terminationReason == .uncaughtSignal {
+        if output.timedOut {
             throw OutputDestinationError.timeout
         }
 
-        guard process.terminationStatus == 0 else {
-            let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw OutputDestinationError.shellFailed(Int(process.terminationStatus), output)
+        guard output.status == 0 else {
+            throw OutputDestinationError.shellFailed(Int(output.status), output.stdout)
         }
     }
 

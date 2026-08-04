@@ -523,9 +523,6 @@ final class ChainExecutor {
     }
 
     // MARK: - Shell shortcut runner
-    //
-    // Mirrors `ActionListWindow.runShellCommand`. TODO: extract to a shared
-    // ShellRunner helper in v1.7 polish — right now there are two copies.
 
     private func runShell(template: String, input: String, sourceBundleId: String?) async throws -> String {
         let resolved = try await TemplateEngine.render(

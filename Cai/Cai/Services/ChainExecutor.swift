@@ -535,53 +535,20 @@ final class ChainExecutor {
             sourceBundleId: sourceBundleId
         )
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", resolved]
+        // Stdin = pipe value (so users can `cat`-style consume it in their command).
+        let output = try await ShellRunner.run(resolved, stdin: input)
 
-        // Stdin = pipe value (so users can `cat`-style consume it in their command)
-        let inputPipe = Pipe()
-        let inputData = input.data(using: .utf8) ?? Data()
-        inputPipe.fileHandleForWriting.write(inputData)
-        inputPipe.fileHandleForWriting.closeFile()
-        process.standardInput = inputPipe
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        try process.run()
-
-        // 60s timeout — same as runShellCommand. Generous buffer for |llm
-        // cold start + the actual command (e.g., `say` reading a sentence).
-        let exitTask = Task.detached { process.waitUntilExit() }
-        let timeoutTask = Task.detached {
-            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-            process.terminate()
+        if output.timedOut {
+            throw ShellRunner.timeoutError()
         }
-        await exitTask.value
-        timeoutTask.cancel()
 
-        if process.terminationReason == .uncaughtSignal {
-            throw NSError(domain: "Cai", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Shell command exceeded 60s and was stopped"
+        guard output.status == 0 else {
+            throw NSError(domain: "Cai", code: Int(output.status), userInfo: [
+                NSLocalizedDescriptionKey: output.failureMessage
             ])
         }
 
-        let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-
-        guard process.terminationStatus == 0 else {
-            let message = stderr.isEmpty
-                ? "Command failed with exit code \(process.terminationStatus)"
-                : stderr
-            throw NSError(domain: "Cai", code: Int(process.terminationStatus), userInfo: [
-                NSLocalizedDescriptionKey: message
-            ])
-        }
-
-        return stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.trimmedStdout
     }
 
     // MARK: - Prompt shortcut runner

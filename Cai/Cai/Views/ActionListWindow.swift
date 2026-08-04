@@ -1941,57 +1941,20 @@ struct ActionListWindow: View {
             sourceBundleId: sourceBundleId
         )
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", resolved]
-        // Prepend Homebrew paths to PATH — non-interactive zsh doesn't source
-        // .zshrc, so gh/jq/kubectl etc. are otherwise unreachable without
-        // hardcoded absolute paths. See `OutputDestinationService.shellEnvironment`.
-        process.environment = OutputDestinationService.shellEnvironment()
+        // Text goes in as stdin. The runner supplies the Homebrew PATH that
+        // non-interactive zsh lacks.
+        let output = try await ShellRunner.run(resolved, stdin: text)
 
-        // Pass text as stdin
-        let inputPipe = Pipe()
-        let inputData = text.data(using: .utf8) ?? Data()
-        inputPipe.fileHandleForWriting.write(inputData)
-        inputPipe.fileHandleForWriting.closeFile()
-        process.standardInput = inputPipe
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        try process.run()
-
-        // Timeout after 60 seconds — comfortable buffer for `|llm` filter cold
-        // starts (~5-15s) plus the shell command itself (e.g. `say` reading a
-        // few sentences). Configurable per-action timeout is Phase 3 work.
-        let exitTask = Task.detached {
-            process.waitUntilExit()
+        if output.timedOut {
+            throw ShellRunner.timeoutError()
         }
-        let timeoutTask = Task.detached {
-            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-            process.terminate()
-        }
-        await exitTask.value
-        timeoutTask.cancel()
 
-        if process.terminationReason == .uncaughtSignal {
-            // Phrasing avoids "timed out" so ResultView's provider-error heuristic
-            // doesn't show the misleading "Check Settings → Model Provider" hint.
-            throw NSError(domain: "Cai", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Shell command exceeded 60s and was stopped"
+        guard output.status == 0 else {
+            throw NSError(domain: "Cai", code: Int(output.status), userInfo: [
+                NSLocalizedDescriptionKey: output.failureMessage
             ])
         }
 
-        let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-
-        guard process.terminationStatus == 0 else {
-            let message = stderr.isEmpty ? "Command failed with exit code \(process.terminationStatus)" : stderr
-            throw NSError(domain: "Cai", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message])
-        }
-
-        return stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.trimmedStdout
     }
 }

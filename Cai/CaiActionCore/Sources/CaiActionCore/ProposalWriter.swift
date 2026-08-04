@@ -120,11 +120,12 @@ extension ProposalStatus {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         )) ?? []
-        for file in pending where file.pathExtension == "json" {
-            let change = (try? Data(contentsOf: file))
+        for file in pending.filter({ $0.pathExtension == "json" })
+            .prefix(ActionSchema.maxPendingFilesScanned) {
+            let change = boundedRead(file)
                 .flatMap { try? ActionCoding.decoder.decode(PendingChange.self, from: $0) }
             statuses.append(ProposalStatus(
-                id: file.deletingPathExtension().lastPathComponent,
+                id: Self.clamp(file.deletingPathExtension().lastPathComponent),
                 state: .waitingForApproval,
                 reason: nil,
                 label: change.map { Self.clamp(Self.label(for: $0)) },
@@ -137,19 +138,33 @@ extension ProposalStatus {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         )) ?? []
-        for file in quarantined where file.lastPathComponent.hasSuffix(".rejection.json") {
-            let record = (try? Data(contentsOf: file))
+        for file in quarantined.filter({ $0.lastPathComponent.hasSuffix(".rejection.json") })
+            .prefix(ActionSchema.maxQuarantinedFiles) {
+            let record = boundedRead(file)
                 .flatMap { try? ActionCoding.decoder.decode(QuarantineRecord.self, from: $0) }
             statuses.append(ProposalStatus(
-                id: file.lastPathComponent.replacingOccurrences(of: ".rejection.json", with: ""),
+                id: Self.clamp(file.lastPathComponent.replacingOccurrences(of: ".rejection.json", with: "")),
                 state: record?.outcome == .declined ? .declined : .refused,
-                reason: (record?.reason).map { Self.clamp($0, limit: 500, keepingNewlines: true) },
+                reason: (record?.reason).map { Self.clamp($0, limit: 500) },
                 label: record?.actionName.map { Self.clamp($0) },
                 client: record?.client.map { Self.clamp($0) }
             ))
         }
 
         return statuses.sorted { $0.id < $1.id }
+    }
+
+    /// Reads a file from a directory any local process can write, with the
+    /// same guards the app's scanner applies before touching bytes: regular
+    /// files only, bounded size. A FIFO or a link to something huge dropped
+    /// in the directory must not hang `list_actions`. `nil` means unreadable,
+    /// and the status line then carries the filename id alone.
+    public static func boundedRead(_ file: URL) -> Data? {
+        let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values?.isRegularFile == true,
+              (values?.fileSize ?? 0) <= ActionSchema.maxPendingFileBytes
+        else { return nil }
+        return try? Data(contentsOf: file)
     }
 
     /// One line saying what a still-pending proposal is. Creates carry their
@@ -168,13 +183,15 @@ extension ProposalStatus {
     /// go straight into every connected agent's context. A valid name is at
     /// most 60 characters (`ActionValidator`), but validation has not run yet
     /// when a pending file is listed, so the length has to be enforced here.
-    /// Control characters get the same treatment as the length: a label is a
-    /// single line by design, so one carrying `\n\nSYSTEM:` or a bidi override
-    /// must not reach the agent with its fake structure intact. Reasons keep
-    /// their newlines (a mismatch excerpt is more useful formatted) but lose
-    /// everything else, and get a wider bound so a legit excerpt survives.
-    static func clamp(_ text: String, limit: Int = 80, keepingNewlines: Bool = false) -> String {
-        let cleaned = text.strippingControlCharacters(keepingNewlines: keepingNewlines)
+    /// Control characters (newlines included) go the same way as the length:
+    /// every status field is single-line by design, and no legitimate reason
+    /// contains a newline (`excerptsAroundDifference` collapses whitespace),
+    /// while `unknownField` and date-decode reasons interpolate raw payload
+    /// text. A reason carrying `\n\nSYSTEM:` must not reach the agent with
+    /// its fake structure intact. Reasons get a wider bound so a legitimate
+    /// mismatch excerpt survives whole.
+    static func clamp(_ text: String, limit: Int = 80) -> String {
+        let cleaned = text.strippingControlCharacters(keepingNewlines: false)
         return cleaned.count <= limit ? cleaned : String(cleaned.prefix(limit)) + "…"
     }
 }

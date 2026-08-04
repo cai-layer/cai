@@ -57,7 +57,7 @@ No cloud. No telemetry. No accounts.
 
 ## Let your coding agent build your actions
 
-Cai speaks [MCP](https://modelcontextprotocol.io), so Claude Code, Cursor, or Codex can author your actions for you. Describe what you want in the agent you already use and it proposes an action. Cai holds the proposal until you approve it, and from then on the action runs from ⌥C on its own: locally, offline, with no agent and no tokens involved.
+Cai speaks [MCP](https://modelcontextprotocol.io), so Claude Code, Cursor, or Codex can author your actions for you. Describe what you want in the agent you already use and it proposes an action. Cai holds the proposal until you approve it, and from then on the action runs from ⌥C on its own, with no agent in the loop. Shell and prompt actions run locally by default.
 
 In Cai, open **Settings → MCP → Server** and copy the line for your agent. For Claude Code:
 

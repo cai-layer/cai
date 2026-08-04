@@ -405,6 +405,13 @@ final class PendingChangeStore: ObservableObject {
         /// was deleted: acting on it would upsert a payload the queue no
         /// longer holds and remove whatever file now sits at its path.
         case stale
+        /// The file was rewritten in place between the scan and the click:
+        /// the card the user read is not what is on disk. Nothing was decided;
+        /// the queue has been re-scanned and re-presents the new bytes. Kept
+        /// apart from `stale` because the card does NOT leave the queue, so
+        /// the sheet must say why the click did nothing or the user's next
+        /// move is to click again on content they never consciously re-read.
+        case reloaded
     }
 
     /// Persists the action and records the change.
@@ -427,13 +434,17 @@ final class PendingChangeStore: ObservableObject {
         // but `remove` would then delete a revision nobody saw, and the agent
         // polls absence and reads its revision as approved. Any divergence is
         // undecidable: refuse the decision and re-scan, so the sheet
-        // re-presents what is actually on disk.
-        guard let data = try? Data(contentsOf: proposal.fileURL),
+        // re-presents what is actually on disk. `boundedRead` applies the
+        // same regular-file and size guards as `load()`: between the scan
+        // and the click the path can have been replaced with a FIFO or a
+        // link to something huge, and a bare read here would hang the main
+        // actor at the exact moment the user clicks Approve.
+        guard let data = ProposalStatus.boundedRead(proposal.fileURL),
               let fresh = try? Self.readChange(from: data),
               fresh == proposal.change
         else {
             refresh()
-            return .stale
+            return .reloaded
         }
 
         let validated: ValidatedChange

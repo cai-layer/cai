@@ -163,6 +163,12 @@ enum ActionReviewPresentation {
     /// what actually happened is that their own click was refused.
     static let refusedToast = "That proposal no longer applies. It was set aside and won't run."
 
+    /// Shown when the proposal file changed on disk between the user reading
+    /// the card and clicking a decision. Without this the click is a silent
+    /// no-op, the natural response is to click again, and the second click
+    /// approves content the user never consciously re-read.
+    static let reloadedToast = "This proposal changed since you read it. Nothing was decided; review the new version."
+
     // MARK: - Provenance
 
     /// "Proposed by Claude Code · today 14:32". Time formatting follows the

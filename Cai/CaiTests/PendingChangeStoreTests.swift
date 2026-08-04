@@ -356,8 +356,10 @@ final class PendingChangeStoreTests: XCTestCase {
     /// The helper names the pending file by change id, so a retry replaces it
     /// atomically between the scan and the click. Approving must not act on
     /// stale bytes and delete a revision nobody saw: the decision is refused
-    /// and the queue re-presents what is actually on disk.
-    func testApproveAfterAnInPlaceRewriteIsStaleAndKeepsTheRevision() throws {
+    /// and the queue re-presents what is actually on disk. `.reloaded`, not
+    /// `.stale`: the card stays on screen, so the sheet must say why the
+    /// click did nothing.
+    func testApproveAfterAnInPlaceRewriteIsRefusedAndKeepsTheRevision() throws {
         let id = UUID()
         let url = try write(createChange(name: "Original", value: "first payload", id: id))
         store.refresh()
@@ -367,7 +369,7 @@ final class PendingChangeStoreTests: XCTestCase {
 
         let outcome = store.approve(proposal, acknowledged: Set(proposal.validated.escalationReasons))
 
-        XCTAssertEqual(outcome, .stale)
+        XCTAssertEqual(outcome, .reloaded)
         XCTAssertEqual(shortcuts.count, 1, "Nothing may be persisted off bytes the user never saw.")
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: url.path),
@@ -377,6 +379,23 @@ final class PendingChangeStoreTests: XCTestCase {
             store.pending.first?.validated.after.value, "revised payload",
             "The re-scan re-presents what is actually on disk."
         )
+    }
+
+    /// The approve-time re-read must apply the same guards as the scan: a
+    /// path swapped for something oversized (or a FIFO) between the scan and
+    /// the click must refuse the decision, not read it on the main actor.
+    func testApproveAfterAnOversizedRewriteIsRefusedNotRead() throws {
+        let id = UUID()
+        let url = try write(createChange(name: "Original", value: "first payload", id: id))
+        store.refresh()
+        let proposal = try XCTUnwrap(store.pending.first)
+
+        try Data(count: ActionSchema.maxPendingFileBytes + 1).write(to: url)
+
+        let outcome = store.approve(proposal, acknowledged: Set(proposal.validated.escalationReasons))
+
+        XCTAssertEqual(outcome, .reloaded)
+        XCTAssertEqual(shortcuts.count, 1, "Nothing may be persisted off bytes nobody validated.")
     }
 
     /// A byte-identical rewrite bumps the file's mtime, and equality must not

@@ -194,10 +194,11 @@ enum Tools {
             The user sees the change as a diff and approves it before it takes effect.
 
             Get the id from list_actions, and read the action with get_action right before \
-            proposing: your changes replace whole fields over the action's current state. If the \
-            action changed in Cai after your read, the proposal is refused with what it found \
-            instead, and you send it again from a fresh read. Nothing is ever overwritten behind \
-            the user's back.
+            proposing: your changes replace whole fields over the action's current state. An \
+            edit the user makes before you propose is not detected; your rewrite proposes \
+            replacing it and only the approval diff shows that. An edit made after you propose \
+            is refused at decision time with what changed; read again and re-propose. Nothing \
+            applies until the user approves the diff.
 
             Changeable fields: name, type, value, autoReplaceSelection, runInBackground, pinned, next.
             """,

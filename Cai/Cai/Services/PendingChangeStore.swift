@@ -30,6 +30,15 @@ struct PendingProposal: Identifiable, Equatable {
     var tier: ApprovalTier { validated.tier }
     /// Client name from the MCP handshake, or the design spec's fallback.
     var authorName: String { validated.provenance.client ?? "An agent" }
+
+    /// Equality is the payload, not the file's mtime. A writer re-writing
+    /// byte-identical content bumps `arrivedAt`, and if equality noticed, the
+    /// sheet's `.onChange(of: proposal)` would wipe the user's acknowledgment
+    /// and re-arm Approve over a payload that did not change. The tick belongs
+    /// to the bytes the user read, so identity is the file and the bytes.
+    static func == (lhs: PendingProposal, rhs: PendingProposal) -> Bool {
+        lhs.fileURL == rhs.fileURL && lhs.change == rhs.change && lhs.validated == rhs.validated
+    }
 }
 
 // MARK: - Gate
@@ -337,26 +346,7 @@ final class PendingChangeStore: ObservableObject {
             return .failure(.malformedJSON("the file could not be read"))
         }
         do {
-            var change = try ActionCoding.decoder.decode(PendingChange.self, from: data)
-            // Whatever the file claims, it arrived through the pending
-            // directory, and that IS the mcp channel. Left as written, a
-            // payload carrying `"source": "in-app"` would badge its action
-            // "via Cai" forever — the one provenance label agents must not
-            // be able to award themselves.
-            if change.provenance.source != .mcp {
-                change = PendingChange(
-                    schemaVersion: change.schemaVersion,
-                    id: change.id,
-                    createdAt: change.createdAt,
-                    provenance: ActionProvenance(
-                        source: .mcp,
-                        client: change.provenance.client,
-                        model: change.provenance.model,
-                        authoredAt: change.provenance.authoredAt
-                    ),
-                    operation: change.operation
-                )
-            }
+            let change = try Self.readChange(from: data)
             let validated = try ActionValidator.validate(change, known: known)
             return .success(PendingProposal(
                 changeId: change.id,
@@ -371,6 +361,32 @@ final class PendingChangeStore: ObservableObject {
         } catch {
             return .failure(.malformedJSON(Self.decodeDescription(error)))
         }
+    }
+
+    /// Decodes one pending file, forcing the mcp provenance the pending
+    /// directory implies. Shared by the scan and the approve-time re-read so
+    /// both judge the same bytes the same way. Whatever the file claims, it
+    /// arrived through the pending directory, and that IS the mcp channel:
+    /// left as written, a payload carrying `"source": "in-app"` would badge
+    /// its action "via Cai" forever, the one provenance label agents must
+    /// not be able to award themselves.
+    static func readChange(from data: Data) throws -> PendingChange {
+        var change = try ActionCoding.decoder.decode(PendingChange.self, from: data)
+        if change.provenance.source != .mcp {
+            change = PendingChange(
+                schemaVersion: change.schemaVersion,
+                id: change.id,
+                createdAt: change.createdAt,
+                provenance: ActionProvenance(
+                    source: .mcp,
+                    client: change.provenance.client,
+                    model: change.provenance.model,
+                    authoredAt: change.provenance.authoredAt
+                ),
+                operation: change.operation
+            )
+        }
+        return change
     }
 
     // MARK: - Decisions
@@ -404,6 +420,21 @@ final class PendingChangeStore: ObservableObject {
     @discardableResult
     func approve(_ proposal: PendingProposal, acknowledged: Set<EscalationReason>) -> ApprovalOutcome {
         guard pending.contains(where: { $0.id == proposal.id }) else { return .stale }
+
+        // The file can have been rewritten in place since the scan read it:
+        // the helper names the file by change id, so a retry replaces it
+        // atomically. Approving the bytes the user read is safe for the user,
+        // but `remove` would then delete a revision nobody saw, and the agent
+        // polls absence and reads its revision as approved. Any divergence is
+        // undecidable: refuse the decision and re-scan, so the sheet
+        // re-presents what is actually on disk.
+        guard let data = try? Data(contentsOf: proposal.fileURL),
+              let fresh = try? Self.readChange(from: data),
+              fresh == proposal.change
+        else {
+            refresh()
+            return .stale
+        }
 
         let validated: ValidatedChange
         do {

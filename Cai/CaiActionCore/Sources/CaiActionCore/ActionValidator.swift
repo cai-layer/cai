@@ -104,6 +104,8 @@ public enum ActionValidator {
         warnings.append(contentsOf: chainWarnings(for: normalized, known: known))
         warnings.append(contentsOf: flagWarnings(for: normalized))
 
+        try validateURLScheme(normalized)
+
         let reasons = ApprovalClassifier.escalationReasons(for: normalized, known: known)
         return ValidatedChange(
             changeId: change.id,
@@ -151,6 +153,14 @@ public enum ActionValidator {
         var warnings: [ActionWarning] = []
         let patched = update.changes.applied(to: current)
         let normalized = try normalize(patched, warnings: &warnings)
+
+        // The scheme rule guards authored values, not pre-existing ones:
+        // checked only when the patch writes the value or the type, so
+        // pinning the user's own non-https action is not refused over a
+        // value nobody proposed.
+        if update.changes.fields.contains(.value) || update.changes.fields.contains(.type) {
+            try validateURLScheme(normalized)
+        }
 
         if normalized.name != current.name {
             warnings.append(contentsOf: nameWarnings(for: normalized, known: known))
@@ -290,6 +300,17 @@ public enum ActionValidator {
             .strippingControlCharacters(keepingNewlines: false)
             .normalizingSmartQuotes()
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Authored url actions are https-only, matching the webhook rule. This
+    /// value is the one field a remote agent can turn into "open something on
+    /// the user's Mac": a `file://` or app-scheme value launches rather than
+    /// sends, which the approval callout ("sends your selected text to the
+    /// URL") would misdescribe. The in-app editor is unrestricted; anything
+    /// else is the user acting on their own machine.
+    private static func validateURLScheme(_ action: ActionSnapshot) throws {
+        guard action.type == .url, !action.value.lowercased().hasPrefix("https://") else { return }
+        throw ActionRejection.urlActionMustUseHTTPS
     }
 
     // MARK: - Warnings

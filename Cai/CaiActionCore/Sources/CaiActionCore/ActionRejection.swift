@@ -24,6 +24,7 @@ public enum ActionRejection: Error, Equatable, Sendable {
     case emptyPatch
     case missingExpectedValue(field: String)
     case valueMismatch(field: String, expected: String, current: String)
+    case urlActionMustUseHTTPS
 
     /// Plain-language explanation, safe to hand straight to an agent or to
     /// write into the audit log.
@@ -64,6 +65,8 @@ public enum ActionRejection: Error, Equatable, Sendable {
             return "'\(field)' changed in Cai after this update was prepared, so it was not applied. "
                 + "Expected \(expectedExcerpt) but found \(currentExcerpt). "
                 + "Read the action again and send a fresh update."
+        case .urlActionMustUseHTTPS:
+            return "URL actions must use https. For anything else, ask the user to create the action in Cai's shortcut editor."
         }
     }
 

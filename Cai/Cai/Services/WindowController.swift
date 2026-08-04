@@ -823,8 +823,12 @@ class WindowController: NSObject, ObservableObject {
             context.duration = 0.2
             toast.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            self?.toastWindow?.orderOut(nil)
-            self?.toastWindow = nil
+            // Act on the panel this fade belongs to, not on `toastWindow`: a
+            // successor presented inside the fade window (an arrival toast
+            // landing right as the previous one finishes) would otherwise be
+            // ordered out by a completion that isn't theirs.
+            toast.orderOut(nil)
+            if self?.toastWindow === toast { self?.toastWindow = nil }
         })
     }
 }

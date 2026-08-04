@@ -143,7 +143,7 @@ extension ProposalStatus {
             statuses.append(ProposalStatus(
                 id: file.lastPathComponent.replacingOccurrences(of: ".rejection.json", with: ""),
                 state: record?.outcome == .declined ? .declined : .refused,
-                reason: record?.reason,
+                reason: (record?.reason).map { Self.clamp($0, limit: 500, keepingNewlines: true) },
                 label: record?.actionName.map { Self.clamp($0) },
                 client: record?.client.map { Self.clamp($0) }
             ))
@@ -168,7 +168,13 @@ extension ProposalStatus {
     /// go straight into every connected agent's context. A valid name is at
     /// most 60 characters (`ActionValidator`), but validation has not run yet
     /// when a pending file is listed, so the length has to be enforced here.
-    static func clamp(_ text: String, limit: Int = 80) -> String {
-        text.count <= limit ? text : String(text.prefix(limit)) + "…"
+    /// Control characters get the same treatment as the length: a label is a
+    /// single line by design, so one carrying `\n\nSYSTEM:` or a bidi override
+    /// must not reach the agent with its fake structure intact. Reasons keep
+    /// their newlines (a mismatch excerpt is more useful formatted) but lose
+    /// everything else, and get a wider bound so a legit excerpt survives.
+    static func clamp(_ text: String, limit: Int = 80, keepingNewlines: Bool = false) -> String {
+        let cleaned = text.strippingControlCharacters(keepingNewlines: keepingNewlines)
+        return cleaned.count <= limit ? cleaned : String(cleaned.prefix(limit)) + "…"
     }
 }

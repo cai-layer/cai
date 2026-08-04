@@ -155,6 +155,30 @@ final class ActionValidatorTests: XCTestCase {
                 expected: .valueMismatch(field: "next", expected: "Slack", current: ""),
                 line: #line
             ),
+            RejectionCase(
+                label: "url action on http",
+                change: CoreFixture.createChange(CoreFixture.draft(type: .url, value: "http://example.com/?q=%s")),
+                expected: .urlActionMustUseHTTPS,
+                line: #line
+            ),
+            RejectionCase(
+                label: "url action on a file scheme",
+                change: CoreFixture.createChange(CoreFixture.draft(type: .url, value: "file:///etc/passwd")),
+                expected: .urlActionMustUseHTTPS,
+                line: #line
+            ),
+            RejectionCase(
+                label: "url action on an app scheme",
+                change: CoreFixture.createChange(CoreFixture.draft(type: .url, value: "cursor://open")),
+                expected: .urlActionMustUseHTTPS,
+                line: #line
+            ),
+            RejectionCase(
+                label: "url action with no scheme at all",
+                change: CoreFixture.createChange(CoreFixture.draft(type: .url, value: "example.com/?q=%s")),
+                expected: .urlActionMustUseHTTPS,
+                line: #line
+            ),
         ]
 
         for testCase in cases {
@@ -191,6 +215,43 @@ final class ActionValidatorTests: XCTestCase {
         XCTAssertTrue(ActionValidator.hasRoomForAnotherChange(pendingCount: 49))
         XCTAssertFalse(ActionValidator.hasRoomForAnotherChange(pendingCount: 50))
         XCTAssertFalse(ActionValidator.hasRoomForAnotherChange(pendingCount: 51))
+    }
+
+    // MARK: - URL scheme policy
+
+    func testAnHTTPSURLActionPasses() throws {
+        let change = CoreFixture.createChange(CoreFixture.draft(
+            type: .url,
+            value: "https://www.google.com/search?q=%s"
+        ))
+        let validated = try ActionValidator.validate(change, known: CoreFixture.known)
+        XCTAssertEqual(validated.after.type, .url)
+    }
+
+    func testAnUppercaseHTTPSSchemePasses() throws {
+        let change = CoreFixture.createChange(CoreFixture.draft(type: .url, value: "HTTPS://example.com/%s"))
+        XCTAssertNoThrow(try ActionValidator.validate(change, known: CoreFixture.known))
+    }
+
+    /// The rule guards authored values, not pre-existing ones: touching an
+    /// unrelated field of the user's own non-https action must not be refused
+    /// over a value nobody proposed, but rewriting the value is authored.
+    func testTheSchemeRuleOnlyAppliesToFieldsThePatchWrites() throws {
+        let known = KnownActions(shortcuts: [CoreFixture.snapshot(type: .url, value: "myapp://open")])
+
+        let pinOnly = CoreFixture.updateChange(
+            changes: ActionPatch(pinned: true),
+            expected: ActionPatch(pinned: false)
+        )
+        XCTAssertNoThrow(try ActionValidator.validate(pinOnly, known: known))
+
+        let rewrite = CoreFixture.updateChange(
+            changes: ActionPatch(value: "myapp://elsewhere"),
+            expected: ActionPatch(value: "myapp://open")
+        )
+        XCTAssertThrowsError(try ActionValidator.validate(rewrite, known: known)) { error in
+            XCTAssertEqual(error as? ActionRejection, .urlActionMustUseHTTPS)
+        }
     }
 
     // MARK: - Normalization

@@ -75,8 +75,9 @@ enum Tools {
             Types:
             - prompt: sends the selection plus your prompt text to the user's model. Write the \
             prompt as an instruction about "the selected text".
-            - url: opens a URL. Use %s where the selection should be substituted, for example \
-            https://www.google.com/search?q=%s
+            - url: opens an https URL. Use %s where the selection should be substituted, for \
+            example https://www.google.com/search?q=%s. Other schemes are refused; the user can \
+            create those by hand in Cai.
             - shell: runs a shell command. Use {{result}} where the selection should go; Cai \
             escapes it for you, so do not add quotes around it. Shell actions always require an \
             extra confirmation from the user, so keep them to one obvious job.
@@ -192,10 +193,11 @@ enum Tools {
             Propose a change to an existing Cai action. Send only the fields you are changing. \
             The user sees the change as a diff and approves it before it takes effect.
 
-            Get the id from list_actions. Your changes replace whole fields over the action's \
-            current state; nothing is merged, and edits are not detected. If time has passed \
-            since you read the action, read it again with get_action before proposing, or your \
-            rewrite may silently discard an edit the user made in the meantime.
+            Get the id from list_actions, and read the action with get_action right before \
+            proposing: your changes replace whole fields over the action's current state. If the \
+            action changed in Cai after your read, the proposal is refused with what it found \
+            instead, and you send it again from a fresh read. Nothing is ever overwritten behind \
+            the user's back.
 
             Changeable fields: name, type, value, autoReplaceSelection, runInBackground, pinned, next.
             """,

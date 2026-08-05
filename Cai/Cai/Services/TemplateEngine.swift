@@ -1,3 +1,4 @@
+import CaiActionCore
 import Foundation
 
 // MARK: - Template Engine
@@ -31,6 +32,32 @@ struct TemplateEngine {
         case raw
     }
 
+    /// What a call site may do with `{{SECRET_NAME}}` references.
+    ///
+    /// **This is a property of the destination, not of `Context`.** `Context`
+    /// selects an escaping filter, and two very different sinks share
+    /// `Context.raw`: webhook headers, where a token is the whole point, and LLM
+    /// prompts, whose rendered output goes verbatim to a model. So the call site
+    /// has to say, and the safe answer is the default: passing `nil` refuses.
+    ///
+    /// Refusal throws rather than resolving to empty. An action that appears to
+    /// work while sending no credential is the failure people ship.
+    enum SecretAccess {
+        /// The value is substituted into the output. Webhook headers and bodies.
+        case substituted([String: SecretValue])
+        /// The output gets `"$CAI_SECRET_NAME"` and the value is handed to the
+        /// process environment instead, so it never enters `argv` where any
+        /// same-user process could read it from `ps`. Shell commands.
+        case environmentReference([String: SecretValue])
+
+        var values: [String: SecretValue] {
+            switch self {
+            case .substituted(let values), .environmentReference(let values):
+                return values
+            }
+        }
+    }
+
     /// Errors thrown during template parsing or filter execution.
     enum FilterError: Error, LocalizedError {
         case parseError(String)
@@ -38,6 +65,12 @@ struct TemplateEngine {
         case badArgument(String, filter: String)
         case llmFailed(String)
         case busy
+        /// The template reaches for a secret in a place secrets may not go.
+        case secretNotAllowed(name: String)
+        /// The template reaches for a secret that does not exist.
+        case unknownSecret(name: String)
+        /// A filter that would move a secret somewhere it must not go.
+        case secretThroughFilter(name: String, filter: String)
 
         var errorDescription: String? {
             switch self {
@@ -51,6 +84,12 @@ struct TemplateEngine {
                 return "LLM filter failed: \(detail)"
             case .busy:
                 return "Cai is busy. Try again in a moment."
+            case .secretNotAllowed(let name):
+                return "{{\(name)}} can't be used here. Secrets work in shell commands and webhooks, not in prompts, because a prompt is sent to the model."
+            case .unknownSecret(let name):
+                return "No secret named \(name). Add it in Settings → Secrets."
+            case .secretThroughFilter(let name, let filter):
+                return "{{\(name)}} can't go through |\(filter). A secret would be sent to the model."
             }
         }
     }
@@ -78,7 +117,8 @@ struct TemplateEngine {
         _ template: String,
         vars: [String: String],
         context: Context,
-        sourceBundleId: String? = nil
+        sourceBundleId: String? = nil,
+        secrets: SecretAccess? = nil
     ) async throws -> String {
         let segments = try parse(template)
         var output = ""
@@ -86,6 +126,16 @@ struct TemplateEngine {
             switch segment {
             case .literal(let text):
                 output += text
+            case .placeholder(let varName, let filters)
+                where SecretReference.isValidName(varName):
+                // Upper-case placeholders are secret references, and every sink
+                // that has not opted in refuses them. See `SecretAccess`.
+                output += try await resolveSecret(
+                    named: varName,
+                    filterNames: filters.map(\.name),
+                    access: secrets,
+                    context: context
+                )
             case .placeholder(let varName, let filters):
                 // Unknown variable → empty string. We don't throw here because copying
                 // templates between contexts (e.g. {{title}} in a shell shortcut) is
@@ -119,6 +169,71 @@ struct TemplateEngine {
             }
         }
         return output
+    }
+
+    // MARK: - Secrets
+
+    /// Filters a secret may pass through. An allowlist, because the question is
+    /// not "which filters are dangerous" but "which are known to keep the value
+    /// where it is going". `|llm` is the one that matters: it would send the
+    /// secret to the model, which is the entire thing this design prevents.
+    static let filtersAllowedOnSecrets: Set<String> = ["json", "url_encode", "raw"]
+
+    /// Resolves one `{{SECRET_NAME}}` placeholder, or throws.
+    ///
+    /// Takes its values as an argument rather than reading the Keychain, so the
+    /// whole policy is covered by `SecretPolicyTests` without a live store.
+    static func resolveSecret(
+        named name: String,
+        filterNames: [String],
+        access: SecretAccess?,
+        context: Context
+    ) async throws -> String {
+        guard let access else {
+            throw FilterError.secretNotAllowed(name: name)
+        }
+        guard let secret = access.values[name] else {
+            throw FilterError.unknownSecret(name: name)
+        }
+
+        if let offending = filterNames.first(where: { !filtersAllowedOnSecrets.contains($0) }) {
+            throw FilterError.secretThroughFilter(name: name, filter: offending)
+        }
+
+        switch access {
+        case .environmentReference:
+            // The value never enters the rendered command. Double-quoted so a
+            // secret containing spaces stays one word, and no escaping filter is
+            // applied, since the shell expands this after we are done.
+            guard filterNames.isEmpty else {
+                throw FilterError.badArgument(
+                    "a secret in a shell command is passed through the environment, so filters do not apply to it",
+                    filter: filterNames[0]
+                )
+            }
+            return "\"$\(SecretReference.environmentVariable(for: name))\""
+
+        case .substituted:
+            var value = secret.raw
+            var chain = filterNames.map { FilterCall(name: $0, args: []) }
+            // Same safe-by-default rule as ordinary variables: end in the
+            // context's escape unless the author opted out with |raw.
+            if let safety = safetyFilter(for: context),
+               filtersAllowedOnSecrets.contains(safety),
+               chain.last?.name != "raw", chain.last?.name != safety {
+                chain.append(FilterCall(name: safety, args: []))
+            }
+            for call in chain {
+                guard let filter = filterRegistry[call.name] else {
+                    throw FilterError.unknownFilter(call.name)
+                }
+                // `sourceBundleId` is deliberately not forwarded: it exists to
+                // give `|llm` its Context Snippet, and no filter reachable from
+                // here talks to a model.
+                value = try await filter.apply(value, args: call.args, sourceBundleId: nil)
+            }
+            return value
+        }
     }
 
     // MARK: - Default Filter per Context

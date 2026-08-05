@@ -29,6 +29,12 @@ import os
 /// All pipe I/O goes through `DispatchIO`, which can be torn down at that
 /// deadline; blocking reads on a queue would park their threads forever in
 /// exactly these cases.
+///
+/// **Exit is signalled, not polled.** `waitUntilExit()` blocks its thread on a
+/// run loop and deadlocks when called off the main thread under load (a worker
+/// thread parks forever for a command that already exited). Exit comes from
+/// `terminationHandler` through `ProcessExitSignal` instead, which parks no
+/// thread. This is what let the suite hang after a few hundred cumulative runs.
 enum ShellRunner {
 
     /// 60 seconds. Comfortable buffer for a `|llm` filter cold start (~5-15s)
@@ -47,7 +53,8 @@ enum ShellRunner {
     static let truncationMarker = "\n[output truncated at 10 MB]"
 
     /// How long after SIGTERM before SIGKILL. SIGTERM is trappable; a command
-    /// that ignores it would otherwise block `waitUntilExit` forever.
+    /// that ignores it would otherwise never terminate and the exit signal
+    /// would never fire.
     private static let killGrace: TimeInterval = 2
 
     /// How long after process exit the drains may wait for EOF. Buffered data
@@ -117,6 +124,17 @@ enum ShellRunner {
         // never listening.
         _ = fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
 
+        // Signal exit through `terminationHandler`, not `waitUntilExit()`.
+        // `waitUntilExit` blocks its thread by running a run loop and depends on
+        // Foundation delivering the child's termination there, which deadlocks
+        // when it is called off the main thread: under load a worker thread
+        // parks in `waitUntilExit` forever for a command that already exited.
+        // `terminationHandler` fires on a Foundation-internal queue with no
+        // parked thread and no run-loop dependency. Set before `run()` so the
+        // handler cannot miss a process that exits immediately.
+        let exit = ProcessExitSignal()
+        process.terminationHandler = { _ in exit.fire() }
+
         try process.run()
 
         let stdoutReader = PipeReader(outputPipe.fileHandleForReading, cap: maxOutputBytes)
@@ -133,7 +151,7 @@ enum ShellRunner {
                 kill(process.processIdentifier, SIGKILL)
             }
         }
-        await waitForExit(process)
+        await exit.wait()
         timeoutTask.cancel()
         let timedOut = timedOutFlag.withLock { $0 }
 
@@ -169,27 +187,6 @@ enum ShellRunner {
         )
     }
 
-    // MARK: - Process exit, off the cooperative pool
-
-    /// `waitUntilExit` blocks its thread, so it goes to a dedicated queue rather
-    /// than `Task.detached`: detached tasks run on the cooperative pool, which
-    /// has roughly one thread per core, and blocking there stops other tasks
-    /// from being scheduled. Bounded by the SIGKILL escalation above. Concurrent
-    /// because several commands can be in flight at once.
-    private static let ioQueue = DispatchQueue(
-        label: "com.soyasis.cai.shell",
-        attributes: .concurrent
-    )
-
-    private static func waitForExit(_ process: Process) async {
-        await withCheckedContinuation { continuation in
-            ioQueue.async {
-                process.waitUntilExit()
-                continuation.resume()
-            }
-        }
-    }
-
     /// The error every caller that surfaces a timeout to the user throws.
     ///
     /// Phrasing avoids "timed out" deliberately: `ResultView`'s provider-error
@@ -199,6 +196,45 @@ enum ShellRunner {
         NSError(domain: "Cai", code: 1, userInfo: [
             NSLocalizedDescriptionKey: "Shell command exceeded \(Int(seconds))s and was stopped"
         ])
+    }
+}
+
+// MARK: - Process exit
+
+/// Bridges `Process.terminationHandler` to one `await`.
+///
+/// The handler is registered before `run()` and fires exactly once when the
+/// process exits (including after our SIGTERM or SIGKILL). `wait()` returns
+/// immediately if exit already happened, otherwise parks a continuation for the
+/// handler to resume. The lock makes the fire/wait race safe in both orders and
+/// guarantees a single resume.
+private final class ProcessExitSignal: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: State())
+
+    private struct State {
+        var exited = false
+        var waiter: CheckedContinuation<Void, Never>?
+    }
+
+    func fire() {
+        let waiter = lock.withLock { state -> CheckedContinuation<Void, Never>? in
+            guard !state.exited else { return nil }
+            state.exited = true
+            defer { state.waiter = nil }
+            return state.waiter
+        }
+        waiter?.resume()
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let alreadyExited = lock.withLock { state -> Bool in
+                if state.exited { return true }
+                state.waiter = continuation
+                return false
+            }
+            if alreadyExited { continuation.resume() }
+        }
     }
 }
 

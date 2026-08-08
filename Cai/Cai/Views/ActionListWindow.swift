@@ -53,6 +53,7 @@ struct ActionListWindow: View {
     @State private var showDestinationsManagement: Bool = false
     @State private var showExtensionBrowser: Bool = false
     @State private var showConnectors: Bool = false
+    @State private var showSecretsManagement: Bool = false
     /// Which tab the MCP screen opens on. Settings opens Server (the release
     /// headline); the missing-credentials redirect opens Client, because that
     /// user was sent here to enter an API key.
@@ -96,6 +97,7 @@ struct ActionListWindow: View {
         if showExtensionConfirm { return .extensionConfirm }
         if showMCPForm { return .mcpForm }
         if showConnectors { return .connectors }
+        if showSecretsManagement { return .secretsManagement }
         if showExtensionBrowser { return .extensionBrowser }
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
@@ -107,7 +109,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors
+        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors, secretsManagement
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -176,6 +178,7 @@ struct ActionListWindow: View {
             .onChange(of: showDestinationsManagement) { updateFilterInputFlag() }
             .onChange(of: showMCPForm) { updateFilterInputFlag() }
             .onChange(of: showConnectors) { updateFilterInputFlag() }
+            .onChange(of: showSecretsManagement) { updateFilterInputFlag() }
             .onChange(of: showExtensionConfirm) { updateFilterInputFlag() }
             .onChange(of: showFollowUpInput) { updateFilterInputFlag() }
             .onAppear {
@@ -253,6 +256,7 @@ struct ActionListWindow: View {
                     showExtensionConfirm = false
                     showMCPForm = false
                     showConnectors = false
+                    showSecretsManagement = false
                     activeMCPActionConfig = nil
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = true
@@ -310,6 +314,13 @@ struct ActionListWindow: View {
         } else if showConnectors {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showConnectors = false
+                showSettings = true
+            }
+        } else if showSecretsManagement {
+            // Esc closes an open add/import form first, the screen second.
+            if SecretsManagementView.escInterceptor?() == true { return }
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showSecretsManagement = false
                 showSettings = true
             }
         } else if showExtensionBrowser {
@@ -716,6 +727,12 @@ struct ActionListWindow: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = false
                         showConnectors = true
+                    }
+                },
+                onShowSecrets: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                        showSecretsManagement = true
                     }
                 },
                 onShowModelSetup: {
@@ -1536,6 +1553,15 @@ struct ActionListWindow: View {
                     }
                 },
                 initialTab: connectorsInitialTab
+            )
+        } else if showSecretsManagement {
+            SecretsManagementView(
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSecretsManagement = false
+                        showSettings = true
+                    }
+                }
             )
         } else if showShortcutsManagement {
             ActionsManagementView(

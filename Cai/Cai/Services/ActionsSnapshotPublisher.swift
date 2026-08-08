@@ -68,6 +68,14 @@ final class ActionsSnapshotPublisher {
             actions: known.shortcuts,
             destinations: known.destinations,
             builtInActionNames: known.builtInActionNames,
+            // Names only — so an agent references the secret the user actually
+            // stored. Gated on the kill switch: when authoring is off the agent
+            // can't act, so names don't leave the app at all (flipping the
+            // switch republishes, so they come back on enable). `list()` sorts
+            // and drops the values; it also maps a locked Keychain to empty, so
+            // a republish while locked briefly omits the names until the next
+            // one — transient and self-healing.
+            secretNames: settings.allowAgentProposals ? SecretStore.list().map(\.name) : [],
             agentAuthoringEnabled: settings.allowAgentProposals
         )
 

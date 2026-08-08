@@ -172,7 +172,7 @@ struct ActionReviewView: View {
                 chainBlock(for: validated.after)
             }
 
-            callout(for: validated.escalationReasons)
+            callout(for: validated.escalationReasons, in: validated.after)
 
             metadata(for: proposal)
 
@@ -314,8 +314,14 @@ struct ActionReviewView: View {
     /// "This action" down the sheet and pushes the buttons off the fold, so
     /// two or more collapse into a single headed list.
     @ViewBuilder
-    private func callout(for reasons: [EscalationReason]) -> some View {
-        switch ActionReviewPresentation.callout(for: reasons) {
+    private func callout(for reasons: [EscalationReason], in action: ActionSnapshot) -> some View {
+        // Names are scanned from the payload on screen at render time, never
+        // read from the stored validation (CAI-25): what the callout claims is
+        // exactly what the text the user is reading reaches for.
+        switch ActionReviewPresentation.callout(
+            for: reasons,
+            secretNames: Array(SecretReference.names(in: action.value))
+        ) {
         case .none:
             EmptyView()
 

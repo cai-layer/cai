@@ -79,8 +79,11 @@ enum Tools {
             example https://www.google.com/search?q=%s. Other schemes are refused; the user can \
             create those by hand in Cai.
             - shell: runs a shell command. Use {{result}} where the selection should go; Cai \
-            escapes it for you, so do not add quotes around it. Shell actions always require an \
-            extra confirmation from the user, so keep them to one obvious job.
+            escapes it for you, so do not add quotes around it. To use a stored credential, \
+            write {{secrets.NAME}} and keep it inside double quotes, never single quotes; \
+            list_actions shows which secret names exist, so use one of those exact names and \
+            never paste a real token into the command. Shell actions always require an extra \
+            confirmation from the user, so keep them to one obvious job.
 
             Flags: autoReplaceSelection pastes the model's answer straight over the user's \
             selection (prompt actions only). runInBackground skips showing output (shell actions \

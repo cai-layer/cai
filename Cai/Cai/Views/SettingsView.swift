@@ -10,6 +10,7 @@ struct SettingsView: View {
     var onShowDestinations: (() -> Void)? = nil
     var onShowExtensions: (() -> Void)? = nil
     var onShowConnectors: (() -> Void)? = nil
+    var onShowSecrets: (() -> Void)? = nil
     var onShowBuiltInActions: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
     var onDismiss: (() -> Void)? = nil
@@ -21,6 +22,9 @@ struct SettingsView: View {
     @State private var llmStatusError: String? = nil
     /// Available models from the current provider
     @State private var availableModels: [String] = []
+    /// Secret count for the nav row, read once when settings opens instead of
+    /// enumerating the Keychain (`SecItemCopyMatching`) on every body redraw.
+    @State private var secretCount: Int = 0
     /// Debounce task for LLM status checks (prevents API call storms during typing)
     @State private var statusCheckTask: Task<Void, Never>?
     /// Debounce task for model list fetches (prevents API call storms during key paste/typing)
@@ -291,6 +295,14 @@ struct SettingsView: View {
                         settingsDivider
 
                         mcpNavRow
+
+                        settingsDivider
+
+                        // Own top-level row (SECRETS-MLP-PLAN locked decision 7):
+                        // shell actions, chains and destinations all consume
+                        // secrets, so filing it under any one would hide it
+                        // from the others.
+                        navRow(label: "Secrets", count: secretCount, action: onShowSecrets)
                     }
 
                     Button(action: onShowExtensions ?? {}) {
@@ -581,6 +593,7 @@ struct SettingsView: View {
             permissions.checkAccessibilityPermission()
             checkLLMStatus()
             fetchAvailableModels()
+            secretCount = SecretStore.list().count
         }
     }
 

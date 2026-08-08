@@ -49,9 +49,13 @@ struct ManagementScreen<Tab: Hashable, Content: View>: View {
             header
             Divider().background(Color.caiDivider)
 
-            TabBar(selection: $selection, tabs: tabs)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+            // Single-list screens (Secrets) pass no tabs: a one-pill TabBar is
+            // noise, so the content sits directly under the header.
+            if !tabs.isEmpty {
+                TabBar(selection: $selection, tabs: tabs)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
 
             content()
 
@@ -82,8 +86,9 @@ struct ManagementScreen<Tab: Hashable, Content: View>: View {
             // `+` only on the configured custom tab. Always visible there
             // (even while editing) so the user can interrupt and start a
             // fresh add — caller's `onAdd` is responsible for cancelling
-            // any in-progress form first.
-            if let customTabId, let onAdd, selection == customTabId {
+            // any in-progress form first. Tab-less screens have no gate:
+            // `onAdd` alone shows it.
+            if let onAdd, tabs.isEmpty || (customTabId != nil && selection == customTabId) {
                 Button(action: onAdd) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 16, weight: .medium))
@@ -124,6 +129,12 @@ struct ManagementEmptyState: View {
     var ctaLabel: String? = nil
     var ctaIcon: String? = nil
     var ctaAction: (() -> Void)? = nil
+    /// Optional second CTA, same neutral vocabulary. Deliberately rare: the
+    /// Secrets empty state is the one screen where two next steps (add,
+    /// import) genuinely compete for the first click.
+    var secondaryCtaLabel: String? = nil
+    var secondaryCtaIcon: String? = nil
+    var secondaryCtaAction: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 12) {
@@ -144,32 +155,43 @@ struct ManagementEmptyState: View {
                     .padding(.horizontal, 24)
             }
 
-            if let ctaLabel, let ctaAction {
-                Button(action: ctaAction) {
-                    HStack(spacing: 4) {
-                        if let ctaIcon {
-                            Image(systemName: ctaIcon)
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                        Text(ctaLabel)
-                            .font(.system(size: 11, weight: .medium))
+            if ctaAction != nil || secondaryCtaAction != nil {
+                HStack(spacing: 8) {
+                    if let ctaLabel, let ctaAction {
+                        ctaButton(label: ctaLabel, icon: ctaIcon, action: ctaAction)
                     }
-                    .foregroundColor(.caiTextSecondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.caiSurface.opacity(0.6))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
-                    )
+                    if let secondaryCtaLabel, let secondaryCtaAction {
+                        ctaButton(label: secondaryCtaLabel, icon: secondaryCtaIcon, action: secondaryCtaAction)
+                    }
                 }
-                .buttonStyle(.plain)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 120)
         .padding(.vertical, 24)
+    }
+
+    private func ctaButton(label: String, icon: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .medium))
+                }
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundColor(.caiTextSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.caiSurface.opacity(0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }

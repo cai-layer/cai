@@ -27,7 +27,13 @@ enum ActionReviewPresentation {
     // MARK: - Escalation copy
 
     /// The plain-language warning shown under the payload, one per reason.
-    static func callout(for reason: EscalationReason) -> String {
+    ///
+    /// `secretNames` is scanned from the proposal's template at render time
+    /// (never taken from the stored validation — CAI-25), so a
+    /// `referencesSecrets` callout names exactly what the payload on screen
+    /// reaches for. Empty names still warn, just generically: a chained action
+    /// can carry the reason while the proposal's own text has no reference.
+    static func callout(for reason: EscalationReason, secretNames: [String] = []) -> String {
         switch reason {
         case .runsShellCommands:
             return "This action can run terminal commands on your Mac."
@@ -39,7 +45,20 @@ enum ActionReviewPresentation {
             return "This action runs without showing its output."
         case .chainsToUnknownAction:
             return "This action triggers another action that doesn't exist yet, so Cai can't say what it will do."
+        case .referencesSecrets:
+            guard !secretNames.isEmpty else {
+                return "This action uses one of your secrets."
+            }
+            let noun = secretNames.count == 1 ? "secret" : "secrets"
+            return "This action uses your \(noun) \(secretList(secretNames))."
         }
+    }
+
+    /// "A" / "A and B" / "A, B and C" — names only, never values.
+    static func secretList(_ names: [String]) -> String {
+        let sorted = names.sorted()
+        guard sorted.count > 1 else { return sorted.first ?? "" }
+        return sorted.dropLast().joined(separator: ", ") + " and " + sorted[sorted.count - 1]
     }
 
     /// Lead-in for the grouped callout, used when an action carries more than
@@ -49,7 +68,7 @@ enum ActionReviewPresentation {
     /// One risk as a list item, for the grouped callout. Same claim as the
     /// sentence form, minus the repeated "This action" that reads as noise
     /// once it is stacked three deep.
-    static func calloutBullet(for reason: EscalationReason) -> String {
+    static func calloutBullet(for reason: EscalationReason, secretNames: [String] = []) -> String {
         switch reason {
         case .runsShellCommands:
             return "Run terminal commands on your Mac"
@@ -61,6 +80,10 @@ enum ActionReviewPresentation {
             return "Run without showing its output"
         case .chainsToUnknownAction:
             return "Trigger another action that doesn't exist yet"
+        case .referencesSecrets:
+            guard !secretNames.isEmpty else { return "Use one of your secrets" }
+            let noun = secretNames.count == 1 ? "secret" : "secrets"
+            return "Use your \(noun) \(secretList(secretNames))"
         }
     }
 
@@ -73,14 +96,17 @@ enum ActionReviewPresentation {
         case grouped(header: String, bullets: [String])
     }
 
-    static func callout(for reasons: [EscalationReason]) -> Callout {
+    static func callout(for reasons: [EscalationReason], secretNames: [String] = []) -> Callout {
         switch reasons.count {
         case 0:
             return .none
         case 1:
-            return .sentence(callout(for: reasons[0]))
+            return .sentence(callout(for: reasons[0], secretNames: secretNames))
         default:
-            return .grouped(header: calloutHeader, bullets: reasons.map(calloutBullet))
+            return .grouped(
+                header: calloutHeader,
+                bullets: reasons.map { calloutBullet(for: $0, secretNames: secretNames) }
+            )
         }
     }
 

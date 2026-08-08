@@ -91,7 +91,7 @@ struct TemplateEngine {
             case .secretNotAllowed(let name):
                 return "{{secrets.\(name)}} can't be used here. Secrets work only in shell commands for now."
             case .unknownSecret(let name):
-                return "No secret named \(name) is stored on this Mac."
+                return "No secret named \(name) is stored on this Mac. Add it in Settings → Secrets."
             case .secretThroughFilter(let name, let filter):
                 return "{{secrets.\(name)}} can't go through |\(filter). Filters could move the value somewhere Cai can't protect."
             case .keychainUnavailable(let status):

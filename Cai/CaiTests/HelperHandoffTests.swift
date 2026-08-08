@@ -38,6 +38,29 @@ final class HelperHandoffTests: XCTestCase {
         )
     }
 
+    func testASnapshotWrittenBeforeSecretNamesStillDecodes() throws {
+        // A file the previous app version wrote — no `secretNames` key. It sits
+        // on disk after an update until the app relaunches; the helper must read
+        // it rather than throw and blank list_actions. `secretNames` defaults to
+        // empty, everything else decodes as before.
+        let legacy = """
+        {
+          "schemaVersion": \(ActionSchema.version),
+          "generatedAt": "2001-01-01T00:00:00Z",
+          "actions": [],
+          "destinations": [],
+          "builtInActionNames": ["Summarize"],
+          "agentAuthoringEnabled": true
+        }
+        """
+        let snapshot = try ActionCoding.decoder.decode(
+            ActionsSnapshot.self, from: Data(legacy.utf8)
+        )
+        XCTAssertEqual(snapshot.secretNames, [])
+        XCTAssertEqual(snapshot.builtInActionNames, ["Summarize"])
+        XCTAssertTrue(snapshot.agentAuthoringEnabled)
+    }
+
     func testSnapshotIsOwnerOnly() throws {
         ActionsSnapshotPublisher(root: root).publishNow()
 

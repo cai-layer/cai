@@ -71,6 +71,12 @@ enum ShellRunner {
         /// by signal too and used to be misreported as "exceeded 60s".
         let timedOut: Bool
 
+        /// stdout and/or stderr hit `maxOutputBytes` and were capped. The
+        /// surviving text carries `truncationMarker`, but a caller that parses
+        /// the stream (ShellEnvCapture) needs the flag, not the marker text, to
+        /// know its last record may be a fragment.
+        let truncated: Bool
+
         /// stdout with surrounding whitespace removed, which is what every
         /// caller that propagates output actually wants.
         var trimmedStdout: String {
@@ -102,11 +108,17 @@ enum ShellRunner {
         stdin: String,
         environment: [String: String]? = nil,
         mergeStderrIntoStdout: Bool = false,
-        timeout: TimeInterval = defaultTimeout
+        timeout: TimeInterval = defaultTimeout,
+        executable: String = "/bin/zsh",
+        flags: String = "-c"
     ) async throws -> Output {
+        // `executable`/`flags` exist for ShellEnvCapture, which runs the user's
+        // own login shell (`$SHELL -ilc …`). Every other caller wants the
+        // defaults; a second Process wrapper would re-meet the SIGPIPE,
+        // pool-starvation and waitUntilExit traps documented below.
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", command]
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = [flags, command]
         process.environment = environment ?? OutputDestinationService.shellEnvironment()
 
         let inputPipe = Pipe()
@@ -183,7 +195,8 @@ enum ShellRunner {
             status: process.terminationStatus,
             stdout: stdout,
             stderr: stderr,
-            timedOut: timedOut
+            timedOut: timedOut,
+            truncated: outTruncated || errTruncated
         )
     }
 

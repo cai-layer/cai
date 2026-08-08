@@ -78,6 +78,7 @@ Scope of the exception, do not widen it without a design decision:
 1. **`.rounded` design variant for accent numerals only** — keyboard shortcut badges, step counts, standalone result counts ("3 found"). All other labels use default SF Pro. Rounded adds warmth at decision points.
 2. **`.monospacedDigit()` on every runtime-changing number.** Prevents layout jitter when digits change width (1→2→3).
 3. **Never use Dynamic Type.** macOS doesn't support it. All sizes are fixed pt.
+4. **SF Mono for secret names, nowhere else** (added 2026-08-08). A secret name is the exact string typed inside `{{secrets.…}}`, so it renders monospaced (12pt medium) everywhere it appears: Secrets rows, the name field, import candidates, the approval callout, the delete alert. Long names truncate `.middle` with the full name in `.help()`. This is an identifier treatment, not a general label style — do not widen it without a design decision.
 
 ---
 
@@ -199,6 +200,7 @@ Parent shell for Settings sub-screens with a Custom + Built-in pattern. Used by 
 
 - **Header:** `icon · title · subtitle` left, `+` right (only on the Custom tab).
 - **TabBar:** neutral active pill on a recessed neutral track. No indigo (per Indigo discipline). Custom always first, Built-in always second.
+- **Single-list variant** (added 2026-08-08): pass `tabs: []` and the shell renders no TabBar, content directly under the header; `+` shows whenever `onAdd` is set. Used by Secrets.
 - **`+` button trigger:** parent's `+` bumps a UUID `@State` that the child watches via `.onChange(of: externalAddTrigger)` to call `cancelForm() + beginAdding()`. Do NOT use `.id()` on the embed — it remounts the child but `.onChange` won't fire on the freshly-mounted instance. See [`SWIFTUI_GOTCHAS.md`](../../_docs/architecture/SWIFTUI_GOTCHAS.md) for details.
 - **Footer:** single `KeyboardHint(key: "Esc", label: "Back")`.
 
@@ -247,7 +249,7 @@ Multi-line form fields use `MultilineTextEditor` (an `NSTextView` wrapper).
 - **Description:** 11pt, `caiTextSecondary.opacity(0.7)`, centered. Tells the user what the thing IS in plain language.
 - **Optional CTA:** neutral button matching `ChipButton` vocabulary — `caiSurface.opacity(0.6)` fill, hairline border. Usually exposes the most likely next step ("Browse Community Extensions").
 
-**The mental rule:** an empty state is a *welcome*, not an error. Warmth + one clear next step.
+**The mental rule:** an empty state is a *welcome*, not an error. Warmth + one clear next step. One deliberate exception (2026-08-08): the Secrets empty state shows two CTAs (Add a Secret, Import from Shell…) because import only sells itself if it is visible the first time; do not add second CTAs elsewhere without a design decision.
 
 ---
 

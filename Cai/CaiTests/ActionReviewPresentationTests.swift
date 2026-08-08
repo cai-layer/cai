@@ -45,6 +45,46 @@ final class ActionReviewPresentationTests: XCTestCase {
         )
     }
 
+    // MARK: - Secrets callout (SECRETS-UI-DESIGN.md surface 5)
+
+    func testTheSecretsCalloutNamesWhatThePayloadReachesFor() {
+        XCTAssertEqual(
+            ActionReviewPresentation.callout(for: .referencesSecrets, secretNames: ["NOTION_API_TOKEN"]),
+            "This action uses your secret NOTION_API_TOKEN."
+        )
+        XCTAssertEqual(
+            ActionReviewPresentation.callout(for: .referencesSecrets, secretNames: ["B_TOKEN", "A_TOKEN"]),
+            "This action uses your secrets A_TOKEN and B_TOKEN."
+        )
+    }
+
+    func testTheSecretsCalloutWithoutNamesStillWarns() {
+        // A chained action can carry the reason while the proposal's own text
+        // has no reference; generic beats silent.
+        XCTAssertEqual(
+            ActionReviewPresentation.callout(for: .referencesSecrets),
+            "This action uses one of your secrets."
+        )
+        XCTAssertEqual(
+            ActionReviewPresentation.calloutBullet(for: .referencesSecrets),
+            "Use one of your secrets"
+        )
+    }
+
+    func testSecretListFormatting() {
+        XCTAssertEqual(ActionReviewPresentation.secretList(["A"]), "A")
+        XCTAssertEqual(ActionReviewPresentation.secretList(["B", "A"]), "A and B")
+        XCTAssertEqual(ActionReviewPresentation.secretList(["C", "A", "B"]), "A, B and C")
+    }
+
+    func testSecretNamesOnlyChangeTheSecretsCallout() {
+        // Passing names must not perturb the other reasons' verbatim copy.
+        XCTAssertEqual(
+            ActionReviewPresentation.callout(for: .runsShellCommands, secretNames: ["NOTION_API_TOKEN"]),
+            "This action can run terminal commands on your Mac."
+        )
+    }
+
     // MARK: - Grouped callout
 
     func testOneRiskKeepsTheSpecsSentence() {
@@ -92,7 +132,7 @@ final class ActionReviewPresentationTests: XCTestCase {
             ActionReviewPresentation.approvedToast(isUpdate: false),
             ActionReviewPresentation.approvedToast(isUpdate: true),
         ]
-        strings += EscalationReason.allCases.map(ActionReviewPresentation.callout)
+        strings += EscalationReason.allCases.map { ActionReviewPresentation.callout(for: $0) }
         strings.append(ActionReviewPresentation.acknowledgmentLabel)
         strings += ActionField.allCases.map(ActionReviewPresentation.fieldLabel)
 

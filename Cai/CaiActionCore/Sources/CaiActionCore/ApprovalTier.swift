@@ -29,6 +29,12 @@ public enum EscalationReason: String, Codable, Equatable, Sendable, CaseIterable
     /// risk is the blind handoff, so it escalates now, while the user is
     /// looking.
     case chainsToUnknownAction
+    /// A template reaches for a `{{secrets.NAME}}` reference. No associated
+    /// names: this enum is `String`-raw `Codable` and persisted with
+    /// proposals, so the sheet re-scans the templates at render time for the
+    /// names — which also means the callout can never show names computed
+    /// from a stale validation (CAI-25).
+    case referencesSecrets
 }
 
 public enum ApprovalClassifier {
@@ -82,6 +88,12 @@ public enum ApprovalClassifier {
             if current.type == .url { found.insert(.sendsSelectionToURL) }
             if current.autoReplaceSelection { found.insert(.replacesSelection) }
             if current.runInBackground { found.insert(.runsWithoutShowingOutput) }
+            // The advisory scanner, not the engine's parser: over-reporting
+            // here makes a proposal look slightly scarier, never less scary,
+            // and execution resolves names through the engine regardless.
+            if SecretReference.referencesAnySecret(current.value) {
+                found.insert(.referencesSecrets)
+            }
 
             guard depth < ActionSchema.maxChainSteps else { continue }
 

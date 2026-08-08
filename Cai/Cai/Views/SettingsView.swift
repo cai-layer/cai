@@ -10,6 +10,7 @@ struct SettingsView: View {
     var onShowDestinations: (() -> Void)? = nil
     var onShowExtensions: (() -> Void)? = nil
     var onShowConnectors: (() -> Void)? = nil
+    var onShowSecrets: (() -> Void)? = nil
     var onShowBuiltInActions: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
     var onDismiss: (() -> Void)? = nil
@@ -291,6 +292,14 @@ struct SettingsView: View {
                         settingsDivider
 
                         mcpNavRow
+
+                        settingsDivider
+
+                        // Own top-level row (SECRETS-MLP-PLAN locked decision 7):
+                        // shell actions, chains and destinations all consume
+                        // secrets, so filing it under any one would hide it
+                        // from the others.
+                        navRow(label: "Secrets", count: SecretStore.list().count, action: onShowSecrets)
                     }
 
                     Button(action: onShowExtensions ?? {}) {

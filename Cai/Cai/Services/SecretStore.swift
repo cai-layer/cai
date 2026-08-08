@@ -47,8 +47,18 @@ enum SecretStore {
 
     // MARK: - Reading
 
-    /// Every stored secret, name and dates only, sorted by name.
-    static func list() -> [SecretDescriptor] {
+    enum ListResult: Equatable {
+        case items([SecretDescriptor])
+        /// The Keychain refused enumeration (locked at wake, ACL mismatch).
+        /// The Secrets screen shows its unavailable banner for this — showing
+        /// "No secrets yet" over a locked keychain invites the user to
+        /// overwrite every secret they own.
+        case unavailable(OSStatus)
+    }
+
+    /// Every stored secret, name and dates only, sorted by name — or why the
+    /// Keychain would not say.
+    static func enumerate() -> ListResult {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -58,12 +68,17 @@ enum SecretStore {
         ]
 
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let items = result as? [[String: Any]] else {
-            return []
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // Zero matching items reports as errSecItemNotFound, which is an
+        // empty store, not a refusal.
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            return .unavailable(status)
+        }
+        guard let items = result as? [[String: Any]] else {
+            return .items([])
         }
 
-        return items.compactMap { attributes -> SecretDescriptor? in
+        let descriptors = items.compactMap { attributes -> SecretDescriptor? in
             guard let account = attributes[kSecAttrAccount as String] as? String,
                   let name = SecretReference.name(fromAccount: account) else {
                 return nil  // the model API keys share this service
@@ -75,6 +90,14 @@ enum SecretStore {
             )
         }
         .sorted { $0.name < $1.name }
+        return .items(descriptors)
+    }
+
+    /// Convenience for callers that treat a refusing Keychain as empty
+    /// (`exists`, counts). Anything user-facing goes through `enumerate()`.
+    static func list() -> [SecretDescriptor] {
+        if case .items(let items) = enumerate() { return items }
+        return []
     }
 
     static func exists(_ name: String) -> Bool {

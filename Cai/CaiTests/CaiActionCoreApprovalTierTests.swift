@@ -49,6 +49,27 @@ final class ApprovalTierTests: XCTestCase {
                 line: #line
             ),
             TierCase(
+                label: "shell reaching for a secret",
+                action: CoreFixture.snapshot(
+                    type: .shell,
+                    value: "curl -H \"Bearer {{secrets.NOTION_API_TOKEN}}\" https://api.notion.com"
+                ),
+                expected: [.runsShellCommands, .referencesSecrets],
+                line: #line
+            ),
+            TierCase(
+                label: "prompt mentioning a secret still flags it (refused at execution, but the approval must not undersell)",
+                action: CoreFixture.snapshot(type: .prompt, value: "Use {{secrets.NOTION_API_TOKEN}}"),
+                expected: [.referencesSecrets],
+                line: #line
+            ),
+            TierCase(
+                label: "bare uppercase placeholder is an ordinary variable, not a secret",
+                action: CoreFixture.snapshot(type: .shell, value: "echo {{API_KEY}}"),
+                expected: [.runsShellCommands],
+                line: #line
+            ),
+            TierCase(
                 label: "prompt chaining into a shell destination",
                 action: CoreFixture.snapshot(next: [.action(name: "Run script")]),
                 expected: [.runsShellCommands],
@@ -142,6 +163,26 @@ final class ApprovalTierTests: XCTestCase {
     }
 
     // MARK: - Chains that reference other actions
+
+    func testAChainedActionsSecretReferenceEscalatesTheProposal() {
+        // The proposal's own text is innocent; the installed action it chains
+        // into reaches for a token. The union must carry both reasons — the
+        // callout falls back to generic copy when the payload on screen has
+        // no reference of its own.
+        let installed = CoreFixture.snapshot(
+            id: UUID(),
+            name: "Post to Notion",
+            type: .shell,
+            value: "curl -H \"Bearer {{secrets.NOTION_API_TOKEN}}\" https://api.notion.com"
+        )
+        let known = KnownActions(shortcuts: [installed], destinations: [], builtInActionNames: [])
+        let proposal = CoreFixture.snapshot(id: UUID(), type: .prompt, next: [.action(name: "Post to Notion")])
+
+        XCTAssertEqual(
+            ApprovalClassifier.escalationReasons(for: proposal, known: known),
+            [.runsShellCommands, .referencesSecrets]
+        )
+    }
 
     func testEscalationFollowsAReferencedShortcutsOwnType() {
         let shellAction = CoreFixture.snapshot(id: CoreFixture.otherId, name: "Deploy", type: .shell, value: "./deploy.sh")

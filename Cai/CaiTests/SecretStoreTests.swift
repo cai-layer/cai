@@ -135,6 +135,18 @@ final class SecretStoreTests: XCTestCase {
         XCTAssertTrue(SecretStore.exists(testName))
     }
 
+    func testEnumerateReportsItemsAndListMatches() {
+        // The unavailable branch can't be forced against a live keychain; what
+        // can be pinned is that the healthy path reports .items and that the
+        // convenience list() is exactly those items.
+        SecretStore.save("v", name: testName)
+        guard case .items(let items) = SecretStore.enumerate() else {
+            return XCTFail("a healthy keychain reported unavailable")
+        }
+        XCTAssertEqual(items, SecretStore.list())
+        XCTAssertTrue(items.contains { $0.name == testName })
+    }
+
     // MARK: - Resolution for a shell command
 
     func testATemplateWithoutSecretsChangesNothing() throws {

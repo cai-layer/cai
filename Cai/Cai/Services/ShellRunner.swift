@@ -102,11 +102,17 @@ enum ShellRunner {
         stdin: String,
         environment: [String: String]? = nil,
         mergeStderrIntoStdout: Bool = false,
-        timeout: TimeInterval = defaultTimeout
+        timeout: TimeInterval = defaultTimeout,
+        executable: String = "/bin/zsh",
+        flags: String = "-c"
     ) async throws -> Output {
+        // `executable`/`flags` exist for ShellEnvCapture, which runs the user's
+        // own login shell (`$SHELL -ilc …`). Every other caller wants the
+        // defaults; a second Process wrapper would re-meet the SIGPIPE,
+        // pool-starvation and waitUntilExit traps documented below.
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", command]
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = [flags, command]
         process.environment = environment ?? OutputDestinationService.shellEnvironment()
 
         let inputPipe = Pipe()

@@ -1,27 +1,36 @@
 import Foundation
 
-/// Named secrets as they appear inside an action: `{{NOTION_API_TOKEN}}`.
+/// Named secrets as they appear inside an action: `{{secrets.NOTION_API_TOKEN}}`.
 ///
 /// The action stores the reference; the value lives in the Keychain and is
 /// resolved at execution time. That is what lets an agent author an action that
 /// uses a token, and a user export or share one, without either seeing it.
 ///
-/// **The name shape is what marks a placeholder as a secret reference.** Every
-/// other variable in Cai is lowercase (`result`, and the MCP form keys), so
-/// upper-case placeholders are unambiguous. Note what this does *not* mean:
-/// nothing is protected because of how it is named. A mistyped reference
-/// resolves to no secret and is refused, never stored or sent. That is the
-/// difference from Keyboard Maestro, where a variable is protected only if its
-/// name contains "password" and a typo silently writes the value to disk.
+/// **The `secrets.` namespace is what marks a placeholder as a secret
+/// reference.** Nothing else can collide with it: ordinary variables (`result`,
+/// setup-field keys, MCP form keys) have no such prefix, whatever their casing,
+/// so no existing template changes meaning. The spelling is GitHub Actions'
+/// (`secrets.NAME`), which is the one most users already know. Note what this
+/// does *not* mean: nothing is protected because of how it is named. A mistyped
+/// reference resolves to no secret and is refused, never stored or sent. That is
+/// the difference from Keyboard Maestro, where a variable is protected only if
+/// its name contains "password" and a typo silently writes the value to disk.
 public enum SecretReference {
+
+    /// Placeholder namespace. `{{secrets.NOTION_API_TOKEN}}` refers to the
+    /// secret named `NOTION_API_TOKEN`.
+    public static let referencePrefix = "secrets."
 
     /// Keychain account prefix. Sits under the same service as the model API
     /// keys, so `cai_secret_` is what separates the two families.
     public static let accountPrefix = "cai_secret_"
 
-    /// Environment variable prefix. A shell template's `{{NOTION_API_TOKEN}}`
-    /// renders as `"$CAI_SECRET_NOTION_API_TOKEN"` and the value arrives through
-    /// the process environment, so it never enters the command line.
+    /// Environment variable prefix. A shell template's
+    /// `{{secrets.NOTION_API_TOKEN}}` renders as
+    /// `"$CAI_SECRET_NOTION_API_TOKEN"` and the value arrives through the
+    /// process environment, so it never enters the command line. The name is the
+    /// env-var name on purpose: the planned fallback resolves a secret Cai does
+    /// not hold from the user's own shell environment, same name, no second copy.
     public static let environmentPrefix = "CAI_SECRET_"
 
     public static let maxNameLength = 64
@@ -29,7 +38,7 @@ public enum SecretReference {
     // MARK: - Names
 
     /// Upper-case, digits and underscores, starting with a letter, 2 to 64
-    /// characters.
+    /// characters. Env-var shape, because the name must survive as one.
     ///
     /// Hand-rolled rather than a regex so the rule is readable and cannot
     /// surprise anyone with backtracking behaviour.
@@ -56,6 +65,24 @@ public enum SecretReference {
         return nil
     }
 
+    /// The secret name inside a placeholder variable, or nil when the variable
+    /// is not in the `secrets.` namespace. `"secrets.NOTION_API_TOKEN"` →
+    /// `"NOTION_API_TOKEN"`; `"result"` → nil; `"secrets.bad-name"` → nil
+    /// (the caller decides whether that is an error, and for the engine it is:
+    /// reaching into the namespace with a broken name must be loud).
+    public static func name(fromReference variable: String) -> String? {
+        guard variable.hasPrefix(referencePrefix) else { return nil }
+        let name = String(variable.dropFirst(referencePrefix.count))
+        return isValidName(name) ? name : nil
+    }
+
+    /// Whether a placeholder variable claims the `secrets.` namespace at all,
+    /// valid name or not. What separates "not a secret" from "a secret
+    /// reference written wrong".
+    public static func claimsNamespace(_ variable: String) -> Bool {
+        variable.hasPrefix(referencePrefix)
+    }
+
     public static func accountName(for name: String) -> String {
         accountPrefix + name
     }
@@ -74,15 +101,21 @@ public enum SecretReference {
 
     // MARK: - Finding references in a template
 
-    /// Every secret name a template refers to.
+    /// Every secret name a template appears to refer to.
     ///
-    /// Deliberately a separate, stricter scanner than `TemplateEngine`'s parser:
-    /// this runs in the shared package so the validator can flag a proposed
-    /// action that reaches for a token, and it must not depend on the app. The
-    /// two agreeing matters, so `SecretReferenceAgreementTests` cross-checks
-    /// them against a corpus rather than trusting that they drift together.
+    /// This is the shared package's scanner, for the validator's question "does
+    /// this proposed action touch a secret?", where it must not depend on the
+    /// app. It is deliberately simpler than `TemplateEngine`'s quote-aware
+    /// parser, and the contract is **it may over-report but must never
+    /// under-report** relative to what the engine resolves: a false positive
+    /// makes a proposal look slightly scarier than it is; a false negative would
+    /// hide a credential from the approval sheet. The agreement test in
+    /// `SecretReferenceTests` pins that direction on a corpus, including the
+    /// quoted-`}}` templates where the two genuinely disagree. Execution never
+    /// trusts this scanner: `SecretStore.prepareForShell` takes its names from
+    /// the engine's own parse.
     ///
-    /// Filters are ignored here: `{{TOKEN|json}}` refers to `TOKEN`.
+    /// Filters are ignored here: `{{secrets.TOKEN|json}}` refers to `TOKEN`.
     public static func names(in template: String) -> Set<String> {
         var found: Set<String> = []
         var remainder = Substring(template)
@@ -95,15 +128,15 @@ public enum SecretReference {
 
             // The variable is everything before the first filter pipe.
             let variable = body.prefix { $0 != "|" }.trimmingCharacters(in: .whitespaces)
-            if isValidName(variable) {
-                found.insert(variable)
+            if let name = name(fromReference: variable) {
+                found.insert(name)
             }
         }
         return found
     }
 
     /// Whether a template refers to any secret at all. The question the
-    /// approval sheet asks.
+    /// approval sheet asks (wired in the secrets-ui PR).
     public static func referencesAnySecret(_ template: String) -> Bool {
         !names(in: template).isEmpty
     }

@@ -81,10 +81,18 @@ enum SecretStore {
         list().contains { $0.name == name }
     }
 
-    /// The value, for the moment of execution. Callers hold it no longer than
-    /// the command that needs it.
-    static func value(for name: String) -> SecretValue? {
-        guard SecretReference.isValidName(name) else { return nil }
+    enum LookupResult: Equatable {
+        case found(SecretValue)
+        case missing
+        /// The Keychain refused the query (locked at wake, ACL mismatch after a
+        /// re-sign, ...). Not the same as missing: telling the user to re-add a
+        /// secret that exists invites them to overwrite it.
+        case unavailable(OSStatus)
+    }
+
+    /// One name against the Keychain, with the failure mode preserved.
+    static func lookup(_ name: String) -> LookupResult {
+        guard SecretReference.isValidName(name) else { return .missing }
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -95,27 +103,45 @@ enum SecretStore {
         ]
 
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
-              let string = String(data: data, encoding: .utf8) else {
-            return nil
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data,
+                  let string = String(data: data, encoding: .utf8) else {
+                return .unavailable(errSecDecode)
+            }
+            return .found(SecretValue(string))
+        case errSecItemNotFound:
+            return .missing
+        default:
+            return .unavailable(status)
         }
-        return SecretValue(string)
     }
 
-    /// Resolves what a template asked for. Missing names come back in
-    /// `missing` so the caller can name them rather than substituting nothing.
-    static func resolve(_ names: Set<String>) -> (found: [String: SecretValue], missing: Set<String>) {
+    /// The value, for the moment of execution. Callers hold it no longer than
+    /// the command that needs it.
+    static func value(for name: String) -> SecretValue? {
+        if case .found(let value) = lookup(name) { return value }
+        return nil
+    }
+
+    /// Resolves what a template asked for, or throws the error the user should
+    /// actually read: `unknownSecret` names the first missing secret rather
+    /// than substituting nothing, and a refusing Keychain is reported as
+    /// unavailable, never as "no such secret".
+    static func resolve(_ names: Set<String>) throws -> [String: SecretValue] {
         var found: [String: SecretValue] = [:]
-        var missing: Set<String> = []
-        for name in names {
-            if let value = value(for: name) {
+        for name in names.sorted() {
+            switch lookup(name) {
+            case .found(let value):
                 found[name] = value
-            } else {
-                missing.insert(name)
+            case .missing:
+                throw TemplateEngine.FilterError.unknownSecret(name: name)
+            case .unavailable(let status):
+                throw TemplateEngine.FilterError.keychainUnavailable(status: status)
             }
         }
-        return (found, missing)
+        return found
     }
 
     // MARK: - Writing
@@ -135,6 +161,11 @@ enum SecretStore {
         if let rejection = SecretReference.nameRejection(name) {
             return .invalidName(rejection)
         }
+        // Pasted tokens routinely arrive with a trailing newline (pbcopy,
+        // terminal copies). Stored verbatim it would both break auth and defeat
+        // redaction, since echoed output carries the token without the newline.
+        // Interior whitespace stays: PEM-style material is legitimate.
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = value.data(using: .utf8) else {
             return .invalidName("That value cannot be stored as text.")
         }
@@ -180,15 +211,15 @@ enum SecretStore {
     /// command that runs with an empty credential fails somewhere far away, and
     /// the user reads the wrong error.
     static func prepareForShell(template: String) throws -> ShellPreparation {
-        let referenced = SecretReference.names(in: template)
+        // The engine's own parse, not the package scanner: the quote-blind
+        // scanner may over-report on `}}` inside quoted filter args, and a
+        // secret must never be handed to a command that does not reference it.
+        let referenced = TemplateEngine.secretNames(in: template)
         guard !referenced.isEmpty else {
             return ShellPreparation(access: nil, environment: nil, values: [])
         }
 
-        let (found, missing) = resolve(referenced)
-        if let name = missing.sorted().first {
-            throw TemplateEngine.FilterError.unknownSecret(name: name)
-        }
+        let found = try resolve(referenced)
 
         var environment = OutputDestinationService.shellEnvironment()
         for (name, secret) in found {
@@ -196,7 +227,7 @@ enum SecretStore {
         }
 
         return ShellPreparation(
-            access: .environmentReference(found),
+            access: TemplateEngine.SecretAccess(values: found),
             environment: environment,
             values: Array(found.values)
         )

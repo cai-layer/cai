@@ -28,7 +28,7 @@ final class SecretEndToEndTests: XCTestCase {
     func testACommandCanUseTheSecretWithoutItEnteringTheCommandLine() async throws {
         // Unquoted in the template: the engine supplies the quotes around the
         // environment reference itself.
-        let template = "printf '%s' {{\(secretName)}}"
+        let template = "printf '%s' {{secrets.\(secretName)}}"
 
         let prepared = try SecretStore.prepareForShell(template: template)
         let rendered = try await TemplateEngine.render(
@@ -52,7 +52,7 @@ final class SecretEndToEndTests: XCTestCase {
         // The sink that matters. Same store, same name, same engine.
         do {
             _ = try await TemplateEngine.render(
-                "Summarize this using {{\(secretName)}}",
+                "Summarize this using {{secrets.\(secretName)}}",
                 vars: ["result": "text"],
                 context: .raw,
                 secrets: nil
@@ -69,7 +69,7 @@ final class SecretEndToEndTests: XCTestCase {
         SecretStore.save("other-value", name: "ZZ_CAI_E2E_OTHER")
         defer { SecretStore.delete("ZZ_CAI_E2E_OTHER") }
 
-        let prepared = try SecretStore.prepareForShell(template: "echo {{\(secretName)}}")
+        let prepared = try SecretStore.prepareForShell(template: "echo {{secrets.\(secretName)}}")
 
         XCTAssertNotNil(prepared.environment?["CAI_SECRET_\(secretName)"])
         XCTAssertNil(

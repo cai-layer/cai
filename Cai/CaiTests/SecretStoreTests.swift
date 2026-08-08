@@ -68,6 +68,39 @@ final class SecretStoreTests: XCTestCase {
         XCTAssertEqual(SecretStore.value(for: testName)?.raw, "")
     }
 
+    func testAPastedTrailingNewlineIsTrimmedAtSave() {
+        // pbcopy and terminal copies routinely append one. Stored verbatim it
+        // breaks auth and defeats redaction (echoed output has no newline, so
+        // the stored raw never matches).
+        SecretStore.save("sk-live-abc\n", name: testName)
+        XCTAssertEqual(SecretStore.value(for: testName)?.raw, "sk-live-abc")
+
+        SecretStore.save("  sk-live-abc  \n", name: testName)
+        XCTAssertEqual(SecretStore.value(for: testName)?.raw, "sk-live-abc", "ends trimmed")
+
+        SecretStore.save("line1\nline2", name: testName)
+        XCTAssertEqual(SecretStore.value(for: testName)?.raw, "line1\nline2", "interior newlines stay, PEM-style material is legitimate")
+    }
+
+    // MARK: - Lookup preserves the failure mode
+
+    func testLookupDistinguishesMissingFromFound() {
+        XCTAssertEqual(SecretStore.lookup(testName), .missing)
+        SecretStore.save("v", name: testName)
+        XCTAssertEqual(SecretStore.lookup(testName), .found(SecretValue("v")))
+    }
+
+    func testResolveThrowsUnknownSecretForAMissingName() {
+        do {
+            _ = try SecretStore.resolve([testName])
+            XCTFail("resolved a missing secret")
+        } catch TemplateEngine.FilterError.unknownSecret(let name) {
+            XCTAssertEqual(name, testName)
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
     // MARK: - Enumeration
 
     func testTheListReportsNamesAndDatesWithoutValues() throws {
@@ -105,7 +138,7 @@ final class SecretStoreTests: XCTestCase {
     // MARK: - Resolution for a shell command
 
     func testATemplateWithoutSecretsChangesNothing() throws {
-        let prepared = try SecretStore.prepareForShell(template: "echo {{result}}")
+        let prepared = try SecretStore.prepareForShell(template: "echo {{result}} {{API_KEY}}")
 
         XCTAssertTrue(prepared.isEmpty)
         XCTAssertNil(prepared.access, "no access means the engine keeps refusing")
@@ -115,7 +148,7 @@ final class SecretStoreTests: XCTestCase {
     func testPreparationPutsTheValueInTheEnvironment() throws {
         SecretStore.save("sk-live-xyz", name: testName)
 
-        let prepared = try SecretStore.prepareForShell(template: "curl -H \"Bearer {{\(testName)}}\"")
+        let prepared = try SecretStore.prepareForShell(template: "curl -H \"Bearer {{secrets.\(testName)}}\"")
 
         XCTAssertEqual(prepared.environment?["CAI_SECRET_\(testName)"], "sk-live-xyz")
         XCTAssertNotNil(prepared.environment?["PATH"], "the Homebrew PATH must survive")
@@ -124,13 +157,25 @@ final class SecretStoreTests: XCTestCase {
 
     func testPreparationFailsOnAMissingSecret() {
         do {
-            _ = try SecretStore.prepareForShell(template: "echo {{ZZ_CAI_TEST_ABSENT}}")
+            _ = try SecretStore.prepareForShell(template: "echo {{secrets.ZZ_CAI_TEST_ABSENT}}")
             XCTFail("a missing secret was resolved to nothing")
         } catch TemplateEngine.FilterError.unknownSecret(let name) {
             XCTAssertEqual(name, "ZZ_CAI_TEST_ABSENT")
         } catch {
             XCTFail("wrong error: \(error)")
         }
+    }
+
+    func testPreparationFollowsTheEngineNotTheScanner() throws {
+        // The quoted-`}}` template where the two parsers disagree: the engine
+        // treats {{secrets.…}} inside the llm arg as literal text, so no
+        // environment may be built for it, even though the scanner over-reports.
+        SecretStore.save("v", name: testName)
+
+        let template = "{{result|llm:\"see }} {{secrets.\(testName)}} docs\"}}"
+        let prepared = try SecretStore.prepareForShell(template: template)
+
+        XCTAssertTrue(prepared.isEmpty, "a secret was handed to a command that never references it")
     }
 
     // MARK: - Redaction

@@ -14,7 +14,7 @@ final class SecretReferenceTests: XCTestCase {
             ("A1_2", true, "digits and underscores after the first letter"),
             ("A", false, "one character"),
             ("", false, "empty"),
-            ("notion_token", false, "lowercase, which is what ordinary variables look like"),
+            ("notion_token", false, "lowercase"),
             ("Notion_Token", false, "mixed case"),
             ("1TOKEN", false, "leading digit"),
             ("_TOKEN", false, "leading underscore"),
@@ -31,14 +31,6 @@ final class SecretReferenceTests: XCTestCase {
         }
     }
 
-    func testTheReservedVariableCannotBeShadowed() {
-        // Ordinary variables are lowercase, so a secret can never collide with
-        // `result` or with an MCP form key. This is the structural guarantee
-        // behind the naming rule, so it is worth pinning.
-        XCTAssertFalse(SecretReference.isValidName("result"))
-        XCTAssertFalse(SecretReference.isValidName("repo_owner"))
-    }
-
     func testRejectionsExplainThemselves() {
         XCTAssertNil(SecretReference.nameRejection("NOTION_API_TOKEN"))
         XCTAssertEqual(SecretReference.nameRejection(""), "Give the secret a name.")
@@ -46,6 +38,32 @@ final class SecretReferenceTests: XCTestCase {
         XCTAssertTrue(SecretReference.nameRejection("token")?.contains("upper-case letter") == true)
         XCTAssertTrue(SecretReference.nameRejection("MY-TOKEN")?.contains("underscores") == true)
         XCTAssertTrue(SecretReference.nameRejection(String(repeating: "A", count: 99))?.contains("64") == true)
+    }
+
+    // MARK: - The namespace
+
+    func testNameFromReference() {
+        let cases: [(String, String?, String)] = [
+            ("secrets.NOTION_API_TOKEN", "NOTION_API_TOKEN", "the ordinary case"),
+            ("secrets.AB", "AB", "shortest valid name"),
+            ("result", nil, "no namespace"),
+            ("NOTION_API_TOKEN", nil, "bare uppercase is an ordinary variable, the pre-namespace syntax must not resolve"),
+            ("secrets.notion_token", nil, "namespace claimed but the name is broken"),
+            ("secrets.", nil, "namespace with nothing after it"),
+            ("secrets", nil, "the namespace word alone is an ordinary variable"),
+            ("Secrets.TOKEN", nil, "namespace is case-sensitive"),
+        ]
+        for (variable, expected, why) in cases {
+            XCTAssertEqual(SecretReference.name(fromReference: variable), expected, "\(variable): \(why)")
+        }
+    }
+
+    func testClaimsNamespaceSeparatesWrongFromAbsent() {
+        // "written wrong" (engine throws loud) vs "not a secret" (ordinary var).
+        XCTAssertTrue(SecretReference.claimsNamespace("secrets.bad-name"))
+        XCTAssertTrue(SecretReference.claimsNamespace("secrets."))
+        XCTAssertFalse(SecretReference.claimsNamespace("API_KEY"))
+        XCTAssertFalse(SecretReference.claimsNamespace("secrets"))
     }
 
     // MARK: - Keychain accounts
@@ -84,16 +102,16 @@ final class SecretReferenceTests: XCTestCase {
             ("", [], "empty template"),
             ("echo hello", [], "no placeholders"),
             ("echo {{result}}", [], "an ordinary variable is not a secret"),
-            ("echo {{TOKEN}}", ["TOKEN"], "one"),
-            ("{{A_TOKEN}} and {{B_TOKEN}}", ["A_TOKEN", "B_TOKEN"], "two"),
-            ("{{TOKEN}} {{TOKEN}}", ["TOKEN"], "repeated collapses"),
-            ("{{TOKEN|json}}", ["TOKEN"], "filters are ignored"),
-            ("{{ TOKEN }}", ["TOKEN"], "surrounding whitespace, which the engine also trims"),
-            ("{{result|llm:\"use {{TOKEN}}\"}}", [], "nested in a filter argument is literal text, so no value is ever resolved and there is nothing to refuse"),
-            ("{{TOKEN", [], "unterminated"),
-            ("{TOKEN}", [], "single braces"),
+            ("echo {{TOKEN}}", [], "bare uppercase is an ordinary variable now"),
+            ("echo {{secrets.TOKEN}}", ["TOKEN"], "one"),
+            ("{{secrets.A_TOKEN}} and {{secrets.B_TOKEN}}", ["A_TOKEN", "B_TOKEN"], "two"),
+            ("{{secrets.TOKEN}} {{secrets.TOKEN}}", ["TOKEN"], "repeated collapses"),
+            ("{{secrets.TOKEN|json}}", ["TOKEN"], "filters are ignored"),
+            ("{{ secrets.TOKEN }}", ["TOKEN"], "surrounding whitespace, which the engine also trims"),
+            ("{{secrets.TOKEN", [], "unterminated"),
+            ("{secrets.TOKEN}", [], "single braces"),
             ("{{}}", [], "empty placeholder"),
-            ("{{lower}} {{UPPER}}", ["UPPER"], "mixed"),
+            ("{{secrets.bad-name}}", [], "broken name; the engine refuses it loudly instead"),
         ]
 
         for (template, expected, why) in cases {
@@ -102,39 +120,75 @@ final class SecretReferenceTests: XCTestCase {
     }
 
     func testReferencesAnySecret() {
-        XCTAssertTrue(SecretReference.referencesAnySecret("curl -H \"Bearer {{TOKEN}}\""))
-        XCTAssertFalse(SecretReference.referencesAnySecret("echo {{result}}"))
+        XCTAssertTrue(SecretReference.referencesAnySecret("curl -H \"Bearer {{secrets.TOKEN}}\""))
+        XCTAssertFalse(SecretReference.referencesAnySecret("echo {{result}} {{TOKEN}}"))
     }
 
     // MARK: - Agreement with the engine's own parser
 
-    /// `SecretReference.names(in:)` is a second, deliberately independent scanner:
-    /// it lives in the shared package so the validator can use it, while the
-    /// engine's parser stays in the app. Two parsers is a drift risk, and the
-    /// dangerous direction is the validator saying "no secret here" while the
-    /// engine happily resolves one. This pins them together on a corpus.
-    func testTheScannerAgreesWithTheEngineOnWhatIsASecret() async throws {
+    /// The package scanner is quote-blind and the engine's parser is not, so on
+    /// templates with `}}` inside quoted filter args they genuinely disagree.
+    /// The contract that matters is the direction: the scanner may over-report
+    /// (a proposal looks slightly scarier than it is) but must never
+    /// under-report (a credential hidden from the approval sheet). Execution
+    /// never trusts the scanner — `prepareForShell` uses
+    /// `TemplateEngine.secretNames` — so over-reporting cannot put a secret in
+    /// any environment.
+    func testTheScannerNeverUnderReportsAgainstTheEngine() {
         let corpus = [
             "echo {{result}}",
-            "echo {{TOKEN}}",
-            "curl -H \"Authorization: Bearer {{NOTION_API_TOKEN}}\" https://api.notion.com",
-            "{{A}} {{B_2}} {{result|shell}}",
-            "{{TOKEN|json}}",
-            "{{ TOKEN }}",
+            "echo {{secrets.TOKEN}}",
+            "curl -H \"Authorization: Bearer {{secrets.NOTION_API_TOKEN}}\" https://api.notion.com",
+            "{{secrets.A}} {{secrets.B_2}} {{result|shell}}",
+            "{{secrets.TOKEN|json}}",
+            "{{ secrets.TOKEN }}",
+            "{{TOKEN}} {{API_KEY}}",
             "plain text, no placeholders",
+            // The divergence class: `}}` inside a quoted filter arg. The engine
+            // sees one placeholder and no secret; the scanner desyncs and
+            // over-reports AWS_KEY. That direction is allowed.
+            "{{result|llm:\"see }} {{secrets.AWS_KEY}} docs\"}}",
         ]
 
         for template in corpus {
             let scanned = SecretReference.names(in: template)
+            let engine = TemplateEngine.secretNames(in: template)
+            XCTAssertTrue(
+                engine.isSubset(of: scanned),
+                "the engine resolves \(engine) in \(template) but the scanner only saw \(scanned)"
+            )
+        }
+    }
 
-            // What the engine does with the same template: if the scanner found
-            // nothing, rendering with no access must succeed, and if it found
-            // something, rendering must be refused.
+    func testEngineNamesFollowTheParserNotTheScanner() {
+        // The template where the two disagree: prepareForShell must side with
+        // the engine, or a secret lands in the environment of a command that
+        // never references it.
+        let template = "{{result|llm:\"see }} {{secrets.AWS_KEY}} docs\"}}"
+        XCTAssertEqual(TemplateEngine.secretNames(in: template), [])
+        XCTAssertEqual(SecretReference.names(in: template), ["AWS_KEY"], "over-reporting is the accepted direction")
+    }
+
+    /// The engine's own extraction matches what rendering refuses: if
+    /// `secretNames` is empty, rendering with no access succeeds; if not, it is
+    /// refused with one of the names.
+    func testEngineNamesAgreeWithRendering() async throws {
+        let corpus = [
+            "echo {{result}}",
+            "echo {{secrets.TOKEN}}",
+            "curl -H \"Authorization: Bearer {{secrets.NOTION_API_TOKEN}}\" https://api.notion.com",
+            "{{ secrets.TOKEN }}",
+            "{{TOKEN}} {{API_KEY}}",
+            "plain text, no placeholders",
+        ]
+
+        for template in corpus {
+            let names = TemplateEngine.secretNames(in: template)
             do {
                 _ = try await TemplateEngine.render(template, vars: ["result": "x"], context: .raw, secrets: nil)
-                XCTAssertTrue(scanned.isEmpty, "the engine rendered \(template) but the scanner claimed secrets \(scanned)")
+                XCTAssertTrue(names.isEmpty, "the engine rendered \(template) but claimed secrets \(names)")
             } catch TemplateEngine.FilterError.secretNotAllowed(let name) {
-                XCTAssertTrue(scanned.contains(name), "the engine refused \(name) in \(template) but the scanner missed it")
+                XCTAssertTrue(names.contains(name), "the engine refused \(name) in \(template) but secretNames missed it")
             }
         }
     }

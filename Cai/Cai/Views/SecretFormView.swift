@@ -161,22 +161,21 @@ struct SecretFormView: View {
                     .monospacedDigit()
                     .accessibilityLabel("\(value.count) characters entered")
                 if valueHasLineBreaks {
-                    // Block, don't silently strip: a stray interior newline (a
-                    // wrapped paste) would corrupt a single-line token, and a
-                    // real multiline secret (a PEM key) belongs in shell import,
-                    // which stores it intact. A trailing newline is trimmed at
-                    // save, so only interior breaks block.
-                    Text("Remove the line breaks — a secret is a single line.")
+                    // Advisory, not a block: interior newlines are legitimate
+                    // (a PEM key, a multiline token) and save keeps them intact.
+                    // Flag it in case the break came from a wrapped paste, but
+                    // let the user decide — orange is Cai's warning color.
+                    Text("Line breaks will be saved as part of the value.")
                         .font(.system(size: 11))
                         .foregroundColor(.caiError)
-                        .accessibilityLabel("Remove the line breaks. A secret is a single line.")
+                        .accessibilityLabel("Warning: line breaks will be saved as part of the value.")
                 }
             }
         }
     }
 
-    /// An interior newline (after trimming the edges save() trims anyway). A
-    /// pasted single-line token with a wrapped break, not a legitimate one.
+    /// An interior newline (after trimming the edges save() trims anyway).
+    /// Drives an advisory warning; the value still saves with the breaks intact.
     private var valueHasLineBreaks: Bool {
         value.trimmingCharacters(in: .whitespacesAndNewlines).contains(where: \.isNewline)
     }
@@ -187,7 +186,6 @@ struct SecretFormView: View {
         let effective = replacingName ?? name
         return SecretReference.isValidName(effective)
             && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !valueHasLineBreaks
     }
 
     private var buttons: some View {

@@ -192,7 +192,7 @@ struct SecretsManagementView: View {
         ManagementEmptyState(
             icon: "key",
             title: "No secrets yet",
-            description: "A secret stores a token — a Notion key, a GitHub token — once, in your Mac's Keychain. Actions reference it by name and Cai hands it only to the command that runs.",
+            description: "Actions reference it by name and Cai hands it only to the command that runs.",
             ctaLabel: "Add a Secret",
             ctaIcon: "plus",
             ctaAction: { enterForm(replacing: nil) },
@@ -271,9 +271,9 @@ struct SecretsManagementView: View {
             return "This can't be undone. The value is not recoverable."
         }
         let shown = affected.prefix(3).joined(separator: ", ")
-        let more = affected.count > 3 ? " and \(affected.count - 3) more" : ""
-        let verb = affected.count == 1 ? "action references it and will fail" : "actions reference it and will fail"
-        return "\(affected.count) \(verb) until a secret with this name is added again: \(shown)\(more)."
+        let more = affected.count > 3 ? " +\(affected.count - 3) more" : ""
+        let noun = affected.count == 1 ? "action uses" : "actions use"
+        return "\(affected.count) \(noun) it and will fail until you re-add it: \(shown)\(more)."
     }
 
     private func delete(_ secret: SecretDescriptor) {

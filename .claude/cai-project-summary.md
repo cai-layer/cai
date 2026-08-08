@@ -1,7 +1,8 @@
-# Cai - macOS Smart Clipboard Actions
+# Cai - local-first action layer for macOS
 
-## What It Is
-Native macOS menu bar app (SwiftUI) that detects clipboard content types and offers context-aware actions powered by local AI. Built-in LLM runs in-process via MLX-Swift on Apple Silicon for zero-config experience, or works with Apple Intelligence (macOS 26+) / LM Studio / Ollama / any OpenAI-compatible endpoint. Privacy-first, no cloud, no telemetry.
+Behavioral quick-reference: the core flow and the lookup tables an agent needs fast. Deeper context is single-sourced elsewhere and not repeated here: system design in [`_docs/architecture/ARCHITECTURE.md`](../_docs/architecture/ARCHITECTURE.md), model/inference in [`_docs/architecture/LLM.md`](../_docs/architecture/LLM.md), build + dependencies + gotchas in [`CLAUDE.md`](../CLAUDE.md).
+
+Press Option+C on any selection: Cai detects the content type and offers context-aware actions powered by local AI. Built-in LLM runs in-process via MLX-Swift on Apple Silicon (zero-config), or Apple Intelligence (macOS 26+) / LM Studio / Ollama / any OpenAI-compatible endpoint. Privacy-first, no cloud, no telemetry.
 
 ## Core Flow
 1. **Option+C** anywhere → `HotKeyManager` fires
@@ -52,9 +53,11 @@ Meeting/address detection is skipped for text >200 chars — long text always ge
 - **Community extensions**: In-app extension browser fetches from curated GitHub repo. Search, one-tap install, shell confirmation. Also installable by copying YAML to clipboard.
 - **Output destinations**: Send text to external apps/services (Email, Notes, Reminders built-in; Webhook, AppleScript, Deeplink, Shell custom)
 - **MCP connectors**: GitHub + Linear via MCP protocol. Create issues with LLM-generated titles, duplicate detection, label fetching.
+- **Agent authoring (Cai as MCP server)**: bundled `cai-mcp` stdio helper lets Claude Code / Cursor / Codex propose and update actions; the tiered approval sheet is the security boundary (no run / delete / approve tools)
+- **Named secrets**: actions reference `{{secrets.NAME}}`, resolved from the Keychain at execution only; never in action text, model input, or agent view
 - **App context**: Frontmost app name passed to LLM prompts (e.g., "from Mail")
 - **Clipboard history**: Last 9 unique entries with pin support (Cmd+0)
-- **Multi-turn follow-ups**: Tab to ask follow-up questions, session reused across turns
+- **Multi-turn follow-ups**: Tab to ask follow-up questions (fresh stateless session per call, seeded with prior turns)
 - **Window resume**: Dismissed window cached for 10s, restores state on reopen
 - **Permission indicator**: Shield icon in Settings header (green/orange)
 - **Auto-updates**: Sparkle framework for checking/installing updates
@@ -74,36 +77,8 @@ Meeting/address detection is skipped for text >200 chars — long text always ge
 | A-Z | Type to filter actions and shortcuts |
 | ESC | Clear filter / Back / Dismiss |
 
-## Key Technical Decisions
-- **No sandbox**: Required for CGEvent posting + global hotkey
-- **CGEvent private source**: Prevents Option key leak from hotkey into simulated Cmd+C
-- **CaiPanel (NSPanel subclass)**: Overrides `canBecomeKey` for keyboard events
-- **PassThrough flag**: Lets TextEditor receive Enter/arrows during custom prompt input
-- **acceptsFilterInput flag**: Prevents filter accumulation on non-action screens
-- **LazyVStack `.id(action.id)`**: Prevents stale cached rows (not index-based)
-- **ICS files for calendar**: No EventKit permissions needed
-- **Notification-based keyboard routing**: WindowController posts, SwiftUI views subscribe
-- **Actor-based services**: LLMService, MLXInference, OutputDestinationService, MCPClientService — thread-safe async/await
-- **App context awareness**: Captures frontmost app before Cmd+C, passes to LLM
-- **Built-in LLM**: In-process MLX-Swift inference on Apple Silicon (`MLXInference` actor wrapping `ModelContainer` + `ChatSession`). Default model: Ministral 3B 4-bit (~1.8 GB) from mlx-community. Curated catalog includes Qwen3 4B, Gemma 3 1B, Qwen 2.5 7B. Models cached in `~/.cache/huggingface/hub/`.
-- **Multi-turn session reuse**: `ChatSession` is persisted across follow-up calls — same system prompt + matching turn count = reuse, otherwise fresh session. Avoids O(n) replay cost.
-- **Concurrency guard**: `MLXInference.isGenerating` flag rejects concurrent generation requests with `MLXInferenceError.busy`.
-- **Per-action generation config**: `GenerationConfig.forAction(_:)` returns tuned temperature, topP, maxTokens per LLM action (translate=0.0 deterministic, custom=0.6 creative, etc.)
-- **Input cap**: 50K char limit on messages sent to LLM, prevents memory pressure on long clipboards
-- **Apple Intelligence support**: macOS 26+ uses `LanguageModelSession` from FoundationModels framework, with same session reuse pattern
+## Key technical decisions
+Single-sourced, not repeated here. Patterns (no-sandbox, CGEvent private source, CaiPanel `canBecomeKey`, passThrough, `acceptsFilterInput`, `LazyVStack .id(action.id)`, ICS-no-EventKit, notification-based routing, actor-based services): [`_docs/architecture/ARCHITECTURE.md`](../_docs/architecture/ARCHITECTURE.md). Inference (MLX in-process, stateless per-call sessions, per-action `GenerationConfig`, `isGenerating` concurrency guard, 50K input cap, Ministral 3B default + model catalog): [`_docs/architecture/LLM.md`](../_docs/architecture/LLM.md). `CaiActionCore` package + agent authoring: [`_docs/architecture/MCP.md`](../_docs/architecture/MCP.md).
 
-## Dependencies
-- **HotKey** (SPM): soffes/HotKey v0.2.0+ — global keyboard shortcut
-- **Sentry** (SPM): getsentry/sentry-cocoa v8.0.0+ — opt-in crash reporting
-- **Yams** (SPM): jpsim/Yams v5.0.0+ — YAML parsing for community extensions
-- **Sparkle** (SPM): sparkle-project/Sparkle — auto-updates
-- **MLX-Swift** (SPM): ml-explore/mlx-swift v0.31.3 — Apple Silicon ML framework
-- **MLX-Swift-LM** (SPM): ml-explore/mlx-swift-lm v2.31.3 — LLM inference layer for MLX
-- **System**: AppKit, SwiftUI, Foundation, ApplicationServices, Carbon, ServiceManagement, Vision (OCR), FoundationModels (Apple Intelligence, macOS 26+ optional)
-
-## Bundle IDs
-- **Debug**: `com.soyasis.cai.dev` (separate accessibility entry)
-- **Release**: `com.soyasis.cai` (production)
-
-## Deployment Target
-- **macOS 14.0+** (Sonoma) — required by MLX-Swift
+## Reference (single-sourced)
+Dependencies + versions: [`CLAUDE.md`](../CLAUDE.md). Bundle IDs (`com.soyasis.cai.dev` / `com.soyasis.cai`) and deployment target (macOS 14.0+): [`_docs/architecture/ARCHITECTURE.md`](../_docs/architecture/ARCHITECTURE.md).

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Settings → Secrets. A quiet list with a guarded add flow — the design risk
 /// budget went to exactly two places (mono names, the shell import); everything
-/// else is the house pattern. Spec: `_docs/planning/active/SECRETS-UI-DESIGN.md`.
+/// else is the house pattern. See `_docs/architecture/SECRETS.md`.
 ///
 /// Write-only: a value can be saved, replaced and deleted, and is never
 /// rendered again anywhere in this screen, whatever the state.

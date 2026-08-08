@@ -298,10 +298,9 @@ struct SettingsView: View {
 
                         settingsDivider
 
-                        // Own top-level row (SECRETS-MLP-PLAN locked decision 7):
-                        // shell actions, chains and destinations all consume
-                        // secrets, so filing it under any one would hide it
-                        // from the others.
+                        // Own top-level row: shell actions, chains and
+                        // destinations all consume secrets, so filing it under
+                        // any one would hide it from the others.
                         navRow(label: "Secrets", count: secretCount, action: onShowSecrets)
                     }
 

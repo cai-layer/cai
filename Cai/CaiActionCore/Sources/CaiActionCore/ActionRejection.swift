@@ -3,7 +3,7 @@ import Foundation
 /// Why a proposal cannot become an action.
 ///
 /// Every case carries enough detail for the agent to fix the proposal in one
-/// retry (the single-retry pattern from ACTION-BUILDER-HELPER-SPEC). The same
+/// retry. The same
 /// `reason` string is what the app writes to the audit log when it quarantines
 /// a file and what `list_actions` reports back, so an agent can always tell
 /// the user why nothing appeared in Cai.

@@ -45,7 +45,7 @@ final class ActionReviewPresentationTests: XCTestCase {
         )
     }
 
-    // MARK: - Secrets callout (SECRETS-UI-DESIGN.md surface 5)
+    // MARK: - Secrets callout
 
     func testTheSecretsCalloutNamesWhatThePayloadReachesFor() {
         XCTAssertEqual(

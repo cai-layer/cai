@@ -133,5 +133,5 @@ Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) {
   2. **If there isn't anything major, just say so.**
   3. **Only review the diff.**
 - Add `/codex` for risky paths: CGEvent / pasteboard, Keychain, MCP transport, subprocess execution, `OutputDestinationService`, `ClipboardService`.
-- Every review checks the diff against the Cai risk catalog: [`_docs/process/REVIEW-CHECKLIST.md`](_docs/process/REVIEW-CHECKLIST.md) (CAI-01..24; apply only the items whose area the diff touches).
+- Every review checks the diff against the Cai risk catalog: [`_docs/process/REVIEW-CHECKLIST.md`](_docs/process/REVIEW-CHECKLIST.md) (CAI-01..26; apply only the items whose area the diff touches).
 - Full doc: [`_docs/process/CODE-REVIEW.md`](_docs/process/CODE-REVIEW.md).

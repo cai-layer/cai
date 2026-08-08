@@ -10,8 +10,8 @@ import SwiftUI
 /// a user looking for "the MCP thing" should find one door. Tabs rather than
 /// nesting, because the directions must not blur: the design review's original
 /// instruction was to keep author and consume visually distinct, and a labelled
-/// tab does that better than a separate section did. See the deviations table in
-/// `_docs/planning/active/MCP-AUTHORING-MLP-PLAN.md`.
+/// tab does that better than a separate section did. See
+/// `_docs/architecture/MCP.md` (Cai as a Server).
 ///
 /// The tab labels are short jargon; the subtitle underneath does the explaining,
 /// which is how the header earns its keep on both tabs.

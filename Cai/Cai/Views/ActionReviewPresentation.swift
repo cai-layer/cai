@@ -10,8 +10,8 @@ import Foundation
 /// wrong callout here means a user approving something other than what they
 /// read.
 ///
-/// Copy strings come verbatim from the design specification in
-/// `_docs/planning/active/MCP-AUTHORING-MLP-PLAN.md`.
+/// Copy strings are deliberate review-surface trust copy, agreed in design
+/// review; see `_docs/architecture/MCP.md` (Cai as a Server).
 enum ActionReviewPresentation {
 
     // MARK: - Fixed copy

@@ -221,21 +221,32 @@ actor OutputDestinationService {
     private func executeShell(_ command: String, text: String, fields: [SetupField], sourceBundleId: String?) async throws {
         // .shell context applies |shell by default to bare {{result}} (single-quote
         // wrap + escape). Same output as the v1 escapeForShell pre-escape produced.
+        // Secrets travel in the environment, never in the command line.
+        let secrets = try SecretStore.prepareForShell(template: command)
         let resolved = try await render(
             command, text: text, fields: fields,
-            context: .shell, sourceBundleId: sourceBundleId
+            context: .shell, sourceBundleId: sourceBundleId,
+            secrets: secrets.access
         )
 
         // stderr is merged into stdout here, unlike the action paths: a failing
         // destination reports one combined stream to the user.
-        let output = try await ShellRunner.run(resolved, stdin: text, mergeStderrIntoStdout: true)
+        let output = try await ShellRunner.run(
+            resolved,
+            stdin: text,
+            environment: secrets.environment,
+            mergeStderrIntoStdout: true
+        )
 
         if output.timedOut {
             throw OutputDestinationError.timeout
         }
 
         guard output.status == 0 else {
-            throw OutputDestinationError.shellFailed(Int(output.status), output.stdout)
+            throw OutputDestinationError.shellFailed(
+                Int(output.status),
+                Redactor.redact(output.stdout, using: secrets.values)
+            )
         }
     }
 
@@ -298,17 +309,22 @@ actor OutputDestinationService {
         text: String,
         fields: [SetupField],
         context: TemplateEngine.Context,
-        sourceBundleId: String?
+        sourceBundleId: String?,
+        secrets: TemplateEngine.SecretAccess? = nil
     ) async throws -> String {
         var vars: [String: String] = ["result": text]
         for field in fields {
             vars[field.key] = field.value
         }
+        // Defaults to nil, so every destination surface except shell refuses
+        // secrets until it is deliberately opted in. Webhook headers and bodies
+        // are the next ones to enable.
         return try await TemplateEngine.render(
             template,
             vars: vars,
             context: context,
-            sourceBundleId: sourceBundleId
+            sourceBundleId: sourceBundleId,
+            secrets: secrets
         )
     }
 

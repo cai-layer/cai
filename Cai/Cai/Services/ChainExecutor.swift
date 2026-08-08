@@ -525,15 +525,18 @@ final class ChainExecutor {
     // MARK: - Shell shortcut runner
 
     private func runShell(template: String, input: String, sourceBundleId: String?) async throws -> String {
+        // Secrets travel in the environment, never in the command line.
+        let secrets = try SecretStore.prepareForShell(template: template)
         let resolved = try await TemplateEngine.render(
             template,
             vars: ["result": input],
             context: .shell,
-            sourceBundleId: sourceBundleId
+            sourceBundleId: sourceBundleId,
+            secrets: secrets.access
         )
 
         // Stdin = pipe value (so users can `cat`-style consume it in their command).
-        let output = try await ShellRunner.run(resolved, stdin: input)
+        let output = try await ShellRunner.run(resolved, stdin: input, environment: secrets.environment)
 
         if output.timedOut {
             throw ShellRunner.timeoutError()
@@ -541,11 +544,13 @@ final class ChainExecutor {
 
         guard output.status == 0 else {
             throw NSError(domain: "Cai", code: Int(output.status), userInfo: [
-                NSLocalizedDescriptionKey: output.failureMessage
+                NSLocalizedDescriptionKey: Redactor.redact(output.failureMessage, using: secrets.values)
             ])
         }
 
-        return output.trimmedStdout
+        // A command can print its own environment, and this value continues down
+        // the chain into other actions and the user's clipboard.
+        return Redactor.redact(output.trimmedStdout, using: secrets.values)
     }
 
     // MARK: - Prompt shortcut runner

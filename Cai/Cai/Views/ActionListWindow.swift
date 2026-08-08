@@ -1934,16 +1934,19 @@ struct ActionListWindow: View {
     /// is forwarded so any `|llm` filters in the template inherit the source app's
     /// Context Snippet.
     private static func runShellCommand(_ template: String, text: String, sourceBundleId: String?) async throws -> String {
+        // Secrets travel in the environment, never in the command line.
+        let secrets = try SecretStore.prepareForShell(template: template)
         let resolved = try await TemplateEngine.render(
             template,
             vars: ["result": text],
             context: .shell,
-            sourceBundleId: sourceBundleId
+            sourceBundleId: sourceBundleId,
+            secrets: secrets.access
         )
 
         // Text goes in as stdin. The runner supplies the Homebrew PATH that
         // non-interactive zsh lacks.
-        let output = try await ShellRunner.run(resolved, stdin: text)
+        let output = try await ShellRunner.run(resolved, stdin: text, environment: secrets.environment)
 
         if output.timedOut {
             throw ShellRunner.timeoutError()
@@ -1951,10 +1954,12 @@ struct ActionListWindow: View {
 
         guard output.status == 0 else {
             throw NSError(domain: "Cai", code: Int(output.status), userInfo: [
-                NSLocalizedDescriptionKey: output.failureMessage
+                NSLocalizedDescriptionKey: Redactor.redact(output.failureMessage, using: secrets.values)
             ])
         }
 
-        return output.trimmedStdout
+        // A command can print its own environment, and this value lands on the
+        // user's clipboard.
+        return Redactor.redact(output.trimmedStdout, using: secrets.values)
     }
 }

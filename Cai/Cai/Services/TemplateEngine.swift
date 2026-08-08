@@ -1,3 +1,4 @@
+import CaiActionCore
 import Foundation
 
 // MARK: - Template Engine
@@ -31,6 +32,29 @@ struct TemplateEngine {
         case raw
     }
 
+    /// Permission for a call site to resolve `{{secrets.NAME}}` references.
+    ///
+    /// **This is a property of the destination, not of `Context`.** `Context`
+    /// selects an escaping filter, and two very different sinks share
+    /// `Context.raw`: webhook headers, where a token is the whole point, and LLM
+    /// prompts, whose rendered output goes verbatim to a model. So the call site
+    /// has to say, and the safe answer is the default: passing `nil` refuses.
+    ///
+    /// The only grant that exists is the shell one: the rendered command gets
+    /// `"$CAI_SECRET_NAME"` and the value travels in the process environment, so
+    /// it never appears in the rendered string that reaches the result UI,
+    /// history, or process listings visible to other users. (A same-uid process
+    /// can still read a child's environment; env narrows exposure, it does not
+    /// erase it.) Webhook substitution is a future grant, deliberately not
+    /// shipped unused so it can land fail-closed with its call site.
+    ///
+    /// Refusal throws rather than resolving to empty. An action that appears to
+    /// work while sending no credential is the failure people ship.
+    struct SecretAccess {
+        /// The resolved values, for reference lookup and post-run redaction.
+        let values: [String: SecretValue]
+    }
+
     /// Errors thrown during template parsing or filter execution.
     enum FilterError: Error, LocalizedError {
         case parseError(String)
@@ -38,6 +62,19 @@ struct TemplateEngine {
         case badArgument(String, filter: String)
         case llmFailed(String)
         case busy
+        /// The template reaches for a secret in a place secrets may not go.
+        case secretNotAllowed(name: String)
+        /// The template reaches for a secret that does not exist.
+        case unknownSecret(name: String)
+        /// A filter that would move a secret somewhere it must not go.
+        case secretThroughFilter(name: String, filter: String)
+        /// The Keychain refused the lookup (locked, denied). Distinct from
+        /// `unknownSecret`: telling the user to re-add a secret that exists
+        /// invites them to overwrite it.
+        case keychainUnavailable(status: OSStatus)
+        /// The reference sits inside single quotes, where the shell would send
+        /// the literal `$CAI_SECRET_*` text as the credential.
+        case secretInSingleQuotes(name: String)
 
         var errorDescription: String? {
             switch self {
@@ -51,6 +88,16 @@ struct TemplateEngine {
                 return "LLM filter failed: \(detail)"
             case .busy:
                 return "Cai is busy. Try again in a moment."
+            case .secretNotAllowed(let name):
+                return "{{secrets.\(name)}} can't be used here. Secrets work only in shell commands for now."
+            case .unknownSecret(let name):
+                return "No secret named \(name) is stored on this Mac."
+            case .secretThroughFilter(let name, let filter):
+                return "{{secrets.\(name)}} can't go through |\(filter). Filters could move the value somewhere Cai can't protect."
+            case .keychainUnavailable(let status):
+                return "Cai couldn't read your secrets from the Keychain (error \(status)). Unlock the login keychain and try again."
+            case .secretInSingleQuotes(let name):
+                return "{{secrets.\(name)}} is inside single quotes, so the shell would send the literal text instead of the secret. Put it in double quotes."
             }
         }
     }
@@ -78,7 +125,8 @@ struct TemplateEngine {
         _ template: String,
         vars: [String: String],
         context: Context,
-        sourceBundleId: String? = nil
+        sourceBundleId: String? = nil,
+        secrets: SecretAccess? = nil
     ) async throws -> String {
         let segments = try parse(template)
         var output = ""
@@ -86,6 +134,30 @@ struct TemplateEngine {
             switch segment {
             case .literal(let text):
                 output += text
+            case .placeholder(let varName, let filters)
+                where SecretReference.claimsNamespace(varName):
+                // `secrets.*` placeholders are secret references, and every sink
+                // that has not opted in refuses them. See `SecretAccess`. A
+                // broken name inside the namespace is loud, unlike ordinary
+                // unknown variables: nobody decorates a template with
+                // `{{secrets.…}}` by accident.
+                guard let name = SecretReference.name(fromReference: varName) else {
+                    throw FilterError.parseError(
+                        "{{\(varName)}} is not a valid secret reference. Names look like secrets.NOTION_API_TOKEN."
+                    )
+                }
+                let reference = try resolveSecret(
+                    named: name,
+                    filterNames: filters.map(\.name),
+                    access: secrets
+                )
+                // zsh expands nothing inside single quotes; the literal
+                // reference would be sent as the credential. Refuse rather
+                // than misfire silently.
+                if context == .shell, endsInsideSingleQuote(output) {
+                    throw FilterError.secretInSingleQuotes(name: name)
+                }
+                output += reference
             case .placeholder(let varName, let filters):
                 // Unknown variable → empty string. We don't throw here because copying
                 // templates between contexts (e.g. {{title}} in a shell shortcut) is
@@ -119,6 +191,94 @@ struct TemplateEngine {
             }
         }
         return output
+    }
+
+    // MARK: - Secrets
+
+    /// Filters that are not refused hard on a secret reference. `|raw` is
+    /// accepted as a no-op, since an environment reference is never escaped,
+    /// which is exactly what `|raw` asks for. `|json` and `|url_encode` are
+    /// refused gently (they cannot apply to a value that never enters the
+    /// output). Anything else — above all `|llm` — is refused hard: it would
+    /// move the value somewhere it must not go, which is the entire thing this
+    /// design prevents.
+    static let filtersAllowedOnSecrets: Set<String> = ["json", "url_encode", "raw"]
+
+    /// Resolves one `{{secrets.NAME}}` placeholder to its environment
+    /// reference, or throws.
+    ///
+    /// Takes its values as an argument rather than reading the Keychain, so the
+    /// whole policy is covered by `SecretPolicyTests` without a live store. The
+    /// value itself never enters the rendered command: the returned reference is
+    /// double-quoted so a secret containing spaces stays one word, and the shell
+    /// expands it after we are done.
+    static func resolveSecret(
+        named name: String,
+        filterNames: [String],
+        access: SecretAccess?
+    ) throws -> String {
+        guard let access else {
+            throw FilterError.secretNotAllowed(name: name)
+        }
+        guard access.values[name] != nil else {
+            throw FilterError.unknownSecret(name: name)
+        }
+
+        if let offending = filterNames.first(where: { !filtersAllowedOnSecrets.contains($0) }) {
+            throw FilterError.secretThroughFilter(name: name, filter: offending)
+        }
+        if let inapplicable = filterNames.first(where: { $0 != "raw" }) {
+            throw FilterError.badArgument(
+                "a secret in a shell command is passed through the environment, so escaping filters do not apply to it",
+                filter: inapplicable
+            )
+        }
+
+        return "\"$\(SecretReference.environmentVariable(for: name))\""
+    }
+
+    /// The secret names a template resolves, per the engine's own parser.
+    ///
+    /// This is what `SecretStore.prepareForShell` uses, so execution can never
+    /// disagree with rendering about which secrets a command needs. (The
+    /// quote-blind scanner in `SecretReference` may over-report on templates
+    /// with `}}` inside quoted filter args; it serves only the validator's
+    /// advisory question.) Malformed templates return empty and leave the parse
+    /// error to `render`, where it is thrown with context.
+    static func secretNames(in template: String) -> Set<String> {
+        guard let segments = try? parse(template) else { return [] }
+        var found: Set<String> = []
+        for case .placeholder(let varName, _) in segments {
+            if let name = SecretReference.name(fromReference: varName) {
+                found.insert(name)
+            }
+        }
+        return found
+    }
+
+    /// Whether a rendered shell-command prefix ends inside an unclosed single
+    /// quote. zsh expands nothing there, so an environment reference emitted at
+    /// that position would send literal text as the credential. Backslash
+    /// escapes the next character except inside single quotes, which is zsh's
+    /// rule.
+    static func endsInsideSingleQuote(_ prefix: String) -> Bool {
+        var quote: Character? = nil
+        var escaped = false
+        for character in prefix {
+            if escaped {
+                escaped = false
+                continue
+            }
+            switch quote {
+            case "'":
+                if character == "'" { quote = nil }
+            case "\"":
+                if character == "\\" { escaped = true } else if character == "\"" { quote = nil }
+            default:
+                if character == "\\" { escaped = true } else if character == "'" || character == "\"" { quote = character }
+            }
+        }
+        return quote == "'"
     }
 
     // MARK: - Default Filter per Context

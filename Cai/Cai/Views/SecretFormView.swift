@@ -15,7 +15,6 @@ struct SecretFormView: View {
 
     @State private var name: String = ""
     @State private var value: String = ""
-    @State private var strippedLineBreaks = false
     @State private var saveFailure: String?
     @FocusState private var focus: Field?
     private enum Field { case name, value }
@@ -140,12 +139,6 @@ struct SecretFormView: View {
                 .font(.system(size: 12, design: .monospaced))
                 .focused($focus, equals: .value)
                 .accessibilityLabel("Secret value, hidden")
-                .onChange(of: value) { _, new in
-                    if new.contains(where: \.isNewline) {
-                        value = new.filter { !$0.isNewline }
-                        strippedLineBreaks = true
-                    }
-                }
                 .onSubmit { save() }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -167,13 +160,25 @@ struct SecretFormView: View {
                     .foregroundColor(.caiTextSecondary.opacity(0.7))
                     .monospacedDigit()
                     .accessibilityLabel("\(value.count) characters entered")
-                if strippedLineBreaks {
-                    Text("Line breaks removed")
+                if valueHasLineBreaks {
+                    // Block, don't silently strip: a stray interior newline (a
+                    // wrapped paste) would corrupt a single-line token, and a
+                    // real multiline secret (a PEM key) belongs in shell import,
+                    // which stores it intact. A trailing newline is trimmed at
+                    // save, so only interior breaks block.
+                    Text("Remove the line breaks — a secret is a single line.")
                         .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary.opacity(0.7))
+                        .foregroundColor(.caiError)
+                        .accessibilityLabel("Remove the line breaks. A secret is a single line.")
                 }
             }
         }
+    }
+
+    /// An interior newline (after trimming the edges save() trims anyway). A
+    /// pasted single-line token with a wrapped break, not a legitimate one.
+    private var valueHasLineBreaks: Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).contains(where: \.isNewline)
     }
 
     // MARK: - Save
@@ -181,6 +186,8 @@ struct SecretFormView: View {
     private var canSave: Bool {
         let effective = replacingName ?? name
         return SecretReference.isValidName(effective)
+            && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !valueHasLineBreaks
     }
 
     private var buttons: some View {

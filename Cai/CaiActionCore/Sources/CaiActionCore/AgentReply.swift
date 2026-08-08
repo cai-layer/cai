@@ -39,6 +39,17 @@ public enum AgentReply {
             lines.append("Built-in actions a chain step can name: "
                 + snapshot.builtInActionNames.joined(separator: ", "))
         }
+        // Gated on the kill switch: an agent that can't propose has no use for
+        // the names, so it doesn't get them. The publisher already withholds
+        // them from the file when off; this is the second layer, so a snapshot
+        // built with names + authoring-off still can't leak them here.
+        if snapshot.agentAuthoringEnabled, !snapshot.secretNames.isEmpty {
+            lines.append("")
+            lines.append("Stored secrets, referenced as {{secrets.NAME}} in a shell command "
+                + "(use one of these exact names, never invent one; keep the reference in "
+                + "double quotes, never single quotes; you never see the value): "
+                + snapshot.secretNames.joined(separator: ", "))
+        }
 
         lines.append("")
         if statuses.isEmpty {

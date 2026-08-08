@@ -61,11 +61,19 @@ final class SecretStoreTests: XCTestCase {
         XCTAssertNil(SecretStore.value(for: "bad name"))
     }
 
-    func testAnEmptyValueIsStorable() {
-        // Not our business to police the token format, and refusing would be a
-        // confusing failure at save time.
-        XCTAssertEqual(SecretStore.save("", name: testName), .saved)
-        XCTAssertEqual(SecretStore.value(for: testName)?.raw, "")
+    func testAnEmptyValueIsRefused() {
+        // An empty value stores fine at the Keychain layer but hands a blank
+        // credential to the command at run time, failing far away with the
+        // wrong error. Refuse it at the source — both the form and a `FOO=`
+        // shell-import entry stop here rather than persisting a blank secret.
+        guard case .invalidName = SecretStore.save("", name: testName) else {
+            return XCTFail("empty value should be refused")
+        }
+        // Whitespace-only collapses to empty after the trim and is refused too.
+        guard case .invalidName = SecretStore.save("   \n", name: testName) else {
+            return XCTFail("whitespace-only value should be refused")
+        }
+        XCTAssertFalse(SecretStore.exists(testName), "nothing was persisted")
     }
 
     func testAPastedTrailingNewlineIsTrimmedAtSave() {

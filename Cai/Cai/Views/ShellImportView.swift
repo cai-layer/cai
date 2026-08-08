@@ -182,6 +182,11 @@ struct ShellImportView: View {
                 failures.append((candidate.name, status))
             }
         }
+        // Republish here, not only on the way out: a partial failure parks on
+        // the .partial screen without calling onDone, and if the user abandons
+        // it (focus loss, quit) the secrets that DID save would otherwise stay
+        // invisible to the agent until the next relaunch.
+        if saved > 0 { ActionsSnapshotPublisher.shared.publishNow() }
         if failures.isEmpty {
             onDone(saved)
         } else {

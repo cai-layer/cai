@@ -10,6 +10,7 @@ final class AgentReplyTests: XCTestCase {
 
     private func snapshot(
         actions: [ActionSnapshot] = [CoreFixture.snapshot()],
+        secretNames: [String] = [],
         enabled: Bool = true
     ) -> ActionsSnapshot {
         ActionsSnapshot(
@@ -17,6 +18,7 @@ final class AgentReplyTests: XCTestCase {
             actions: actions,
             destinations: [DestinationSummary(name: "Slack", kind: .webhook)],
             builtInActionNames: ["Summarize"],
+            secretNames: secretNames,
             agentAuthoringEnabled: enabled
         )
     }
@@ -37,6 +39,43 @@ final class AgentReplyTests: XCTestCase {
 
         XCTAssertTrue(text.contains("Destinations a chain step can name: Slack"))
         XCTAssertTrue(text.contains("Built-in actions a chain step can name: Summarize"))
+    }
+
+    func testListingNamesStoredSecretsSoTheAgentDoesNotGuess() {
+        let text = AgentReply.actionsListing(
+            snapshot: snapshot(secretNames: ["NOTION_API", "GITHUB_TOKEN"]),
+            statuses: []
+        )
+        // The exact names the agent must reference, plus the two rules that
+        // trip execution otherwise: {{secrets.NAME}} syntax and double quotes.
+        XCTAssertTrue(text.contains("NOTION_API"), text)
+        XCTAssertTrue(text.contains("GITHUB_TOKEN"), text)
+        XCTAssertTrue(text.contains("{{secrets.NAME}}"), text)
+        XCTAssertTrue(text.contains("double quotes"), text)
+    }
+
+    func testListingOmitsTheSecretsSectionWhenThereAreNone() {
+        let text = AgentReply.actionsListing(snapshot: snapshot(), statuses: [])
+        XCTAssertFalse(text.contains("Stored secrets"), text)
+    }
+
+    func testSecretNamesAreWithheldWhenAuthoringIsOff() {
+        // The kill switch gates name exposure: an agent that cannot propose has
+        // no use for the names, so even a snapshot that carries them must not
+        // surface them.
+        let text = AgentReply.actionsListing(
+            snapshot: snapshot(secretNames: ["NOTION_API"], enabled: false),
+            statuses: []
+        )
+        XCTAssertFalse(text.contains("Stored secrets"), text)
+        XCTAssertFalse(text.contains("NOTION_API"), text)
+    }
+
+    func testStoredSecretNamesAreNamesOnlyNeverValues() {
+        // The snapshot carries names; there is no value field to leak. Guard the
+        // invariant so a future field addition can't quietly ship values.
+        let snap = snapshot(secretNames: ["NOTION_API"])
+        XCTAssertEqual(snap.secretNames, ["NOTION_API"])
     }
 
     func testListingShowsAChainSoItIsNotProposedTwice() {

@@ -77,19 +77,22 @@ enum ShellEnvCapture {
         let command = "printf '\\0CAI_ENV\\0'; /usr/bin/env -0"
         let existing = Set(SecretStore.list().map(\.name))
 
-        var output: ShellRunner.Output
-        do {
-            output = try await ShellRunner.run(
-                command, stdin: "", timeout: captureTimeout,
-                executable: loginShell(), flags: "-ilc"
-            )
-        } catch {
-            // Exotic or missing login shell (csh rejects -ilc, chsh to a
-            // deleted binary): retry with the shell every Mac has.
-            output = try await ShellRunner.run(
-                command, stdin: "", timeout: captureTimeout,
-                executable: "/bin/zsh", flags: "-ilc"
-            )
+        let shell = loginShell()
+        var output = await attempt(command, shell: shell)
+
+        // The login shell can fail short of throwing, and the original catch
+        // only saw exec failure (a missing binary). csh/tcsh spawn fine but
+        // reject `-ilc` and exit non-zero; an rc file can swallow the command
+        // so the marker never prints; the shell can hang past the timeout.
+        // `attempt` returns nil only on exec failure. Any unusable result
+        // falls back to the shell every Mac has, unless we already ran it.
+        if !(output.map(Self.isUsable) ?? false), shell != fallbackShell {
+            output = await attempt(command, shell: fallbackShell)
+        }
+
+        guard let output else {
+            // Neither the login shell nor /bin/zsh could be launched at all.
+            throw CaptureError.shellUnavailable
         }
         if output.timedOut {
             throw CaptureError.timedOut
@@ -103,15 +106,44 @@ enum ShellEnvCapture {
             // empty candidate list — "no variables found" would be a lie.
             throw CaptureError.markerMissing
         }
+        guard !output.truncated else {
+            // A >10 MB environment was capped mid-stream: the last record is a
+            // fragment and everything past the cap is gone. Importing from a
+            // truncated capture would save a mangled credential, so refuse the
+            // whole capture rather than offer a corrupted candidate.
+            throw CaptureError.outputTooLarge
+        }
         return candidates(fromCaptureOutput: output.stdout, existing: existing)
     }
 
+    /// One capture attempt. Returns nil only when the shell binary can't be
+    /// launched — the sole failure `ShellRunner.run` throws for. A shell that
+    /// spawns and then fails still returns its `Output`, so the caller can tell
+    /// "wrong shell" (retry zsh) from "no shell at all".
+    private static func attempt(_ command: String, shell: String) async -> ShellRunner.Output? {
+        try? await ShellRunner.run(
+            command, stdin: "", timeout: captureTimeout,
+            executable: shell, flags: "-ilc"
+        )
+    }
+
+    /// A capture worth keeping: exited cleanly and printed the marker. A
+    /// truncated-but-marked capture is still "usable" here — truncation isn't
+    /// the shell's fault and retrying zsh would truncate too; `capture()`
+    /// rejects it separately.
+    private static func isUsable(_ output: ShellRunner.Output) -> Bool {
+        !output.timedOut && output.status == 0 && output.stdout.contains(marker)
+    }
+
     static let captureTimeout: TimeInterval = 10
+    static let fallbackShell = "/bin/zsh"
 
     enum CaptureError: LocalizedError, Equatable {
         case timedOut
         case shellFailed(status: Int32)
         case markerMissing
+        case outputTooLarge
+        case shellUnavailable
 
         var errorDescription: String? {
             switch self {
@@ -121,6 +153,10 @@ enum ShellEnvCapture {
                 return "Your shell exited with code \(status) before printing its environment."
             case .markerMissing:
                 return "Your shell's output couldn't be read."
+            case .outputTooLarge:
+                return "Your shell environment is too large to read safely."
+            case .shellUnavailable:
+                return "Cai couldn't start your shell or /bin/zsh."
             }
         }
     }

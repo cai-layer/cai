@@ -71,6 +71,12 @@ enum ShellRunner {
         /// by signal too and used to be misreported as "exceeded 60s".
         let timedOut: Bool
 
+        /// stdout and/or stderr hit `maxOutputBytes` and were capped. The
+        /// surviving text carries `truncationMarker`, but a caller that parses
+        /// the stream (ShellEnvCapture) needs the flag, not the marker text, to
+        /// know its last record may be a fragment.
+        let truncated: Bool
+
         /// stdout with surrounding whitespace removed, which is what every
         /// caller that propagates output actually wants.
         var trimmedStdout: String {
@@ -189,7 +195,8 @@ enum ShellRunner {
             status: process.terminationStatus,
             stdout: stdout,
             stderr: stderr,
-            timedOut: timedOut
+            timedOut: timedOut,
+            truncated: outTruncated || errTruncated
         )
     }
 

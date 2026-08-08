@@ -189,6 +189,13 @@ enum SecretStore {
         // redaction, since echoed output carries the token without the newline.
         // Interior whitespace stays: PEM-style material is legitimate.
         let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An empty value stores fine (`"".data(using:)` is non-nil) but then
+        // hands a blank credential to the command at run time, failing far away
+        // with the wrong error. Refuse it here so both the form and the shell
+        // import (a `FOO=` entry) stop at the source.
+        guard !value.isEmpty else {
+            return .invalidName("A secret can't be empty.")
+        }
         guard let data = value.data(using: .utf8) else {
             return .invalidName("That value cannot be stored as text.")
         }

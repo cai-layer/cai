@@ -26,6 +26,9 @@ struct SecretsManagementView: View {
     @State private var usageCounts: [String: Int] = [:]
     /// Transient "Saved in Keychain" line (the Connectors grammar).
     @State private var confirmation: String?
+    /// Set when a Keychain delete is refused (locked keychain, denied ACL): the
+    /// row survives `refresh()`, so without this the delete just "doesn't take".
+    @State private var deleteFailure: String?
     @State private var pendingDelete: SecretDescriptor?
 
     /// The router's `handleEsc` consults this before leaving the screen, so
@@ -106,6 +109,9 @@ struct SecretsManagementView: View {
         case .items(let items):
             ScrollView {
                 VStack(spacing: 6) {
+                    if let deleteFailure {
+                        deleteFailureLine(deleteFailure)
+                    }
                     if let confirmation {
                         confirmationLine(confirmation)
                     }
@@ -235,6 +241,23 @@ struct SecretsManagementView: View {
         }
     }
 
+    private func deleteFailureLine(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.caiError)
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            withAnimation(.easeOut(duration: 0.2)) { deleteFailure = nil }
+        }
+    }
+
     // MARK: - Delete
 
     private var deleteTitle: String {
@@ -254,10 +277,16 @@ struct SecretsManagementView: View {
     }
 
     private func delete(_ secret: SecretDescriptor) {
-        SecretStore.delete(secret.name)
+        let deleted = SecretStore.delete(secret.name)
         pendingDelete = nil
         refresh()
-        // The row disappearing is the confirmation; no toast.
+        if deleted { ActionsSnapshotPublisher.shared.publishNow() }
+        // The row disappearing is the confirmation; no toast. A refused delete
+        // leaves the row, so say why instead of letting it look like a no-op.
+        if !deleted {
+            confirmation = nil
+            deleteFailure = "\(secret.name) couldn't be deleted from the Keychain."
+        }
     }
 
     // MARK: - Navigation
@@ -278,6 +307,9 @@ struct SecretsManagementView: View {
     private func leaveSubScreen(confirming message: String?) {
         WindowController.passThrough = false  // CAI-22
         refresh()
+        // A save/replace/import may have changed the secret names; republish so
+        // the agent snapshot lists them (a no-op rewrite after a plain cancel).
+        ActionsSnapshotPublisher.shared.publishNow()
         confirmation = message
         withAnimation(.easeInOut(duration: 0.15)) { mode = .list }
     }
@@ -290,6 +322,7 @@ struct SecretsManagementView: View {
     }
 
     private func refresh() {
+        deleteFailure = nil
         listResult = SecretStore.enumerate()
         usageCounts = SecretUsage.counts()
     }

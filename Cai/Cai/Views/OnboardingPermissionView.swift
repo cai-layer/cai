@@ -36,6 +36,18 @@ struct OnboardingPermissionView: View {
             }
             .padding(.horizontal, 32)
 
+            Spacer().frame(height: 16)
+
+            // Answers the question the two rows above raise ("so it can read
+            // anything I copy?"). We ask for the scariest macOS permission while
+            // being local-first / no-telemetry; this is the one sentence that
+            // says what Cai won't do, stated where the user decides to trust us.
+            Text("Cai only reads your selection when you press ⌥C. Never in the background.")
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
             Spacer().frame(height: 24)
 
             Button(action: {

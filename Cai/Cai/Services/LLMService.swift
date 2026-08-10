@@ -864,20 +864,23 @@ actor LLMService {
             throw LLMError.invalidResponse
         }
         // Token-first: the overwhelmingly common case is a content chunk, so try
-        // that decode on the hot path. Only on failure do we check for an error
-        // event — an OpenAI error envelope has no `choices`, so it can't be
-        // mistaken for a chunk. Surfacing `error.message` keeps the real cause
-        // visible instead of a generic "invalid response". (#52)
-        if let chunk = try? JSONDecoder().decode(OpenAIStreamingChunk.self, from: data) {
-            guard let content = chunk.choices.first?.delta.content, !content.isEmpty else {
-                return .skip
-            }
+        // that decode on the hot path and return as soon as we have visible text. (#52)
+        let chunk = try? JSONDecoder().decode(OpenAIStreamingChunk.self, from: data)
+        if let content = chunk?.choices.first?.delta.content, !content.isEmpty {
             return .content(content)
         }
+        // No usable content. Before treating this as a skip, probe for an error
+        // envelope — some servers stream errors on HTTP 200, occasionally alongside
+        // an empty `choices` array, so the probe must run even when the chunk
+        // decoded. Surfacing `error.message` keeps the real cause visible instead of
+        // a generic "empty response". (#52)
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let message = Self.errorMessage(from: obj), !message.isEmpty {
             throw LLMError.serverError(0, message)
         }
+        // A decodable-but-contentless chunk (role-only / tool-only / empty choices /
+        // null content) is a legitimate skip; anything else is malformed.
+        if chunk != nil { return .skip }
         throw LLMError.invalidResponse
     }
 

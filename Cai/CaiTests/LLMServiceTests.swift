@@ -645,6 +645,20 @@ final class LLMServiceTests: XCTestCase {
         }
     }
 
+    func testParseSSELineSurfacesErrorEventAlongsideEmptyChoices() {
+        // #52: a chunk that decodes (empty `choices`) but also carries an `error`
+        // must surface the error, not skip. Token-first decode succeeds here, so the
+        // error probe has to run even on a decodable-but-contentless chunk — otherwise
+        // the real cause is swallowed and the user sees a generic "empty response".
+        let line = #"data: {"choices":[],"error":{"message":"model overloaded"}}"#
+        XCTAssertThrowsError(try LLMService.parseSSELine(line)) { error in
+            guard case let LLMError.serverError(_, message) = error else {
+                return XCTFail("expected LLMError.serverError, got \(error)")
+            }
+            XCTAssertEqual(message, "model overloaded")
+        }
+    }
+
     // MARK: - Endpoint Normalization (issue #28)
 
     // The endpoint field is a base URL we append `/v1/...` onto. Users paste a

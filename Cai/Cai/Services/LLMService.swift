@@ -557,6 +557,13 @@ actor LLMService {
             if http.statusCode == 401 || http.statusCode == 403 {
                 throw LLMError.serverError(http.statusCode, "Authentication failed — check your API key in Settings → Model Provider.")
             }
+            // Prefer the server's structured error message over the raw JSON body,
+            // reusing the #28 extractor (handles both `{"error":"…"}` and
+            // `{"error":{"message":…}}`). (#52)
+            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let message = Self.errorMessage(from: obj), !message.isEmpty {
+                throw LLMError.serverError(http.statusCode, message)
+            }
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw LLMError.serverError(http.statusCode, body)
         }
@@ -762,6 +769,12 @@ actor LLMService {
             if http.statusCode == 401 || http.statusCode == 403 {
                 throw LLMError.serverError(http.statusCode, "Authentication failed — check your API key in Settings → Model Provider.")
             }
+            // Prefer the server's structured error message over the raw JSON body,
+            // reusing the #28 extractor. (#52)
+            if let obj = try? JSONSerialization.jsonObject(with: errorBody) as? [String: Any],
+               let message = Self.errorMessage(from: obj), !message.isEmpty {
+                throw LLMError.serverError(http.statusCode, message)
+            }
             let bodyString = String(data: errorBody, encoding: .utf8) ?? "Unknown error"
             throw LLMError.serverError(http.statusCode, bodyString)
         }
@@ -833,7 +846,10 @@ actor LLMService {
     /// - `.done` for the `data: [DONE]` sentinel.
     /// - `.content(text)` for a content delta.
     ///
-    /// Throws `LLMError.invalidResponse` if a `data:` line carries malformed JSON.
+    /// Throws `LLMError.serverError` if a `data:` line is an OpenAI error event
+    /// (`{"error":{"message":...}}`) — some servers stream errors this way on an
+    /// HTTP 200 instead of a non-200 status (#52). Throws `LLMError.invalidResponse`
+    /// if the payload is neither a chunk nor a recognizable error.
     static func parseSSELine(_ line: String) throws -> SSEParseResult {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return .skip }
@@ -847,16 +863,25 @@ actor LLMService {
         guard let data = payload.data(using: .utf8) else {
             throw LLMError.invalidResponse
         }
-        let chunk: OpenAIStreamingChunk
-        do {
-            chunk = try JSONDecoder().decode(OpenAIStreamingChunk.self, from: data)
-        } catch {
-            throw LLMError.invalidResponse
+        // Token-first: the overwhelmingly common case is a content chunk, so try
+        // that decode on the hot path and return as soon as we have visible text. (#52)
+        let chunk = try? JSONDecoder().decode(OpenAIStreamingChunk.self, from: data)
+        if let content = chunk?.choices.first?.delta.content, !content.isEmpty {
+            return .content(content)
         }
-        guard let content = chunk.choices.first?.delta.content, !content.isEmpty else {
-            return .skip
+        // No usable content. Before treating this as a skip, probe for an error
+        // envelope — some servers stream errors on HTTP 200, occasionally alongside
+        // an empty `choices` array, so the probe must run even when the chunk
+        // decoded. Surfacing `error.message` keeps the real cause visible instead of
+        // a generic "empty response". (#52)
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let message = Self.errorMessage(from: obj), !message.isEmpty {
+            throw LLMError.serverError(0, message)
         }
-        return .content(content)
+        // A decodable-but-contentless chunk (role-only / tool-only / empty choices /
+        // null content) is a legitimate skip; anything else is malformed.
+        if chunk != nil { return .skip }
+        throw LLMError.invalidResponse
     }
 
     // MARK: - Anthropic (Claude API)
@@ -1155,13 +1180,15 @@ actor LLMService {
 struct ChatRequest: Encodable {
     let model: String
     let messages: [ChatMessage]
-    let temperature: Double
     let max_tokens: Int
     /// nil for non-streaming (key omitted from JSON), `true` for SSE streaming.
     let stream: Bool?
+    // `temperature` is intentionally absent from the wire format (mirrors
+    // `AnthropicRequest`): some OpenAI-compatible models reject the parameter
+    // outright (#52). A future user-facing temperature control re-adds it here.
 
     private enum CodingKeys: String, CodingKey {
-        case model, messages, temperature, max_tokens, stream
+        case model, messages, max_tokens, stream
     }
 
     /// Custom encode so `stream` is omitted from JSON when nil — keeps the
@@ -1170,19 +1197,17 @@ struct ChatRequest: Encodable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(model, forKey: .model)
         try c.encode(messages, forKey: .messages)
-        try c.encode(temperature, forKey: .temperature)
         try c.encode(max_tokens, forKey: .max_tokens)
         try c.encodeIfPresent(stream, forKey: .stream)
     }
 
     /// Build a non-streaming OpenAI-compatible request honoring the caller's `GenerationConfig`.
-    /// Regression guard for #26: temperature and max_tokens must come from `config`,
-    /// not hardcoded at the call site.
+    /// `temperature` is intentionally not sent (see the struct note — #52). Regression
+    /// guard for #26: `max_tokens` must come from `config`, not hardcoded at the call site.
     static func from(config: GenerationConfig, messages: [ChatMessage], model: String) -> ChatRequest {
         ChatRequest(
             model: model,
             messages: messages,
-            temperature: Double(config.temperature),
             max_tokens: config.maxTokens,
             stream: nil
         )
@@ -1194,7 +1219,6 @@ struct ChatRequest: Encodable {
         ChatRequest(
             model: model,
             messages: messages,
-            temperature: Double(config.temperature),
             max_tokens: config.maxTokens,
             stream: true
         )
@@ -1301,7 +1325,9 @@ enum LLMError: LocalizedError {
         case .invalidResponse:
             return "Invalid response from server."
         case .serverError(let code, let body):
-            return "Server error (\(code)): \(body)"
+            // code 0 is the sentinel for a streamed SSE error event, which has no
+            // HTTP status — drop the parenthetical so it reads cleanly. (#52)
+            return code == 0 ? "Server error: \(body)" : "Server error (\(code)): \(body)"
         case .emptyResponse:
             return "Empty response from model."
         case .connectionFailed:

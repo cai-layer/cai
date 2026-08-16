@@ -276,11 +276,12 @@ struct SettingsView: View {
 
                     }
 
-                    // MARK: Extensions Group
-                    // Order: Actions → Destinations → Connectors.
+                    // MARK: Customize Group
+                    // Five flat rows, plain nouns (Settings IA "Option A"):
+                    // Actions → Destinations → Connections → Secrets → Extensions.
                     // Actions is unified: Custom + Built-in under one screen via tabs
                     // (collapsed from two separate Settings entries 2026-05-05).
-                    settingsGroup(title: "Extensions") {
+                    settingsGroup(title: "Customize") {
                         navRow(
                             label: "Actions",
                             count: settings.shortcuts.count + visibleBuiltInActionsCount,
@@ -290,11 +291,13 @@ struct SettingsView: View {
 
                         settingsDivider
 
+                        // Outputs only — where Cai sends results. macOS grants
+                        // live under Connections → System Access, not here.
                         navRow(label: "Destinations", count: settings.enabledDestinations.count, total: settings.outputDestinations.count, action: onShowDestinations)
 
                         settingsDivider
 
-                        mcpNavRow
+                        connectionsNavRow
 
                         settingsDivider
 
@@ -302,26 +305,14 @@ struct SettingsView: View {
                         // destinations all consume secrets, so filing it under
                         // any one would hide it from the others.
                         navRow(label: "Secrets", count: secretCount, action: onShowSecrets)
-                    }
 
-                    Button(action: onShowExtensions ?? {}) {
-                        HStack(spacing: 4) {
-                            Text("Community extensions")
-                                .font(.system(size: 11))
-                                .foregroundColor(.caiPrimary)
-                            if settings.installedExtensions.count > 0 {
-                                Text("· \(settings.installedExtensions.count) installed")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary)
-                            }
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 8, weight: .medium))
-                                .foregroundColor(.caiPrimary.opacity(0.6))
-                        }
+                        settingsDivider
+
+                        // The community catalog, promoted from a footnote link to
+                        // a real row: "Extensions" now means only the catalog +
+                        // what you've installed from it.
+                        navRow(label: "Extensions", count: settings.installedExtensions.count, action: onShowExtensions)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 4)
-                    .padding(.top, -8)
 
                     // MARK: Personalization Group
                     // Layered personalization — global "About You" context + per-app Context Snippets.
@@ -876,16 +867,17 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Connectors Row
+    // MARK: - Connections Row
 
     @ObservedObject private var mcpConfigManager = MCPServerConfigManager.shared
 
-    /// One row for both directions of MCP: tools Cai uses, and agents that
-    /// propose actions to it. The count stays the connector count, since that
-    /// is the only side with a meaningful "N of M configured".
-    private var mcpNavRow: some View {
+    /// One row for the whole "who/what has access" surface: tools Cai uses,
+    /// agents that propose actions to it, and the macOS grants actions can read.
+    /// The count stays the connector count, since that is the only side with a
+    /// meaningful "N of M configured".
+    private var connectionsNavRow: some View {
         navRow(
-            label: "MCP",
+            label: "Connections",
             count: mcpConfigManager.configuredCount,
             total: mcpConfigManager.serverConfigs.count,
             action: onShowConnectors

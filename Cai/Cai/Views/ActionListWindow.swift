@@ -57,7 +57,7 @@ struct ActionListWindow: View {
     /// Which tab the MCP screen opens on. Settings opens Server (the release
     /// headline); the missing-credentials redirect opens Client, because that
     /// user was sent here to enter an API key.
-    @State private var connectorsInitialTab: MCPManagementView.Tab = .server
+    @State private var connectorsInitialTab: MCPManagementView.Tab = .agents
     @StateObject private var historySelectionState = SelectionState()
     @StateObject private var customPromptState = CustomPromptState()
     @ObservedObject private var settings = CaiSettings.shared
@@ -723,7 +723,7 @@ struct ActionListWindow: View {
                     }
                 },
                 onShowConnectors: {
-                    connectorsInitialTab = .server
+                    connectorsInitialTab = .agents
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = false
                         showConnectors = true
@@ -1414,11 +1414,11 @@ struct ActionListWindow: View {
 
         case .mcpAction(let configId):
             if let config = MCPActionConfigRegistry.shared.availableActions.first(where: { $0.id == configId }) {
-                // If API key not configured, redirect to the MCP screen's
-                // Client tab, where the API-key form lives.
+                // If API key not configured, redirect to the Connections
+                // screen's Tools tab, where the API-key form lives.
                 if !MCPServerConfigManager.shared.isServerConfigured(config.serverConfigId) {
                     selectionState.filterText = ""
-                    connectorsInitialTab = .client
+                    connectorsInitialTab = .tools
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showConnectors = true
                     }

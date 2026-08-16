@@ -26,6 +26,14 @@
 	<string>Cai needs accessibility access to register global keyboard shortcuts (⌥C) so you can quickly capture clipboard content from anywhere.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Cai uses Apple Events to send content to apps like Mail, Notes, and Reminders when you choose an output destination.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Cai needs Calendar access so actions can read your events and add new ones, for example building a digest of your week or turning selected text into a calendar entry.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Cai needs full Calendar access so actions can read your events and add new ones, for example building a digest of your week or turning selected text into a calendar entry.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Cai needs Reminders access so actions can read your reminders and create new ones from whatever you have selected.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Cai needs Contacts access so actions can look up people you mention, for example resolving a name to an email address when drafting a message.</string>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>

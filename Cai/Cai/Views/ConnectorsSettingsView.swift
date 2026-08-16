@@ -22,7 +22,7 @@ struct ConnectorsSettingsView: View {
             if showsChrome {
             // Header
             HStack {
-                Text("Connectors")
+                Text("Tools")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.caiTextPrimary)
 
@@ -49,7 +49,7 @@ struct ConnectorsSettingsView: View {
                             Image(systemName: "puzzlepiece.extension")
                                 .font(.system(size: 24))
                                 .foregroundColor(.caiTextSecondary.opacity(0.3))
-                            Text("No connectors configured")
+                            Text("No tools connected")
                                 .font(.system(size: 12))
                                 .foregroundColor(.caiTextSecondary.opacity(0.5))
                         }
@@ -59,7 +59,7 @@ struct ConnectorsSettingsView: View {
 
                     // Info text
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Connectors let Cai create issues, tickets, and more via MCP servers.")
+                        Text("Tools let Cai create issues, tickets, and more in the apps you connect.")
                             .font(.system(size: 10))
                             .foregroundColor(.caiTextSecondary.opacity(0.5))
                         Text("Config: ~/.config/cai/mcp-servers.json")

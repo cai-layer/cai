@@ -83,6 +83,18 @@ class WindowController: NSObject, ObservableObject {
             queue: .main
         ) { [weak self] notification in
             let message = notification.userInfo?["message"] as? String ?? "Copied to Clipboard"
+
+            // A TCC-denied action failure (e.g. "No Calendar access … (-2700)")
+            // is something the user can actually fix — so instead of flashing a
+            // raw error toast, offer to grant it inside Cai (the in-process
+            // prompt we verified works). `offerGrantIfPossible` returns false for
+            // every non-TCC message, so this is a no-op for ordinary toasts.
+            // This observer runs on the main queue, so `assumeIsolated` is safe.
+            let handledByGrantOffer = MainActor.assumeIsolated {
+                NativeAccessManager.shared.offerGrantIfPossible(forErrorMessage: message)
+            }
+            if handledByGrantOffer { return }
+
             let icon = (notification.userInfo?["icon"] as? String).flatMap(ToastQueue.Icon.init(rawValue:)) ?? .success
             if let duration = notification.userInfo?["duration"] as? TimeInterval {
                 self?.showToast(message: message, duration: duration, icon: icon)

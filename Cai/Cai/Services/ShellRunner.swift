@@ -116,6 +116,20 @@ enum ShellRunner {
         // own login shell (`$SHELL -ilc …`). Every other caller wants the
         // defaults; a second Process wrapper would re-meet the SIGPIPE,
         // pool-starvation and waitUntilExit traps documented below.
+        //
+        // RESPONSIBILITY CHAIN — DO NOT DETACH THIS PROCESS. Cai is a
+        // non-sandboxed Developer-ID app and stays the TCC *responsible process*
+        // only because this child inherits our attribution through a plain
+        // parent/child chain (`Cai.app → Process(/bin/zsh) → osascript/JXA`).
+        // The moment an action shell is spawned detached — `startNewSession`,
+        // `posix_spawn` with `setsid`, a launchd/`launchctl` re-launch, or a
+        // `responsibility_spawnattrs_setdisclaim` disclaim — the kernel reassigns
+        // responsibility to the shell (or to launchd), Cai's Info.plist usage
+        // strings and Automation grant no longer apply, and every Calendar/
+        // Contacts/Apple-Events request silently DENIES with no prompt. So this
+        // is a bare `Process()` with no session/disclaim attributes, forever.
+        // Enforced by `ResponsibilityChainGuardTests`. See
+        // `_docs/architecture/PERMISSIONS.md`.
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = [flags, command]

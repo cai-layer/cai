@@ -4,5 +4,15 @@
 <dict>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<!-- Hardened-runtime resource-access entitlements. Cai enables the hardened
+	     runtime, so in-process EventKit / Contacts access is blocked at the code-
+	     signature layer WITHOUT these — the request returns false instantly, no
+	     prompt, status stays notDetermined. These are NOT sandbox entitlements
+	     (Cai isn't sandboxed); they're the hardened-runtime equivalent, required
+	     even for a non-sandboxed app. See _docs/architecture/PERMISSIONS.md. -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
 </dict>
 </plist>

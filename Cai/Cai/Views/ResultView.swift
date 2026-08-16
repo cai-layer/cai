@@ -32,6 +32,10 @@ struct ResultView: View {
 
     @FocusState private var isFollowUpFocused: Bool
 
+    /// Opens the System Settings deep link when an action fails with a TCC
+    /// denial (see `remediationButton`).
+    @Environment(\.openURL) private var openURL
+
     /// Drives the follow-up footer hint live when "Press Return to send" toggles.
     @ObservedObject private var settings = CaiSettings.shared
 
@@ -93,6 +97,14 @@ struct ResultView: View {
                             Text("Check Settings \u{2192} Model Provider")
                                 .font(.system(size: 11))
                                 .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        }
+
+                        // TCC denial (Apple Events -1743, or an EventKit/
+                        // Contacts denial from an agent action) → one-tap deep
+                        // link to the exact Privacy pane. For Full Disk Access
+                        // this only guides — Cai can never request it.
+                        if let guidance = TCCRemediation.detect(in: error) {
+                            remediationButton(guidance)
                         }
                     }
                     .accessibilityElement(children: .combine)
@@ -249,6 +261,50 @@ struct ResultView: View {
                 isFollowUpFocused = false
             }
         }
+    }
+
+    /// One-tap remediation button under a TCC-denial error. Behaves identically
+    /// to the toast grant-on-denial path (`NativeAccessManager`): for a
+    /// Calendar/Contacts domain that hasn't been asked yet, it fires Cai's
+    /// in-process OS prompt ("Grant … Access"); otherwise — already-denied, or a
+    /// domain Cai can't request (Apple Events / Full Disk Access) — it deep-links
+    /// the correct Settings pane. It *acts*, so it earns indigo per Indigo discipline.
+    @ViewBuilder
+    private func remediationButton(_ guidance: TCCRemediation.Guidance) -> some View {
+        // A domain Cai can request that is still `.notDetermined` → prompt in
+        // process; every other case → open Settings (macOS won't re-prompt once
+        // answered, and Apple Events / FDA aren't requestable at all).
+        let requestable = NativeAccessManager.requestableDomain(for: guidance.domain.key)
+        let promptable = requestable.map { NativeAccessManager.shared.state(for: $0) == .notDetermined } ?? false
+
+        VStack(spacing: 8) {
+            Text(promptable ? "This action needs \(guidance.domain.label) access." : guidance.message)
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary.opacity(0.8))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
+
+            Button(action: {
+                if promptable, let domain = requestable {
+                    NativeAccessManager.shared.requestAndConfirm(domain)
+                } else {
+                    openURL(guidance.settingsURL)
+                }
+            }) {
+                Text(promptable ? "Grant \(guidance.domain.label) Access" : guidance.buttonLabel)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.caiPrimary)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 4)
     }
 
     /// Heuristic: does this error message look like it came from the LLM / model

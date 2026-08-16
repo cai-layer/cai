@@ -956,9 +956,9 @@ struct MCPFormView: View {
     // MARK: - Initialization
 
     private func initialize() async {
-        // Step 1: Ensure MCP server is connected
+        // Step 1: Ensure the backing tool is connected
         guard let serverConfig = MCPServerConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId }) else {
-            errorMessage = "Server configuration not found"
+            errorMessage = "This tool isn't set up. Add it under Connections → Tools."
             return
         }
 

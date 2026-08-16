@@ -1,13 +1,23 @@
+import AppKit
 import CaiActionCore
 import SwiftUI
 
 /// The approval sheet: the one place an agent-authored action becomes real.
 ///
-/// Hierarchy is payload first, deliberately. The name is what an attacker
-/// controls and the payload is what actually runs, so the command sits at the
-/// top in monospace, untruncated, and the name is metadata below it. Escalated
-/// proposals add an orange callout per risk and an acknowledgment checkbox that
-/// gates Approve, so a flow-state click cannot complete one.
+/// Three bands, top to bottom. A pinned header names the action (the name leads,
+/// because it is the subject of the whole decision) with the create/update
+/// prefix and provenance under it. A single scrolling body carries the evidence:
+/// the payload (or, for an update, the diff) in monospace, never folded, plus
+/// the resolved chain steps. A pinned control band holds the orange risk callout,
+/// the acknowledgment, and the buttons, so the risk and the consent stay
+/// co-visible with Approve however long the payload is: you cannot tick, scroll
+/// away, and approve blind. The name is attacker-controlled, so it is sanitized
+/// to one capped line before it is ever shown in Cai's own title voice.
+///
+/// One scroll, not three: the body scrolls, every block renders at its natural
+/// height, and only chain-step directives fold (with an in-place "Show more"),
+/// following the way GitHub and VS Code expand hunks in place while keeping the
+/// actions in a fixed bar.
 ///
 /// Layout follows `docs/design/DESIGN.md`: 540pt frosted window, 20pt radius,
 /// `caiPrimary` on Approve and nowhere else, `caiError` (orange) hairline and
@@ -37,6 +47,15 @@ struct ActionReviewView: View {
     /// a tick belongs to the payload that was on screen when it was made.
     @State private var browseIndex = 0
 
+    /// Chain steps the reader has expanded past the collapsed line cap. Indices,
+    /// not the steps themselves, and dropped on every card change so an
+    /// expansion never carries a directive from one proposal onto the next.
+    @State private var expandedSteps: Set<Int> = []
+
+    /// Whether the reader has expanded a folded (long, riskless) prompt payload.
+    /// Reset on every card change, like the acknowledgment and the steps.
+    @State private var payloadExpanded = false
+
     private var proposal: PendingProposal? {
         guard !store.pending.isEmpty else { return nil }
         return store.pending[ActionReviewPresentation.clampedQueueIndex(browseIndex, count: store.pending.count)]
@@ -46,8 +65,8 @@ struct ActionReviewView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let proposal {
                 header(for: proposal)
-                content(for: proposal)
-                footer(for: proposal)
+                scrollBody(for: proposal)
+                pinnedControls(for: proposal)
             } else {
                 emptyState
             }
@@ -57,8 +76,13 @@ struct ActionReviewView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         // Keyed on the whole proposal, not its id: a writer can rewrite the
         // same file in place, keeping the id while the payload changes. Ticks
-        // belong to the bytes the user read, not to a filename.
-        .onChange(of: proposal) { _ in acknowledged = false }
+        // (and expanded steps) belong to the bytes the user read, not to a
+        // filename.
+        .onChange(of: proposal) { _ in
+            acknowledged = false
+            expandedSteps = []
+            payloadExpanded = false
+        }
         .onChange(of: store.pending.count) { count in
             browseIndex = ActionReviewPresentation.clampedQueueIndex(browseIndex, count: count)
         }
@@ -89,12 +113,64 @@ struct ActionReviewView: View {
     // MARK: - Header
 
     private func header(for proposal: PendingProposal) -> some View {
-        HStack(spacing: 8) {
-            Text(ActionReviewPresentation.windowTitle)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.caiTextPrimary)
+        let validated = proposal.validated
+        let title = ActionReviewPresentation.windowTitle(
+            name: validated.after.name, isUpdate: validated.isUpdate
+        )
 
-            Spacer()
+        return HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                // The name leads in the primary weight; the "New action" /
+                // "Update" prefix is secondary, because which shape it is
+                // matters less than what it is. One line, tail-truncated: the
+                // name is sanitized and capped, but a long legitimate name
+                // still must not wrap the header into the payload.
+                HStack(spacing: 6) {
+                    (Text(title.prefix + " · ").foregroundColor(.caiTextSecondary)
+                        + Text(title.name).foregroundColor(.caiTextPrimary))
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityLabel(title.combined)
+
+                    typeChip(for: validated.after.type)
+                }
+
+                // Provenance as the title's subtitle. Single line by
+                // construction: the validator strips control characters and
+                // caps the length, and this is the belt to that brace. A client
+                // name is attacker-controlled text sitting in Cai's own voice.
+                // The byline: who and when, dimmed a step below the summary so
+                // the eye lands on what the action does, not who sent it.
+                Text(ActionReviewPresentation.provenanceSubtitle(
+                    client: proposal.provenance.client,
+                    authoredAt: proposal.provenance.authoredAt,
+                    now: Date()
+                ))
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary.opacity(0.7))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+                // What the action does, in Cai's own voice, derived only from
+                // the type and the resolved chain (and the prompt engine, which
+                // is privacy-relevant). Full-strength secondary and set a touch
+                // apart from the byline so it reads as Cai's factual claim about
+                // the content, not as a second subtitle. Never the agent's words.
+                Text(ActionReviewPresentation.actionSummary(
+                    type: validated.after.type,
+                    steps: validated.after.next,
+                    known: settings.knownActions,
+                    promptModel: validated.after.type == .prompt ? settings.modelProvider.rawValue : nil
+                ))
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 2)
+            }
+
+            Spacer(minLength: 8)
 
             if let counter = ActionReviewPresentation.queueCounter(
                 index: browseIndex, total: store.pending.count
@@ -125,6 +201,19 @@ struct ActionReviewView: View {
         .padding(.bottom, 12)
     }
 
+    /// The neutral taxonomy chip beside the title. Gray, not indigo or orange:
+    /// it names what the action is, it does not raise an alarm, and it appears
+    /// on every card so a chip is never itself a risk signal.
+    private func typeChip(for type: CaiActionType) -> some View {
+        Text(ActionReviewPresentation.typeChip(for: type))
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(.caiTextSecondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.caiSurface.opacity(0.8)))
+            .accessibilityLabel("Type: \(ActionReviewPresentation.typeChip(for: type))")
+    }
+
     private var canGoBack: Bool { browseIndex > 0 }
     private var canGoForward: Bool { browseIndex < store.pending.count - 1 }
 
@@ -151,55 +240,122 @@ struct ActionReviewView: View {
 
     // MARK: - Content
 
-    @ViewBuilder
-    private func content(for proposal: PendingProposal) -> some View {
+    /// The one scroll on the sheet. Everything that is evidence lives here and
+    /// renders at its natural height; only this region scrolls, and it is capped
+    /// so a giant payload cannot size the window past the screen. The callout,
+    /// the acknowledgment and the buttons deliberately do NOT live here: they
+    /// are pinned below, so they stay on screen however far the reader scrolls.
+    private func scrollBody(for proposal: PendingProposal) -> some View {
         let validated = proposal.validated
 
-        VStack(alignment: .leading, spacing: 12) {
-            // One frame, not two. A create shows its payload; an update shows
-            // the diff, and the diff renders the whole action, so the payload
-            // is always in it as context lines however small the patch. Adding
-            // the payload block underneath would put the same bytes on screen
-            // twice with nothing saying they are the same bytes, leaving the
-            // user to decide which copy to trust.
-            if let before = validated.before {
-                diffBlock(before: before, after: validated.after, changed: validated.changedFields)
-            } else {
-                payloadBlock(for: validated.after)
-            }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                // One frame, not two. A create shows its payload; an update
+                // shows the diff, and the diff renders the whole action, so the
+                // payload is always in it as context lines however small the
+                // patch. Adding the payload block underneath would put the same
+                // bytes on screen twice with nothing saying they are the same
+                // bytes, leaving the user to decide which copy to trust.
+                if let before = validated.before {
+                    diffBlock(before: before, after: validated.after, changed: validated.changedFields)
+                } else {
+                    payloadBlock(
+                        for: validated.after,
+                        hasRisks: !validated.escalationReasons.isEmpty
+                    )
+                }
 
-            if !validated.after.next.isEmpty {
-                chainBlock(for: validated.after)
-            }
+                if !validated.after.next.isEmpty {
+                    chainBlock(for: validated.after)
+                }
 
+                if !validated.warnings.isEmpty {
+                    warnings(validated.warnings)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // Grow to fit the content, then cap and scroll. `fixedSize` makes the
+        // ScrollView adopt its content's ideal height up to the frame's max,
+        // the same trick the payload block used before it was unwrapped, so a
+        // short proposal is a short sheet and a huge one scrolls inside a
+        // bounded window.
+        .frame(maxHeight: bodyMaxHeight)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The single body scroll's height ceiling, from the screen it is on.
+    private var bodyMaxHeight: CGFloat {
+        let screenHeight = NSScreen.main?.visibleFrame.height ?? 900
+        return ActionReviewPresentation.bodyMaxHeight(screenHeight: screenHeight)
+    }
+
+    /// The pinned band under the scroll: the risk callout, the acknowledgment,
+    /// and the buttons, in that reading order. Pinned so the risk and the
+    /// consent are always visible with Approve, never scrolled away above a
+    /// payload. A hairline marks it off from the scroll above.
+    private func pinnedControls(for proposal: PendingProposal) -> some View {
+        let validated = proposal.validated
+
+        return VStack(alignment: .leading, spacing: 12) {
             callout(for: validated.escalationReasons, in: validated.after)
-
-            metadata(for: proposal)
-
-            if !validated.warnings.isEmpty {
-                warnings(validated.warnings)
-            }
 
             if let label = ActionReviewPresentation.acknowledgment(for: validated.escalationReasons) {
                 acknowledgmentRow(label)
             }
+
+            footerButtons(for: proposal)
         }
         .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.caiDivider.opacity(0.5))
+                .frame(height: 1)
+        }
     }
 
-    /// The hero. Monospace, scrollable, never truncated: the user has to be
-    /// able to read every character that will run.
-    private func payloadBlock(for action: ActionSnapshot) -> some View {
-        ScrollView {
+    /// The hero. Monospace, carried by the single body scroll.
+    ///
+    /// Executable evidence (shell, url) never folds: the user has to be able to
+    /// read every character that will run, and a fold is a place to hide the one
+    /// line that matters. A long prompt may collapse for legibility, but only
+    /// when it carries no risk; a risk-flagged prompt stays open so the callout's
+    /// evidence is never behind a "Show more". `collapsedPayload` decides all of
+    /// that, and VoiceOver reads the full value regardless of the visual fold.
+    private func payloadBlock(for action: ActionSnapshot, hasRisks: Bool) -> some View {
+        let fold = ActionReviewPresentation.collapsedPayload(
+            type: action.type, value: action.value, hasRisks: hasRisks
+        )
+        let collapsed = fold != nil && !payloadExpanded
+
+        return VStack(alignment: .leading, spacing: 8) {
             Text(action.value)
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundColor(.caiTextPrimary)
                 .textSelection(.enabled)
+                .lineLimit(collapsed ? fold?.lineLimit : nil)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
+
+            if let fold {
+                Button(collapsed
+                    ? ActionReviewPresentation.showMorePayload(totalLines: fold.totalLines)
+                    : ActionReviewPresentation.showLessPayload
+                ) {
+                    payloadExpanded.toggle()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.caiTextSecondary)
+                // Visual-only: the full value is on the accessibility element.
+                .accessibilityHidden(true)
+            }
         }
-        .frame(maxHeight: 220)
-        .fixedSize(horizontal: false, vertical: true)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.6)))
         .accessibilityElement()
         .accessibilityLabel(ActionReviewPresentation.payloadLabel(for: action.type))
@@ -215,19 +371,29 @@ struct ActionReviewView: View {
                 .foregroundColor(.caiTextSecondary)
 
             ForEach(ActionReviewPresentation.chainSteps(action.next, known: settings.knownActions)) { step in
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
                     Text("\(step.index + 1)")
                         .font(.system(size: 9, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(.caiTextSecondary)
                         .frame(width: 14)
 
-                    Text(step.label)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(.caiTextPrimary)
-                        .lineLimit(2)
-
-                    Spacer()
+                    // Was capped at two lines with no way to read the rest, the
+                    // one place this sheet clipped content. Now the directive
+                    // caps at five lines and expands in place, so a long inline
+                    // prompt is fully reachable without a per-step scrollbar.
+                    ExpandableStepLabel(
+                        text: step.label,
+                        collapsedLineLimit: 5,
+                        expanded: Binding(
+                            get: { expandedSteps.contains(step.index) },
+                            set: { isExpanded in
+                                if isExpanded { expandedSteps.insert(step.index) }
+                                else { expandedSteps.remove(step.index) }
+                            }
+                        )
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Text(step.kind)
                         .font(.system(size: 11))
@@ -260,14 +426,15 @@ struct ActionReviewView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.caiTextSecondary)
 
-            ScrollView {
-                diffLines(
-                    before: ActionReviewPresentation.renderDocument(before),
-                    after: ActionReviewPresentation.renderDocument(after)
-                )
-            }
-            .frame(maxHeight: 300)
-            .fixedSize(horizontal: false, vertical: true)
+            // Rendered at full height, carried by the single body scroll rather
+            // than a scroller of its own: nothing about the change is collapsed
+            // or hidden behind a fold on the one surface that must not be
+            // misread.
+            diffLines(
+                before: ActionReviewPresentation.renderDocument(before),
+                after: ActionReviewPresentation.renderDocument(after)
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.6)))
             .accessibilityElement(children: .combine)
             .accessibilityLabel(
@@ -380,39 +547,6 @@ struct ActionReviewView: View {
         )
     }
 
-    private func metadata(for proposal: PendingProposal) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Single line by construction: the validator strips control
-            // characters and caps the length, and this is the belt to that
-            // brace. A client name is attacker-controlled text sitting in
-            // Cai's own voice, one line above the payload.
-            Text(ActionReviewPresentation.provenanceLine(
-                client: proposal.provenance.client,
-                authoredAt: proposal.provenance.authoredAt,
-                now: Date()
-            ))
-            .font(.system(size: 11))
-            .foregroundColor(.caiTextSecondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-
-            HStack(spacing: 16) {
-                Text("Action name: \(proposal.validated.after.name)")
-                    .font(.system(size: 12))
-                    .foregroundColor(.caiTextPrimary)
-                    .lineLimit(1)
-
-                if proposal.validated.after.type == .prompt {
-                    Text("Runs with: \(settings.modelProvider.rawValue)")
-                        .font(.system(size: 12))
-                        .foregroundColor(.caiTextSecondary)
-                }
-
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
     private func warnings(_ warnings: [ActionWarning]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
@@ -438,7 +572,10 @@ struct ActionReviewView: View {
 
     // MARK: - Footer
 
-    private func footer(for proposal: PendingProposal) -> some View {
+    /// Reject and Approve, pinned below the scroll inside `pinnedControls`, so
+    /// the decision is always on screen. No outer padding here: the pinned band
+    /// owns the spacing.
+    private func footerButtons(for proposal: PendingProposal) -> some View {
         let canApprove = isArmed && ActionReviewPresentation.canApprove(
             tier: proposal.validated.tier,
             acknowledged: acknowledged
@@ -473,8 +610,6 @@ struct ActionReviewView: View {
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
     }
 
     // MARK: - Actions
@@ -563,5 +698,86 @@ struct ActionReviewView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 32)
         .padding(.vertical, 40)
+    }
+}
+
+/// A monospace label that caps at `collapsedLineLimit` lines and expands in
+/// place, the way GitHub and VS Code reveal a clipped hunk. The "Show more"
+/// control appears only when the text actually overflows the cap, measured
+/// rather than guessed, so a step that fits shows no control and a step that
+/// clips is never left with its tail hidden.
+///
+/// `expanded` is owned by the parent (a set of expanded indices), so it resets
+/// when the card changes and an expansion never carries onto the next proposal.
+private struct ExpandableStepLabel: View {
+    let text: String
+    let collapsedLineLimit: Int
+    @Binding var expanded: Bool
+
+    /// Height of the text laid out to the collapsed cap, and to its full
+    /// extent, at the live width. `fixedSize` on each hidden probe decouples it
+    /// from the height its parent proposes, so each GeometryReader reports the
+    /// probe's own ideal height and the comparison is exact.
+    @State private var collapsedHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+
+    private var isTruncated: Bool { fullHeight > collapsedHeight + 0.5 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(text)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(.caiTextPrimary)
+                .lineLimit(expanded ? nil : collapsedLineLimit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(measurementProbes)
+                .onPreferenceChange(CollapsedHeightKey.self) { collapsedHeight = $0 }
+                .onPreferenceChange(FullHeightKey.self) { fullHeight = $0 }
+
+            if isTruncated {
+                Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary)
+                    // Visual-only affordance: VoiceOver reads the full label
+                    // from the combined step element regardless of the cap, so
+                    // there is nothing here for it to reach.
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var measurementProbes: some View {
+        ZStack {
+            Text(text)
+                .font(.system(size: 13, design: .monospaced))
+                .lineLimit(collapsedLineLimit)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: CollapsedHeightKey.self, value: geo.size.height)
+                })
+
+            Text(text)
+                .font(.system(size: 13, design: .monospaced))
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: FullHeightKey.self, value: geo.size.height)
+                })
+        }
+        .hidden()
+    }
+}
+
+private struct CollapsedHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct FullHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

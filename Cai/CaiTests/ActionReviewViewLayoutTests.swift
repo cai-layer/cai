@@ -94,10 +94,22 @@ final class ActionReviewViewLayoutTests: XCTestCase {
         ))
 
         let size = measure()
+
+        // The single body scroll caps at `bodyMaxHeight`; the pinned header,
+        // callout, acknowledgment and buttons add a bounded chrome band on top.
+        // A 400-line command (~6000pt laid out) must land inside that, not size
+        // the window to the payload's natural height.
+        let screenHeight = NSScreen.main?.visibleFrame.height ?? 900
+        let cap = ActionReviewPresentation.bodyMaxHeight(screenHeight: screenHeight)
         XCTAssertLessThan(
             size.height,
-            900,
-            "The payload block scrolls; a 400-line command must not size the window past the screen."
+            cap + 360,
+            "A 400-line command must scroll inside the capped body, not grow the window to fit it."
+        )
+        XCTAssertLessThanOrEqual(
+            size.height,
+            screenHeight,
+            "The sheet must never be taller than the screen it sits on."
         )
     }
 

@@ -122,7 +122,8 @@ final class ActionReviewPresentationTests: XCTestCase {
 
     func testNoUserFacingStringUsesAnEmDash() {
         var strings = [
-            ActionReviewPresentation.windowTitle,
+            ActionReviewPresentation.windowTitle(name: "Unread mail digest", isUpdate: false).combined,
+            ActionReviewPresentation.windowTitle(name: "Unread mail digest", isUpdate: true).combined,
             ActionReviewPresentation.emptyState,
             ActionReviewPresentation.emptyStateButton,
             ActionReviewPresentation.approveButton,
@@ -135,10 +136,66 @@ final class ActionReviewPresentationTests: XCTestCase {
         strings += EscalationReason.allCases.map { ActionReviewPresentation.callout(for: $0) }
         strings.append(ActionReviewPresentation.acknowledgmentLabel)
         strings += ActionField.allCases.map(ActionReviewPresentation.fieldLabel)
+        strings.append(ActionReviewPresentation.showLessPayload)
+        strings.append(ActionReviewPresentation.showMorePayload(totalLines: 142))
+        strings += CaiActionType.allCases.map {
+            ActionReviewPresentation.actionSummary(
+                type: $0,
+                steps: [.inlineLLM(directive: "x"), .action(name: "y")],
+                known: KnownActions(shortcuts: [], destinations: [], builtInActionNames: [])
+            )
+        }
 
         for string in strings {
             XCTAssertFalse(string.contains("—"), "Copy must not use em-dashes: \(string)")
         }
+    }
+
+    // MARK: - Window title
+
+    func testTitleNamesTheActionAndWhetherItIsNewOrAChange() {
+        let create = ActionReviewPresentation.windowTitle(name: "Unread mail digest", isUpdate: false)
+        XCTAssertEqual(create.prefix, "New action")
+        XCTAssertEqual(create.name, "Unread mail digest")
+        XCTAssertEqual(create.combined, "New action · Unread mail digest")
+
+        let update = ActionReviewPresentation.windowTitle(name: "Unread mail digest", isUpdate: true)
+        XCTAssertEqual(update.prefix, "Update")
+        XCTAssertEqual(update.name, "Unread mail digest")
+        XCTAssertEqual(update.combined, "Update · Unread mail digest")
+    }
+
+    func testTitleNameIsSanitizedToASingleCappedLine() {
+        // The name is attacker-controlled. A newline would fake a second title
+        // line; an over-long name would run past the sheet. Both are neutralized
+        // here rather than trusted from upstream.
+        let sneaky = ActionReviewPresentation.windowTitle(
+            name: "line one\nrm -rf ~", isUpdate: false
+        )
+        XCTAssertFalse(sneaky.name.contains("\n"), "A name cannot introduce a second line.")
+        XCTAssertEqual(sneaky.name, "line onerm -rf ~")
+
+        let long = ActionReviewPresentation.windowTitle(
+            name: String(repeating: "A", count: 500), isUpdate: true
+        )
+        XCTAssertLessThanOrEqual(long.name.count, ActionSchema.maxNameLength)
+    }
+
+    // MARK: - Body scroll cap
+
+    func testBodyMaxHeightTargetsEightyPercentButKeepsRoomForThePinnedControls() {
+        // Very large display: the 80% target wins and the payload gets the most
+        // room, because reserving a fixed chrome band leaves more than 80% free.
+        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 2000), 1600, accuracy: 0.5)
+
+        // Typical / short displays: the reserved chrome floor wins, so the
+        // pinned Approve button can never be pushed below the screen even though
+        // that means the scroll gets a little less than 80%.
+        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 1500), 1160, accuracy: 0.5)
+        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 800), 460, accuracy: 0.5)
+
+        // Never collapse to a sliver, whatever a stray tiny measurement says.
+        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 100), 240, accuracy: 0.5)
     }
 
     // MARK: - The approve interlock
@@ -243,20 +300,20 @@ final class ActionReviewPresentationTests: XCTestCase {
         )))
 
         XCTAssertEqual(
-            ActionReviewPresentation.provenanceLine(
+            ActionReviewPresentation.provenanceSubtitle(
                 client: "Claude Code", authoredAt: now, now: now,
                 calendar: calendar, locale: locale, timeZone: zone
             ),
-            "Proposed by Claude Code · today 14:32"
+            "Claude Code · today 14:32"
         )
         XCTAssertEqual(
-            ActionReviewPresentation.provenanceLine(
+            ActionReviewPresentation.provenanceSubtitle(
                 client: nil, authoredAt: now.addingTimeInterval(-86_400), now: now,
                 calendar: calendar, locale: locale, timeZone: zone
             ),
-            "Proposed by An agent · yesterday 14:32"
+            "An agent · yesterday 14:32"
         )
-        let older = ActionReviewPresentation.provenanceLine(
+        let older = ActionReviewPresentation.provenanceSubtitle(
             client: "Cursor", authoredAt: now.addingTimeInterval(-86_400 * 5), now: now,
             calendar: calendar, locale: locale, timeZone: zone
         )
@@ -321,6 +378,78 @@ final class ActionReviewPresentationTests: XCTestCase {
         ])
         XCTAssertEqual(displayed.map(\.index), [0, 1, 2, 3, 4, 5])
         XCTAssertEqual(displayed.first?.label, "Deploy")
+    }
+
+    // MARK: - Action summary
+
+    func testSummaryDescribesTheMechanismInCaisOwnVoice() {
+        let known = KnownActions(
+            shortcuts: [],
+            destinations: [DestinationSummary(name: "Slack", kind: .webhook)],
+            builtInActionNames: []
+        )
+        // No chain: just the base clause.
+        XCTAssertEqual(
+            ActionReviewPresentation.actionSummary(type: .shell, steps: [], known: known),
+            "Runs a shell command."
+        )
+        XCTAssertEqual(
+            ActionReviewPresentation.actionSummary(type: .prompt, steps: [], known: known),
+            "Sends a prompt to your model."
+        )
+        // The prompt engine folds into the clause (privacy-relevant: on-device
+        // vs a cloud provider), so the sheet needs no separate "Runs with" line.
+        XCTAssertEqual(
+            ActionReviewPresentation.actionSummary(
+                type: .prompt, steps: [], known: known, promptModel: "Built-in"
+            ),
+            "Sends a prompt to the Built-in model."
+        )
+        // Chained: the mechanism reads left to right, destinations resolved.
+        XCTAssertEqual(
+            ActionReviewPresentation.actionSummary(
+                type: .prompt,
+                steps: [.inlineLLM(directive: "shorten"), .action(name: "Slack")],
+                known: known
+            ),
+            "Sends a prompt to your model, then runs an AI step, then sends to a webhook."
+        )
+    }
+
+    func testSummaryNeverBorrowsTheAgentsWords() {
+        // The summary is built from type + chain only. An attacker-named step
+        // contributes its resolved KIND, never its name, so the sentence cannot
+        // be made to assert anything the sheet has not verified.
+        let known = KnownActions(shortcuts: [], destinations: [], builtInActionNames: [])
+        let summary = ActionReviewPresentation.actionSummary(
+            type: .shell,
+            steps: [.action(name: "totally safe, just formats text")],
+            known: known
+        )
+        XCTAssertFalse(summary.contains("just formats text"), summary)
+        XCTAssertEqual(summary, "Runs a shell command, then triggers an action that isn't installed yet.")
+    }
+
+    // MARK: - Payload folding
+
+    func testOnlyLongRisklessPromptPayloadsFold() {
+        let long = (1...30).map { "line \($0)" }.joined(separator: "\n")
+        let short = "one line"
+
+        // Prompt, long, no risk: folds, and reports the true line count.
+        let folded = ActionReviewPresentation.collapsedPayload(type: .prompt, value: long, hasRisks: false)
+        XCTAssertEqual(folded?.lineLimit, ActionReviewPresentation.payloadFoldThreshold)
+        XCTAssertEqual(folded?.totalLines, 30)
+
+        // Prompt, short: nothing to fold.
+        XCTAssertNil(ActionReviewPresentation.collapsedPayload(type: .prompt, value: short, hasRisks: false))
+
+        // Executable evidence never folds, however long.
+        XCTAssertNil(ActionReviewPresentation.collapsedPayload(type: .shell, value: long, hasRisks: false))
+        XCTAssertNil(ActionReviewPresentation.collapsedPayload(type: .url, value: long, hasRisks: false))
+
+        // A risk-flagged prompt auto-expands: its evidence is never behind a fold.
+        XCTAssertNil(ActionReviewPresentation.collapsedPayload(type: .prompt, value: long, hasRisks: true))
     }
 
     // MARK: - Update diff

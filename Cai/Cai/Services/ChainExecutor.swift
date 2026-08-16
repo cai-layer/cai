@@ -150,10 +150,15 @@ final class ChainExecutor {
     func runChain(
         _ steps: [ChainStep],
         initialInput: String,
-        sourceBundleId: String?
+        sourceBundleId: String?,
+        name: String? = nil
     ) async {
-        BackgroundTaskTracker.shared.start()
-        defer { BackgroundTaskTracker.shared.end() }
+        // Drives the in-progress indicator (and, in lockstep, the menu-bar
+        // blink). `name` is the originating action's title when the caller knows
+        // it; nested runs keep the outermost name (see `ExecutionState.reduce`).
+        // Falls back to the last step's label for standalone chain runs.
+        ExecutionState.shared.start(name: name ?? steps.last?.displayLabel ?? "Running")
+        defer { ExecutionState.shared.finish() }
 
         do {
             let finalOutput = try await execute(
@@ -179,6 +184,10 @@ final class ChainExecutor {
                 userInfo: ["message": message]
             )
         } catch {
+            // Mark the run failed so the progress view shows the error (the
+            // `defer`red `finish()` commits it). The toast remains the signal
+            // when the panel was dismissed.
+            ExecutionState.shared.reportFailure(error.localizedDescription)
             NotificationCenter.default.post(
                 name: .caiShowToast,
                 object: nil,
@@ -221,9 +230,18 @@ final class ChainExecutor {
         var currentPipe = pipe
         var currentVisited = visited
 
-        for step in steps {
+        for (stepIndex, step) in steps.enumerated() {
             if depth >= Self.maxDepth {
                 throw ChainError.tooDeep(maxDepth: Self.maxDepth)
+            }
+
+            // Surface top-level step progress to the in-progress indicator.
+            // Only depth 0 counts toward "Step N of M" — nested `next:` chains
+            // would make the denominator meaningless.
+            if depth == 0 {
+                ExecutionState.shared.advance(
+                    index: stepIndex + 1, total: steps.count, label: step.displayLabel
+                )
             }
 
             // Cycle check applies only to named actions (the recursive case).

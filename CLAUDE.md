@@ -61,6 +61,10 @@ xcodebuild -scheme Cai -configuration Debug test
 
 `Cai/CaiTests/` — `ContentDetectorTests` covers 40+ cases across all content types. Other suites cover `ActionGenerator`, `OutputDestinationService`, MCP parsing/transport, `ChainExecutor`, `TemplateEngine`.
 
+### Test economy (added 2026-08-17)
+
+Add a test only when it guards **critical or non-obvious** logic: a bug that would ship silently, a tricky invariant (nest-safe counters, clamping, a state machine), or a decision that varies by input. Do NOT add tests for trivial getters, one-line mappings, or nice-to-have coverage. Prefer **one table-driven test over many one-assert methods** (a `[(input, expected)]` table, not ten near-identical `func test…`). Every test compiles and runs on every `xcodebuild test` and CI run; a suite 3x bigger than it needs to be slows the whole team's build for no added safety. When in doubt, leave it out. If a test only restates what an adjacent test already proves, delete it.
+
 ### Testability discipline
 
 Extract decision logic out of views, the key monitor, and AppKit glue into pure, nonisolated static functions, and cover them with table-driven XCTests. Logic that lives inline in event handlers ships unverified and only breaks in the real app. Exemplars: `WindowController.returnSubmitsPrompt(...)` (tested by `EnterToSendTests`, called from both the key monitor and `MultilineTextEditor`) and `ContentDetector.detect()` (tested by `ContentDetectorTests`).

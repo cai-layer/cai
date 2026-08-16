@@ -39,6 +39,8 @@ struct ActionListWindow: View {
     }
 
     @State private var showResult: Bool = false
+    /// Pill-click opens the running action's live progress view.
+    @State private var showRunning: Bool = false
     @State private var resultTitle: String = ""
     @State private var resultGenerator: (() async throws -> String)?
     @State private var resultStreamGenerator: (() async throws -> AsyncThrowingStream<String, Error>)?
@@ -63,6 +65,11 @@ struct ActionListWindow: View {
     @ObservedObject private var settings = CaiSettings.shared
     @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
     @ObservedObject private var proposals = PendingChangeStore.shared
+    /// Drives the header "Running" pill + the live progress view. Shared
+    /// singleton, so the pill survives a panel dismiss/reopen mid-run.
+    @ObservedObject private var execution = ExecutionState.shared
+    /// Static spinner when the user prefers reduced motion.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // Follow-up conversation state
     @State private var conversationHistory: [ChatMessage] = []
@@ -104,12 +111,13 @@ struct ActionListWindow: View {
         if showSettings { return .settings }
         if showHistory { return .history }
         if showResult { return .result }
+        if showRunning { return .running }
         if showCustomPrompt { return .customPrompt }
         return .actions
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors, secretsManagement
+        case actions, result, running, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors, secretsManagement
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -173,6 +181,7 @@ struct ActionListWindow: View {
             .onChange(of: showSettings) { updateFilterInputFlag() }
             .onChange(of: showHistory) { updateFilterInputFlag() }
             .onChange(of: showResult) { updateFilterInputFlag() }
+            .onChange(of: showRunning) { updateFilterInputFlag() }
             .onChange(of: showCustomPrompt) { updateFilterInputFlag() }
             .onChange(of: showShortcutsManagement) { updateFilterInputFlag() }
             .onChange(of: showDestinationsManagement) { updateFilterInputFlag() }
@@ -364,6 +373,10 @@ struct ActionListWindow: View {
                 followUpText = ""
             } else {
                 goBackToActions()
+            }
+        } else if showRunning {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showRunning = false
             }
         } else if !selectionState.filterText.isEmpty {
             // Clear filter first; second Esc dismisses
@@ -886,8 +899,19 @@ struct ActionListWindow: View {
                         .truncationMode(.tail)
                 }
             }
+            // Flex child: reserves the remaining width so the preview text wraps
+            // BESIDE the Running pill, never underneath it. (The pill is a
+            // sibling in this row, not an overlay — see DESIGN / TODOS.)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+            // Running pill — always visible while an action runs, independent of
+            // the type-to-filter field (which only appears when the user types).
+            // Tapping opens the live progress view.
+            if execution.isRunning {
+                RunningPill(reduceMotion: reduceMotion) {
+                    withAnimation(.easeInOut(duration: 0.15)) { showRunning = true }
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -1180,8 +1204,40 @@ struct ActionListWindow: View {
 
     // MARK: - Actions
 
+    /// Whether this action type starts a run the in-progress indicator tracks,
+    /// and is therefore subject to v1's one-at-a-time busy rule. Instant / UI /
+    /// navigational types (JSON pretty-print, compose prompt, open-URL) are
+    /// exempt — they don't contend and shouldn't be blocked.
+    private func startsTrackedRun(_ type: ActionType) -> Bool {
+        switch type {
+        case .llmAction, .shortcutShell: return true
+        default: return false
+        }
+    }
+
     private func executeAction(_ action: ActionItem) {
         CrashReportingService.shared.addBreadcrumb(category: "action", message: "Execute: \(action.title)")
+
+        // v1 runs one action at a time. If a long-running action (LLM or shell)
+        // is already in flight, surface "busy" rather than starting a second and
+        // silently contending — the built-in model is a single in-process engine
+        // and a paste-back terminator races on the current selection. Queuing is
+        // a separate item. Pure-UI / instant types stay allowed.
+        // Chain-bearing actions of any type also start a tracked run (via
+        // ChainExecutor), so they're blocked too — otherwise a second chain runs
+        // concurrently and corrupts the shared "Step N of M".
+        if ExecutionState.startDecision(isRunning: ExecutionState.shared.isRunning) == .busy,
+           startsTrackedRun(action.type) || !action.next.isEmpty {
+            NotificationCenter.default.post(
+                name: .caiShowToast, object: nil,
+                userInfo: [
+                    "message": "An action is already running",
+                    "icon": ToastQueue.Icon.warning.rawValue
+                ]
+            )
+            return
+        }
+
         switch action.type {
         case .jsonPrettyPrint(let json):
             isFollowUpEnabled = false
@@ -1219,7 +1275,13 @@ struct ActionListWindow: View {
                     name: .caiShowToast, object: nil,
                     userInfo: ["message": "Generating: \(displayName)"]
                 )
-                Task {
+                Task { @MainActor in
+                    // Track the generation so the pill shows and the busy guard
+                    // blocks a second action — without this, a slow auto-replace
+                    // gen races a follow-up action on the single MLX engine and
+                    // the pending paste-back races the current selection.
+                    ExecutionState.shared.start(name: action.title)
+                    defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1248,6 +1310,7 @@ struct ActionListWindow: View {
                             )
                         }
                     } catch {
+                        ExecutionState.shared.reportFailure(error.localizedDescription)
                         await MainActor.run {
                             NotificationCenter.default.post(
                                 name: .caiShowToast, object: nil,
@@ -1266,8 +1329,8 @@ struct ActionListWindow: View {
                 let bundleId = self.sourceBundleId
                 onDismiss()
                 Task { @MainActor in
-                    BackgroundTaskTracker.shared.start()
-                    defer { BackgroundTaskTracker.shared.end() }
+                    ExecutionState.shared.start(name: action.title)
+                    defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1275,6 +1338,7 @@ struct ActionListWindow: View {
                             chainSlugs, initialInput: trimmed, sourceBundleId: bundleId
                         )
                     } catch {
+                        ExecutionState.shared.reportFailure(error.localizedDescription)
                         NotificationCenter.default.post(
                             name: .caiShowToast, object: nil,
                             userInfo: ["message": "Failed: \(error.localizedDescription)"]
@@ -1291,8 +1355,8 @@ struct ActionListWindow: View {
                 let actionTitle = action.title
                 onDismiss()
                 Task { @MainActor in
-                    BackgroundTaskTracker.shared.start()
-                    defer { BackgroundTaskTracker.shared.end() }
+                    ExecutionState.shared.start(name: action.title)
+                    defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1302,6 +1366,7 @@ struct ActionListWindow: View {
                             userInfo: ["message": snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet]
                         )
                     } catch {
+                        ExecutionState.shared.reportFailure(error.localizedDescription)
                         NotificationCenter.default.post(
                             name: .caiShowToast, object: nil,
                             userInfo: ["message": "Failed: \(error.localizedDescription)"]
@@ -1363,8 +1428,8 @@ struct ActionListWindow: View {
                 let actionTitle = action.title
                 onDismiss()
                 Task { @MainActor in
-                    BackgroundTaskTracker.shared.start()
-                    defer { BackgroundTaskTracker.shared.end() }
+                    ExecutionState.shared.start(name: action.title)
+                    defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await Self.runShellCommand(
                             command, text: clipboardText, sourceBundleId: bundleId
@@ -1383,6 +1448,7 @@ struct ActionListWindow: View {
                             )
                         }
                     } catch {
+                        ExecutionState.shared.reportFailure(error.localizedDescription)
                         NotificationCenter.default.post(
                             name: .caiShowToast, object: nil,
                             userInfo: ["message": "Failed: \(error.localizedDescription)"]
@@ -1624,6 +1690,13 @@ struct ActionListWindow: View {
                 streamGenerator: resultStreamGenerator
             )
             .id(resultViewId)
+        } else if showRunning {
+            RunningView(
+                reduceMotion: reduceMotion,
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) { showRunning = false }
+                }
+            )
         } else {
             actionListContent
         }
@@ -1866,6 +1939,22 @@ struct ActionListWindow: View {
         // Destinations don't propagate output (per chain design — they're
         // side-effect actions). Chain steps receive "" as initial input.
         let chainSlugs = destination.next
+
+        // A destination whose `next:` chain would start a second concurrent run
+        // while one is already going is blocked (v1 one-at-a-time) — it would
+        // corrupt the shared step counter. A plain send (no chain) is a quick
+        // side-effect and stays allowed.
+        if !chainSlugs.isEmpty,
+           ExecutionState.startDecision(isRunning: ExecutionState.shared.isRunning) == .busy {
+            NotificationCenter.default.post(
+                name: .caiShowToast, object: nil,
+                userInfo: [
+                    "message": "An action is already running",
+                    "icon": ToastQueue.Icon.warning.rawValue
+                ]
+            )
+            return
+        }
 
         // Special-case paste-back: dismiss Cai, then call pasteResult directly
         // so the three PasteOutcome cases can each surface their own toast.

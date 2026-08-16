@@ -275,8 +275,15 @@ struct ResultView: View {
         // process; every other case → open Settings (macOS won't re-prompt once
         // answered, and Apple Events / FDA aren't requestable at all).
         let requestable = NativeAccessManager.requestableDomain(for: guidance.domain.key)
-        let promptable = requestable.map { NativeAccessManager.shared.state(for: $0) == .notDetermined } ?? false
+        let currentState = requestable.map { NativeAccessManager.shared.state(for: $0) }
+        let promptable = currentState == .notDetermined
 
+        if currentState == .authorized {
+            // Access is already granted, so this failure isn't a permission
+            // problem (a stray detector match). Don't show a misleading button —
+            // the raw error text above still explains what happened.
+            EmptyView()
+        } else {
         VStack(spacing: 8) {
             Text(promptable ? "This action needs \(guidance.domain.label) access." : guidance.message)
                 .font(.system(size: 11))
@@ -305,6 +312,7 @@ struct ResultView: View {
             .buttonStyle(.plain)
         }
         .padding(.top, 4)
+        }
     }
 
     /// Heuristic: does this error message look like it came from the LLM / model

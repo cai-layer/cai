@@ -46,11 +46,25 @@ final class TCCRemediationTests: XCTestCase {
         XCTAssertEqual(TCCRemediation.detect(in: msg)?.domain.key, .calendars)
     }
 
-    func testCalendarBeatsGenericAppleEventsCode() {
-        // A Calendar denial that also carries -1743 must label as Calendar, not
-        // generic Automation (domain-specific keywords are checked first).
-        let g = TCCRemediation.detect(in: "Calendar access denied (-1743)")
-        XCTAssertEqual(g?.domain.key, .calendars)
+    func testAppleEventsToNamedAppIsNotMislabelledAsDomain() {
+        // The canonical Automation denial names the target app, so it contains a
+        // domain word. It must route to Apple Events (Privacy_Automation), NOT
+        // the EventKit/Contacts pane where the grant doesn't live.
+        XCTAssertEqual(
+            TCCRemediation.detect(in: "execution error: Not authorized to send Apple events to Calendar. (-1743)")?.domain.key,
+            .appleEvents
+        )
+        XCTAssertEqual(
+            TCCRemediation.detect(in: "Not authorized to send Apple events to Reminders. (-1743)")?.domain.key,
+            .appleEvents
+        )
+    }
+
+    func testGeneric2700ScriptErrorIsNotAPermissionProblem() {
+        // -2700 is the generic AppleScript execution-error code on every thrown
+        // JXA error — an unrelated failure must NOT be read as a denial.
+        XCTAssertNil(TCCRemediation.detect(in: "Error: calendar \"Work\" not found (-2700)"))
+        XCTAssertNil(TCCRemediation.detect(in: "execution error: contact lookup failed (-2700)"))
     }
 
     // MARK: - Full Disk Access (detect-only, never requestable)

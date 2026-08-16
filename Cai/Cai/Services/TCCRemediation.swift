@@ -91,7 +91,21 @@ enum TCCRemediation {
             return Guidance(domain: .fullDiskAccess)
         }
 
-        // Domain-specific first.
+        // Apple Events / Automation FIRST. Its canonical denial names the
+        // target app — "…not authorized to send Apple events to Calendar
+        // (-1743)" — so it contains a domain word ("calendar") and would
+        // misroute to the EventKit/Contacts pane (where the grant doesn't live)
+        // if the domain checks ran first. -1743 IS the Apple Events code; an
+        // EventKit/Contacts denial never carries it.
+        if lower.contains("-1743")
+            || lower.contains("not authorized to send apple events")
+            || lower.contains("not authorised to send apple events")
+            || lower.contains("not allowed to send apple events")
+            || (lower.contains("apple event") && lower.contains("not permitted")) {
+            return Guidance(domain: .appleEvents)
+        }
+
+        // Domain-specific (EventKit / Contacts).
         if mentionsDenial(lower, subject: "calendar") {
             return Guidance(domain: .calendars)
         }
@@ -100,17 +114,6 @@ enum TCCRemediation {
         }
         if mentionsDenial(lower, subject: "contact") {
             return Guidance(domain: .contacts)
-        }
-
-        // Generic Apple Events / Automation denial. -1743 is the canonical
-        // "not authorized to send Apple events"; -2700 is a generic script error
-        // but pairs with the same not-permitted language when TCC is the cause.
-        if lower.contains("-1743")
-            || lower.contains("not authorized to send apple events")
-            || lower.contains("not authorised to send apple events")
-            || lower.contains("not allowed to send apple events")
-            || (lower.contains("apple event") && lower.contains("not permitted")) {
-            return Guidance(domain: .appleEvents)
         }
 
         return nil
@@ -127,9 +130,12 @@ enum TCCRemediation {
         let denialPhrases = [
             "denied", "not authorized", "not authorised", "no access",
             "access denied", "not permitted", "not determined",
-            // Remediation-flavoured wording + the generic AppleScript codes a
-            // TCC-denied EventKit/Contacts call surfaces through osascript.
-            "grant it", "grant access", "-1743", "-2700"
+            // Remediation-flavoured wording agent scripts emit. NOTE: raw
+            // AppleScript codes are deliberately NOT here — -1743 is Apple
+            // Events (handled above), and -2700 is the generic execution-error
+            // code on EVERY thrown JXA error, so it can't distinguish a denial
+            // from an unrelated failure like `calendar "Work" not found (-2700)`.
+            "grant it", "grant access"
         ]
         return denialPhrases.contains { lower.contains($0) }
     }

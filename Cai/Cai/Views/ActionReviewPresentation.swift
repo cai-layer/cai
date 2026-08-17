@@ -16,13 +16,59 @@ enum ActionReviewPresentation {
 
     // MARK: - Fixed copy
 
-    static let windowTitle = "Review proposed action"
     static let approveButton = "Approve"
     static let rejectButton = "Reject"
     static let emptyState = "No proposals waiting. Connect your agent in Settings to create actions from Claude Code."
     static let emptyStateButton = "Open Settings"
     /// Fallback when the MCP handshake carried no client name.
     static let unknownAuthor = "An agent"
+
+    // MARK: - Window title
+
+    /// The sheet's title, split so the view can render the action's name in the
+    /// primary weight and the create/update prefix underneath it in secondary.
+    /// The name is the subject of the whole decision, so it leads; the prefix
+    /// says which of the two shapes (a new action, or a change to one) the
+    /// reader is looking at.
+    struct WindowTitle: Equatable {
+        /// "New action" or "Update".
+        let prefix: String
+        /// The action's name, sanitized to a single capped line.
+        let name: String
+
+        /// One string for VoiceOver and tests: "New action · Unread mail digest".
+        var combined: String { "\(prefix) · \(name)" }
+    }
+
+    /// "New action · <name>" for a create, "Update · <name>" for an update.
+    ///
+    /// The name is attacker-controlled: it rides in from the proposal and sits
+    /// in Cai's own title voice. `ActionValidator` already normalizes the
+    /// proposed side, but this is the belt to that brace and also covers the
+    /// stored `before` side, which reaches the sheet un-normalized. Control
+    /// characters are stripped (a newline would let a name fake a second title
+    /// line) and the length is capped, so the title can never be more than one
+    /// bounded line however the name arrives.
+    static func windowTitle(name: String, isUpdate: Bool) -> WindowTitle {
+        let clean = name
+            .strippingControlCharacters(keepingNewlines: false)
+            .prefix(ActionSchema.maxNameLength)
+        return WindowTitle(prefix: isUpdate ? "Update" : "New action", name: String(clean))
+    }
+
+    /// The neutral taxonomy chip beside the title: "shell" / "url" / "prompt".
+    ///
+    /// Informational, not a warning. It shows for every type, including the
+    /// unescalating `prompt`, precisely so that a chip is never itself a risk
+    /// signal: escalation stays the callout's job, and a gray chip that only
+    /// appeared on dangerous types would quietly become a second alarm.
+    static func typeChip(for type: CaiActionType) -> String {
+        switch type {
+        case .prompt: return "prompt"
+        case .url: return "url"
+        case .shell: return "shell"
+        }
+    }
 
     // MARK: - Escalation copy
 
@@ -169,6 +215,24 @@ enum ActionReviewPresentation {
         return min(max(0, index), count - 1)
     }
 
+    // MARK: - Layout
+
+    /// How tall the single body scroll is allowed to get.
+    ///
+    /// The sheet grows to fit its content and only this cap stops a giant
+    /// payload from sizing the window past the screen. The target is 80% of the
+    /// screen, but the header, callout, acknowledgment and buttons live outside
+    /// this scroll, so on a short display we also keep `reservedChrome` points
+    /// free for them: without that floor a tall payload could push the pinned
+    /// buttons below the bottom of the screen, which is the one control that
+    /// must always be reachable. On a large display the 80% target wins.
+    static func bodyMaxHeight(screenHeight: CGFloat) -> CGFloat {
+        let reservedChrome: CGFloat = 340
+        let byFraction = screenHeight * 0.8
+        let byChrome = screenHeight - reservedChrome
+        return max(240, min(byFraction, byChrome))
+    }
+
     // MARK: - Toasts
 
     /// Arrival is passive: one toast, no window, no focus steal.
@@ -197,10 +261,12 @@ enum ActionReviewPresentation {
 
     // MARK: - Provenance
 
-    /// "Proposed by Claude Code · today 14:32". Time formatting follows the
-    /// user's locale (12h or 24h); the day is relative because "when did this
-    /// arrive" is the only question this line answers.
-    static func provenanceLine(
+    /// "Claude Code · today 14:32", the title's subtitle. The "New action" /
+    /// "Update" prefix in the title already says what happened, so the subtitle
+    /// drops the "Proposed by" lead-in and just answers who and when. Time
+    /// formatting follows the user's locale (12h or 24h); the day is relative
+    /// because "when did this arrive" is the only question this line answers.
+    static func provenanceSubtitle(
         client: String?,
         authoredAt: Date,
         now: Date,
@@ -232,7 +298,7 @@ enum ActionReviewPresentation {
             day = dayFormatter.string(from: authoredAt)
         }
 
-        return "Proposed by \(client ?? unknownAuthor) · \(day) \(time)"
+        return "\(client ?? unknownAuthor) · \(day) \(time)"
     }
 
     /// The badge on an authored row in the shortcuts list, still answering
@@ -309,6 +375,113 @@ enum ActionReviewPresentation {
         case .clipboardCopy: return "Copy to Clipboard"
         }
     }
+
+    // MARK: - Action summary
+
+    /// One plain line saying what the action does, in Cai's own voice.
+    ///
+    /// Built only from what Cai can verify and will itself run: the action's
+    /// type and its resolved chain. Deliberately NOT the agent's own words and
+    /// NOT a model summary of the payload. A description on an approval surface
+    /// must be something the sheet can vouch for, or it becomes a friendly
+    /// sentence that disagrees with the code ("just formats text" over an
+    /// `rm -rf`). This is the macOS model: the system says "wants to access
+    /// your Contacts" from the entitlement, not from the app's marketing copy.
+    /// It answers "what does this do" at the mechanism level, which is exactly
+    /// the level an approval decision is made at.
+    /// `promptModel` folds the engine ("Built-in", "Anthropic", …) into the
+    /// prompt clause so the sheet does not also carry a separate "Runs with"
+    /// line saying the same thing. It is privacy-relevant, not decoration: it
+    /// is the difference between the selection staying on device and it leaving
+    /// for a cloud provider.
+    static func actionSummary(
+        type: CaiActionType, steps: [ChainStep], known: KnownActions, promptModel: String? = nil
+    ) -> String {
+        var phrase = summaryBasePhrase(for: type, promptModel: promptModel)
+        let tail = steps.map { summaryStepPhrase(of: $0, known: known) }
+        if !tail.isEmpty {
+            phrase += ", then " + tail.joined(separator: ", then ")
+        }
+        return phrase + "."
+    }
+
+    private static func summaryBasePhrase(for type: CaiActionType, promptModel: String?) -> String {
+        switch type {
+        case .prompt:
+            if let promptModel, !promptModel.isEmpty {
+                return "Sends a prompt to the \(promptModel) model"
+            }
+            return "Sends a prompt to your model"
+        case .url: return "Opens a URL"
+        case .shell: return "Runs a shell command"
+        }
+    }
+
+    private static func summaryStepPhrase(of step: ChainStep, known: KnownActions) -> String {
+        switch step {
+        case .inlineLLM:
+            return "runs an AI step"
+        case .appleShortcut:
+            return "runs an Apple Shortcut"
+        case .action(let name):
+            switch known.resolveChainName(name) {
+            case .shortcut(let shortcut):
+                switch shortcut.type {
+                case .prompt: return "runs another prompt"
+                case .url: return "opens a URL"
+                case .shell: return "runs a shell command"
+                }
+            case .destination(let destination):
+                return summaryDestinationPhrase(destination.kind)
+            case .builtIn:
+                return "runs a built-in action"
+            case .unresolved:
+                return "triggers an action that isn't installed yet"
+            }
+        }
+    }
+
+    private static func summaryDestinationPhrase(_ kind: DestinationSummary.Kind) -> String {
+        switch kind {
+        case .applescript: return "runs an AppleScript"
+        case .webhook: return "sends to a webhook"
+        case .deeplink: return "opens a deeplink"
+        case .shell: return "runs a shell command"
+        case .pasteBack: return "replaces your selection"
+        case .clipboardCopy: return "copies to the clipboard"
+        }
+    }
+
+    // MARK: - Payload folding
+
+    /// Line count past which a long prompt payload renders collapsed.
+    static let payloadFoldThreshold = 18
+
+    /// Whether the payload should render folded, and the total line count for
+    /// the "Show more (N lines)" affordance, or nil to render it in full.
+    ///
+    /// Only prompt payloads ever fold. Shell and URL are executable evidence
+    /// and stay open at any length: a fold is a place to hide the one line that
+    /// matters. A prompt cannot run a command, so a long one may collapse for
+    /// legibility, but only when it carries no risk: a risk-flagged payload
+    /// auto-expands so the thing the callout is about is never behind a fold.
+    /// The count is logical lines, which is also honest signal in the label.
+    static func collapsedPayload(
+        type: CaiActionType, value: String, hasRisks: Bool
+    ) -> (lineLimit: Int, totalLines: Int)? {
+        guard type == .prompt, !hasRisks else { return nil }
+        let total = value.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
+        guard total > payloadFoldThreshold else { return nil }
+        return (payloadFoldThreshold, total)
+    }
+
+    /// "Show more (142 lines)" — the count is why the reader might want the
+    /// rest, so it rides in the control.
+    static func showMorePayload(totalLines: Int) -> String {
+        "Show more (\(totalLines) lines)"
+    }
+
+    static let showLessPayload = "Show less"
 
     // MARK: - Update diff
 

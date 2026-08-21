@@ -78,7 +78,7 @@ Scope of the exception, do not widen it without a design decision:
 1. **`.rounded` design variant for accent numerals only** — keyboard shortcut badges, step counts, standalone result counts ("3 found"). All other labels use default SF Pro. Rounded adds warmth at decision points.
 2. **`.monospacedDigit()` on every runtime-changing number.** Prevents layout jitter when digits change width (1→2→3).
 3. **Never use Dynamic Type.** macOS doesn't support it. All sizes are fixed pt.
-4. **SF Mono for secret names, nowhere else** (added 2026-08-08). A secret name is the exact string typed inside `{{secrets.…}}`, so it renders monospaced (12pt medium) everywhere it appears: Secrets rows, the name field, import candidates, the approval callout, the delete alert. Long names truncate `.middle` with the full name in `.help()`. This is an identifier treatment, not a general label style — do not widen it without a design decision.
+4. **SF Mono for secret names, nowhere else** (added 2026-08-08; sizing amended 2026-08-21). A secret name is the exact string typed inside `{{secrets.…}}`, so it renders monospaced everywhere it appears: Secrets rows, the name field, import candidates, the approval callout, the delete alert, capability chips. **Size follows the containing role** — 12pt medium where the name stands on its own, and the container's own size where it sits inside one (10pt in a capability chip, 11pt in a list subtitle) — the same way radius scales with element size. The substance of this rule is the monospace, not the point size. Long names truncate `.middle` with the full name in `.help()`. This is an identifier treatment, not a general label style — do not widen it without a design decision.
 
 ---
 
@@ -155,6 +155,21 @@ Used for any "list of items, each with on/off." Established by `ConnectorsSettin
 - **Label:** 12pt medium, `caiTextPrimary`. Subtitle: 10pt regular, `caiTextSecondary.opacity(0.7)` — carries scope/status, not decoration.
 - **Toggle:** `.toggleStyle(.switch).controlSize(.mini).tint(.caiPrimary).labelsHidden()`, right-aligned via `Spacer()`.
 - **No chevron** unless the row drills into a sub-detail.
+
+### Chip shape: fact vs control (added 2026-08-21)
+
+Cai has two chip families and **shape is what tells them apart**. Get this wrong and passive text looks tappable.
+
+| Shape | Meaning | Examples |
+|---|---|---|
+| **Borderless capsule**, `caiSurface` fill, `caiTextSecondary` | Cai stating a fact. Not interactive. | capability chips |
+| **Bordered rounded-rect**, radius 5, hairline border, hover wash, pointing-hand cursor | A control. Click does something. | `ChipToggle`, `ChipButton`, `DestinationChip` |
+
+Rules for the capsule (fact) family:
+
+- **No border, no hover state, no cursor change, no indigo, ever.** Per Indigo discipline these are passive structure; per the Red rule orange stays reserved for the escalation callout, so a fact chip is never itself an alarm.
+- **They appear on every item, not only risky ones.** A chip family that showed up only on dangerous actions would quietly become a second warning channel competing with the callout.
+- **Never mix the two families in one row.** This is why the action editor does NOT show capability chips: its chip row is `ChipToggle`s, and look-alike passive chips there would fail the Indigo-discipline mental test ("would the user expect tapping it to do something?"). Decided 2026-08-21; do not revisit as a quick add.
 
 ### Pin button (progressive disclosure)
 

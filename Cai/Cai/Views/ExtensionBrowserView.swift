@@ -1,6 +1,89 @@
 import CaiActionCore
 import SwiftUI
 
+// MARK: - Catalog Filter
+
+/// Pure filtering + chip derivation for the extension catalog.
+///
+/// Lives outside the view (and `nonisolated`) so the browse logic is testable
+/// without a window: search text + selected tag chips in, filtered entries out.
+/// The view owns no filtering rules of its own.
+///
+/// Tags are normalised because the catalog is remote data authored by hand:
+/// untrimmed, mixed-case tags would render the same chip twice.
+enum ExtensionCatalogFilter {
+
+    /// Chips shown above the list. Six of the catalog's current tags plus the
+    /// Clear control fit one row at the window's fixed width; a horizontally
+    /// scrolling overflow would just be a hidden feature.
+    static let chipLimit = 6
+
+    /// Tags shown on a row before collapsing into a `+n` counter.
+    static let rowTagLimit = 3
+
+    /// Normalised, de-duplicated tags for one entry, in the author's order.
+    nonisolated static func normalizedTags(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for tag in raw {
+            let normalized = normalize(tag)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
+            out.append(normalized)
+        }
+        return out
+    }
+
+    /// The chip set, derived from the tags actually present in the catalog.
+    ///
+    /// Ordered by how many extensions carry the tag (descending), alphabetical
+    /// on ties. No curated taxonomy and no content-type priority list: the
+    /// catalog carries no content-type tags, and an ordering rule for data that
+    /// does not exist would silently reshuffle the row the day it lands. That
+    /// call belongs with the tagging pass in `cai-extensions`.
+    nonisolated static func chipTags(for entries: [ExtensionService.ExtensionEntry]) -> [String] {
+        var counts: [String: Int] = [:]
+        for entry in entries {
+            for tag in normalizedTags(entry.tags) {
+                counts[tag, default: 0] += 1
+            }
+        }
+        return counts
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .prefix(chipLimit)
+            .map(\.key)
+    }
+
+    /// Search text AND selected chips.
+    ///
+    /// Chips OR against each other: entries carry ~2 tags apiece, so ANDing two
+    /// chips returns nothing almost every time, which reads as a broken filter.
+    /// OR-within-one-facet is also what every faceted browser does.
+    /// Chip matching is exact on normalised tags; search stays substring.
+    nonisolated static func filter(
+        _ entries: [ExtensionService.ExtensionEntry],
+        searchText: String,
+        selectedTags: Set<String>
+    ) -> [ExtensionService.ExtensionEntry] {
+        let query = normalize(searchText)
+        guard !query.isEmpty || !selectedTags.isEmpty else { return entries }
+
+        return entries.filter { entry in
+            let tags = normalizedTags(entry.tags)
+
+            if !selectedTags.isEmpty, selectedTags.isDisjoint(with: tags) { return false }
+            guard !query.isEmpty else { return true }
+
+            return entry.name.lowercased().contains(query)
+                || entry.description.lowercased().contains(query)
+                || tags.contains { $0.contains(query) }
+        }
+    }
+
+    private nonisolated static func normalize(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
 /// Browse and install community extensions from the curated repo.
 /// Follows the same layout pattern as ShortcutsManagementView.
 struct ExtensionBrowserView: View {
@@ -11,6 +94,7 @@ struct ExtensionBrowserView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var searchText = ""
+    @State private var selectedTags: Set<String> = []
     @State private var installingSlug: String?
 
     // Shell confirmation
@@ -21,13 +105,11 @@ struct ExtensionBrowserView: View {
     @FocusState private var isSearchFocused: Bool
 
     private var displayedEntries: [ExtensionService.ExtensionEntry] {
-        guard !searchText.isEmpty else { return entries }
-        let query = searchText.lowercased()
-        return entries.filter {
-            $0.name.lowercased().contains(query) ||
-            $0.description.lowercased().contains(query) ||
-            $0.tags.contains { $0.lowercased().contains(query) }
-        }
+        ExtensionCatalogFilter.filter(entries, searchText: searchText, selectedTags: selectedTags)
+    }
+
+    private var chipTags: [String] {
+        ExtensionCatalogFilter.chipTags(for: entries)
     }
 
     var body: some View {
@@ -78,6 +160,13 @@ struct ExtensionBrowserView: View {
                 }
             }
 
+            // Filter chips. Hidden while loading / erroring so the vertical
+            // budget goes to content, and hidden when the catalog carries no
+            // tags at all.
+            if !isLoading, errorMessage == nil, !chipTags.isEmpty {
+                filterChipRow
+            }
+
             // Content
             ScrollView {
                 VStack(spacing: 4) {
@@ -126,6 +215,50 @@ struct ExtensionBrowserView: View {
         }
     }
 
+    // MARK: - Filter Chips
+
+    private var filterChipRow: some View {
+        HStack(spacing: 6) {
+            // Tags render lowercase, exactly as authored, on both surfaces.
+            // `.capitalized` would turn the catalog's acronym tags into "Css"
+            // and "Ai", and lowercase suits the passive register of a tag.
+            ForEach(chipTags, id: \.self) { tag in
+                TagFilterChip(
+                    label: tag,
+                    isOn: selectedTags.contains(tag),
+                    tooltip: selectedTags.contains(tag)
+                        ? "Stop filtering by \(tag)"
+                        : "Show only \(tag) extensions"
+                ) {
+                    toggleTag(tag)
+                }
+            }
+
+            // Clear is an action, not a toggle, so it does not wear a chip:
+            // Chip.swift keeps those vocabularies apart, and a chip labelled
+            // "Clear" would collide with a catalog tag of the same name.
+            if !selectedTags.isEmpty {
+                Button("Clear") { selectedTags.removeAll() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiPrimary)
+                    .help("Clear tag filters")
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func toggleTag(_ tag: String) {
+        if selectedTags.contains(tag) {
+            selectedTags.remove(tag)
+        } else {
+            selectedTags.insert(tag)
+        }
+    }
+
     // MARK: - States
 
     private var loadingState: some View {
@@ -162,9 +295,24 @@ struct ExtensionBrowserView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text("No extensions match your search")
+            Text(selectedTags.isEmpty
+                 ? "No extensions match your search"
+                 : "No extensions match your filters")
                 .font(.system(size: 12))
                 .foregroundColor(.caiTextSecondary)
+
+            // A dead end needs a way out that is right here, not a Clear
+            // control the user has to go find in the row above. Scoped to the
+            // chips: a no-hit search query is its own undo in the focused
+            // field, and wiping what someone just typed is not a favour.
+            if !selectedTags.isEmpty {
+                Button("Clear filters") {
+                    selectedTags.removeAll()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.caiPrimary)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 60)
         .padding()
@@ -196,19 +344,15 @@ struct ExtensionBrowserView: View {
                         .foregroundColor(.caiTextPrimary)
                         .lineLimit(1)
 
-                    Text(entry.type.capitalized)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.caiTextSecondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.caiSurface.opacity(0.8))
-                        .cornerRadius(3)
+                    tagPill(entry.type.capitalized)
                 }
 
                 Text(entry.description)
                     .font(.system(size: 10))
                     .foregroundColor(.caiTextSecondary)
                     .lineLimit(1)
+
+                metadataLine(entry)
             }
 
             Spacer()
@@ -259,6 +403,9 @@ struct ExtensionBrowserView: View {
         errorMessage = nil
         do {
             entries = try await ExtensionService.fetchIndex()
+            // Drop selections the refreshed catalog no longer offers a chip
+            // for, otherwise the list stays filtered by something invisible.
+            selectedTags.formIntersection(ExtensionCatalogFilter.chipTags(for: entries))
             isLoading = false
         } catch {
             #if DEBUG
@@ -354,5 +501,144 @@ struct ExtensionBrowserView: View {
         settings.shortcuts.removeAll { $0.name == entry.name }
         settings.outputDestinations.removeAll { $0.name == entry.name }
         settings.installedExtensions.remove(entry.slug)
+    }
+
+    /// The author of the first-party catalog. Their name on 53 of 60 rows is
+    /// texture with no information, so it is suppressed and "by <author>" is
+    /// left to mean what it should on an install surface: this one came from
+    /// someone else. Every row carries its author in the tooltip regardless.
+    private static let firstPartyAuthor = "cai-layer"
+
+    /// Tags + author, the row's third line.
+    ///
+    /// Tags are passive labels, not controls: same treatment as the type badge,
+    /// no indigo (Indigo discipline: they describe, they do not act), and a 9pt
+    /// pill could not carry the 44pt hit target a control owes. Filtering by
+    /// tag is the chip row's job.
+    ///
+    /// Capped at `rowTagLimit` with a `+n` counter so a long tag list cannot
+    /// stretch the row; the full list is in the tooltip.
+    private func metadataLine(_ entry: ExtensionService.ExtensionEntry) -> some View {
+        let tags = ExtensionCatalogFilter.normalizedTags(entry.tags)
+        let shown = Array(tags.prefix(ExtensionCatalogFilter.rowTagLimit))
+        let overflow = tags.count - shown.count
+        let author = entry.author.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return HStack(spacing: 4) {
+            HStack(spacing: 4) {
+                ForEach(shown, id: \.self) { tag in
+                    tagPill(tag)
+                }
+
+                if overflow > 0 {
+                    Text("+\(overflow)")
+                        .font(.system(size: 9, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(.caiTextSecondary.opacity(0.7))
+                }
+            }
+            .help(tags.joined(separator: ", "))
+
+            if !author.isEmpty, author != Self.firstPartyAuthor {
+                Text("by \(author)")
+                    .font(.system(size: 9))
+                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    .lineLimit(1)
+                    .help("Authored by \(author)")
+            }
+        }
+    }
+
+    /// The row's small-label treatment, shared by the type badge and the tags
+    /// so the two cannot drift apart.
+    private func tagPill(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(.caiTextSecondary.opacity(0.7))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color.caiSurface.opacity(0.8))
+            .cornerRadius(4)
+    }
+}
+
+// MARK: - Tag Filter Chip
+
+/// Selectable tag chip for the browse row.
+///
+/// Visually identical to `ChipToggle` (Chip.swift) on purpose: same radius,
+/// fill, border and indigo on-state, so the app keeps one chip vocabulary. It
+/// is a local copy only because `ChipToggle` requires an icon and tags have
+/// none; folding the two together is a follow-up.
+///
+/// Deviation on record: 24pt tall, under the 44pt minimum in DESIGN.md. It
+/// matches the existing chips rather than introducing a second chip size on
+/// one surface, and the whole 24pt rectangle is the hit area.
+private struct TagFilterChip: View {
+    let label: String
+    let isOn: Bool
+    let tooltip: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(backgroundFill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(borderColor, lineWidth: borderWidth)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focused($isFocused)
+        .help(tooltip)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : [.isButton])
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        // The chip row unmounts on reload and on error, and SwiftUI does not
+        // reliably deliver `onHover(false)` to a view that is going away, so a
+        // pushed cursor would outlive the chip.
+        .onDisappear {
+            if isHovered {
+                NSCursor.pop()
+                isHovered = false
+            }
+        }
+    }
+
+    private var backgroundFill: Color {
+        if isOn { return Color.caiPrimary.opacity(0.12) }
+        if isHovered { return Color.caiSurface.opacity(0.8) }
+        return Color.caiSurface.opacity(0.5)
+    }
+
+    private var borderColor: Color {
+        // Keyboard focus borrows the indigo focus-ring rule from form fields:
+        // a tabbed-to chip has to be visible before the mouse matters.
+        if isOn || isFocused { return Color.caiPrimary.opacity(0.4) }
+        return Color(nsColor: .separatorColor).opacity(0.5)
+    }
+
+    private var borderWidth: CGFloat {
+        isFocused ? 1 : 0.5
     }
 }

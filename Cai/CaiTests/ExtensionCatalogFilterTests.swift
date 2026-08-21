@@ -32,8 +32,10 @@ final class ExtensionCatalogFilterTests: XCTestCase {
     private lazy var catalog: [ExtensionService.ExtensionEntry] = [
         entry("fix-grammar", name: "Fix Grammar", description: "Clean up prose",
               tags: ["writing", " developer"]),
+        // The U+202E is deliberate: a bidi override inside a tag has to be
+        // stripped, or the chip reads as something other than what it filters.
         entry("json-pretty", name: "Pretty JSON", description: "Format a JSON blob",
-              tags: ["Developer", "formatting"]),
+              tags: ["Develo\u{202E}per", "formatting"]),
         entry("git-blame", name: "Git Blame", description: "Who wrote this line",
               author: "kisyaki", tags: ["developer", "git", "git"]),
         entry("send-slack", name: "Post to Slack", description: "Send the selection to a channel",
@@ -120,9 +122,17 @@ final class ExtensionCatalogFilterTests: XCTestCase {
                 expected: [], line: #line
             ),
             ChipCase(
-                label: "the chip set is capped at what fits one row",
-                entries: (0..<10).map { entry("e\($0)", name: "E\($0)", tags: ["tag\($0)"]) },
-                expected: ["tag0", "tag1", "tag2", "tag3", "tag4", "tag5"], line: #line
+                label: "the cap keeps the most-used tags and evicts the rest",
+                entries: [
+                    entry("a", name: "A", tags: ["common", "alsocommon", "rare1"]),
+                    entry("b", name: "B", tags: ["common", "alsocommon", "rare2"]),
+                    entry("c", name: "C", tags: ["common", "alsocommon", "mid1", "mid2"]),
+                    entry("d", name: "D", tags: ["mid1", "mid2", "rare3"]),
+                ],
+                // counts: common 3, alsocommon 3, mid1 2, mid2 2, rare1/2/3 1.
+                // Seven distinct tags, six chips: the rares lose, and the ties
+                // break alphabetically.
+                expected: ["alsocommon", "common", "mid1", "mid2", "rare1", "rare2"], line: #line
             ),
         ]
 

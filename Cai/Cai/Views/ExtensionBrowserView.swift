@@ -79,8 +79,17 @@ enum ExtensionCatalogFilter {
         }
     }
 
+    /// Trim, strip control and bidi characters, lowercase.
+    ///
+    /// The bidi strip matters because these strings are rendered: a tag
+    /// carrying U+202E reorders the text around it, so a chip can read as
+    /// something other than the tag it filters by. `.whitespacesAndNewlines`
+    /// does not catch those, they are category Cf.
     private nonisolated static func normalize(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        value
+            .strippingControlCharacters(keepingNewlines: false)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 }
 
@@ -96,6 +105,7 @@ struct ExtensionBrowserView: View {
     @State private var searchText = ""
     @State private var selectedTags: Set<String> = []
     @State private var installingSlug: String?
+    @State private var loadTask: Task<Void, Never>?
 
     // Shell confirmation
     @State private var shellConfirmSlug: String?
@@ -174,6 +184,8 @@ struct ExtensionBrowserView: View {
                         loadingState
                     } else if let error = errorMessage {
                         errorState(error)
+                    } else if entries.isEmpty {
+                        catalogEmptyState
                     } else if displayedEntries.isEmpty {
                         emptyState
                     } else {
@@ -240,6 +252,7 @@ struct ExtensionBrowserView: View {
             if !selectedTags.isEmpty {
                 Button("Clear") { selectedTags.removeAll() }
                     .buttonStyle(.plain)
+                    .fixedSize()
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.caiPrimary)
                     .help("Clear tag filters")
@@ -290,6 +303,23 @@ struct ExtensionBrowserView: View {
             .foregroundColor(.caiPrimary)
         }
         .frame(maxWidth: .infinity, minHeight: 80)
+        .padding()
+    }
+
+    /// The catalog itself came back empty. Distinct from `emptyState`, which
+    /// blames a filter: with nothing typed and nothing selected, "no match"
+    /// would be a lie about the user's input.
+    private var catalogEmptyState: some View {
+        VStack(spacing: 8) {
+            Text("No extensions available")
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextSecondary)
+            Button("Retry") { Task { await loadExtensions() } }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.caiPrimary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 60)
         .padding()
     }
 
@@ -398,16 +428,30 @@ struct ExtensionBrowserView: View {
 
     // MARK: - Load
 
+    /// Serialised deliberately: `.task` starts one load and every Retry click
+    /// starts another, each with a 15s timeout. Two in flight and the slower
+    /// one wins the last write, which paints "Could not load extensions" over
+    /// a catalog that arrived fine (or restores stale rows over fresh ones).
     private func loadExtensions() async {
+        loadTask?.cancel()
+        let task = Task { await fetchCatalog() }
+        loadTask = task
+        await task.value
+    }
+
+    private func fetchCatalog() async {
         isLoading = true
         errorMessage = nil
         do {
-            entries = try await ExtensionService.fetchIndex()
+            let fetched = try await ExtensionService.fetchIndex()
+            guard !Task.isCancelled else { return }
+            entries = fetched
             // Drop selections the refreshed catalog no longer offers a chip
             // for, otherwise the list stays filtered by something invisible.
             selectedTags.formIntersection(ExtensionCatalogFilter.chipTags(for: entries))
             isLoading = false
         } catch {
+            guard !Task.isCancelled else { return }
             #if DEBUG
             print("[ExtensionBrowser] Load failed: \(error)")
             #endif
@@ -419,6 +463,13 @@ struct ExtensionBrowserView: View {
     // MARK: - Install
 
     private func installExtension(_ entry: ExtensionService.ExtensionEntry) async {
+        // One install at a time. Two concurrent installs share a single
+        // `installingSlug` spinner and a single shell-confirmation slot, so the
+        // slower fetch would overwrite the command text under an alert the user
+        // is already reading, and their "Install" would approve a command they
+        // were never shown.
+        guard installingSlug == nil, shellConfirmSlug == nil else { return }
+
         installingSlug = entry.slug
         defer { installingSlug = nil }
 
@@ -430,6 +481,7 @@ struct ExtensionBrowserView: View {
                 let parsed = try ExtensionParser.parse(yaml, allowShell: true)
                 if case .shortcut(let sc, _, _) = parsed {
                     await MainActor.run {
+                        guard shellConfirmSlug == nil else { return }
                         shellConfirmName = sc.name
                         shellConfirmCommand = sc.value
                         shellConfirmSlug = entry.slug
@@ -522,7 +574,9 @@ struct ExtensionBrowserView: View {
         let tags = ExtensionCatalogFilter.normalizedTags(entry.tags)
         let shown = Array(tags.prefix(ExtensionCatalogFilter.rowTagLimit))
         let overflow = tags.count - shown.count
-        let author = entry.author.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = entry.author
+            .strippingControlCharacters(keepingNewlines: false)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return HStack(spacing: 4) {
             HStack(spacing: 4) {
@@ -537,24 +591,38 @@ struct ExtensionBrowserView: View {
                         .foregroundColor(.caiTextSecondary.opacity(0.7))
                 }
             }
-            .help(tags.joined(separator: ", "))
-
             if !author.isEmpty, author != Self.firstPartyAuthor {
                 Text("by \(author)")
                     .font(.system(size: 9))
                     .foregroundColor(.caiTextSecondary.opacity(0.7))
                     .lineLimit(1)
-                    .help("Authored by \(author)")
+                    .truncationMode(.tail)
             }
         }
+        // One tooltip for the whole line, carrying the author even on the rows
+        // whose byline is suppressed: hiding a repeated name is a density
+        // choice, and provenance must not be the thing it costs.
+        .help(metadataTooltip(tags: tags, author: author))
+    }
+
+    private func metadataTooltip(tags: [String], author: String) -> String {
+        let parts = [tags.joined(separator: ", "), author.isEmpty ? "" : "by \(author)"]
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// The row's small-label treatment, shared by the type badge and the tags
     /// so the two cannot drift apart.
+    ///
+    /// Clamped: every string here (`tags`, `type`) comes from remote catalog
+    /// JSON, so one over-long value would otherwise wrap and stretch the row.
     private func tagPill(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 9, weight: .medium))
             .foregroundColor(.caiTextSecondary.opacity(0.7))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: 90, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(Color.caiSurface.opacity(0.8))
@@ -589,6 +657,12 @@ private struct TagFilterChip: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                // The label is a catalog tag, i.e. remote data: one absurd tag
+                // must not push the rest of the row off the window. 110pt
+                // clears the longest real tag ("productivity", 81pt) with room
+                // to spare, so only hostile lengths ever truncate.
+                .frame(maxWidth: 110)
                 .padding(.horizontal, 8)
                 .frame(height: 24)
                 .background(

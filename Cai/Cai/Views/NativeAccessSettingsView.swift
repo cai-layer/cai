@@ -36,12 +36,22 @@ struct NativeAccessSettingsView: View {
         }
         .onAppear {
             WindowController.acceptsFilterInput = false
-            // Grants can change out-of-band (System Settings, another app), so
-            // re-read live status each time this tab opens. The Accessibility
-            // poller only runs during onboarding, so it needs an explicit read.
-            nativeAccess.refreshAll()
-            permissions.checkAccessibilityPermission()
+            refreshGrants()
         }
+        // The whole point of the Open buttons is that the user leaves for System
+        // Settings and comes back. Without this, they return to the still-open
+        // tab and see the status they just changed, unchanged. The Accessibility
+        // poller can't cover it: it only runs at launch and stops on first grant.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshGrants()
+        }
+    }
+
+    /// Re-reads every grant from the OS. Grants change out-of-band (System
+    /// Settings, another app), and neither published cache refreshes itself.
+    private func refreshGrants() {
+        nativeAccess.refreshAll()
+        permissions.checkAccessibilityPermission()
     }
 
     // MARK: - Groups
@@ -158,8 +168,10 @@ struct NativeAccessSettingsView: View {
                 .accessibilityLabel("Open \(domain.title) in System Settings")
             }
         }
-        // Read as one element ("Accessibility, Granted") instead of three stops.
-        .accessibilityElement(children: .combine)
+        // Deliberately NOT `.accessibilityElement(children: .combine)`: this row's
+        // only actionable control is the Open button, and combining the row
+        // swallows it into one static element, leaving VoiceOver users with a
+        // status they cannot act on.
     }
 
     /// The shared row chrome both kinds use, so the groups differ by header and

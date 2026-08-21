@@ -25,7 +25,10 @@ final class NativeAccessTests: XCTestCase {
     typealias M = NativeAccessManager
 
     /// A domain Cai cannot request must never map to a requestable one.
-    /// Covers every key so a newly added one can't slip through untriaged.
+    ///
+    /// The `allCases` assertion is what makes this table trustworthy: without it
+    /// a newly added key would simply be absent here and nothing would fail, so
+    /// the "covers every key" claim would be a comment rather than a guarantee.
     func testRequestableDomainPerRemediationKey() {
         let cases: [(TCCRemediation.Domain.Key, M.Domain?)] = [
             (.calendars, .calendars),
@@ -35,6 +38,11 @@ final class NativeAccessTests: XCTestCase {
             (.accessibility, nil),      // no request API beyond onboarding's
             (.fullDiskAccess, nil),     // no usage key, no request API — never
         ]
+        XCTAssertEqual(
+            Set(cases.map(\.0.rawValue)),
+            Set(TCCRemediation.Domain.Key.allCases.map(\.rawValue)),
+            "a new TCC domain key was added without deciding whether Cai may request it"
+        )
         for (key, expected) in cases {
             XCTAssertEqual(M.requestableDomain(for: key), expected, "key \(key.rawValue)")
         }

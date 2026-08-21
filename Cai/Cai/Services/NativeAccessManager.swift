@@ -182,8 +182,18 @@ final class NativeAccessManager: ObservableObject {
     @Published private(set) var reminders: AccessState = .notDetermined
     @Published private(set) var contacts: AccessState = .notDetermined
 
-    private let eventStore = EKEventStore()
-    private let contactStore = CNContactStore()
+    // `var`, and deliberately recreated before every request. An EKEventStore /
+    // CNContactStore instance binds to the authorization state it was created
+    // under: once it has seen an answer, `requestFullAccess*` short-circuits and
+    // returns WITHOUT ever contacting tccd — no prompt, no log entry, and the
+    // toggle silently snaps back. Indistinguishable from a missing entitlement.
+    //
+    // This bites real users, not just a `tccutil reset` test loop: Calendar and
+    // Reminders share one store, so granting Calendar and then flipping
+    // Reminders reuses a store that is already "answered" and the second prompt
+    // never appears. See `refreshedEventStore()`.
+    private var eventStore = EKEventStore()
+    private var contactStore = CNContactStore()
 
     private init() {
         refreshAll()
@@ -396,6 +406,7 @@ final class NativeAccessManager: ObservableObject {
     }
 
     private func requestCalendars() async {
+        eventStore = EKEventStore()   // see the eventStore declaration
         let strategy = Self.eventKitRequestStrategy(
             macOSMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         )
@@ -421,6 +432,7 @@ final class NativeAccessManager: ObservableObject {
     /// Gated by `NSRemindersFullAccessUsageDescription` plus the shared EventKit
     /// `personal-information.calendars` entitlement.
     private func requestReminders() async {
+        eventStore = EKEventStore()   // see the eventStore declaration
         let strategy = Self.eventKitRequestStrategy(
             macOSMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         )
@@ -441,6 +453,7 @@ final class NativeAccessManager: ObservableObject {
     }
 
     private func requestContacts() async {
+        contactStore = CNContactStore()   // see the contactStore declaration
         _ = try? await contactStore.requestAccess(for: .contacts)
     }
 }

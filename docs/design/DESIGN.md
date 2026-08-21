@@ -78,7 +78,7 @@ Scope of the exception, do not widen it without a design decision:
 1. **`.rounded` design variant for accent numerals only** — keyboard shortcut badges, step counts, standalone result counts ("3 found"). All other labels use default SF Pro. Rounded adds warmth at decision points.
 2. **`.monospacedDigit()` on every runtime-changing number.** Prevents layout jitter when digits change width (1→2→3).
 3. **Never use Dynamic Type.** macOS doesn't support it. All sizes are fixed pt.
-4. **SF Mono for secret names, nowhere else** (added 2026-08-08). A secret name is the exact string typed inside `{{secrets.…}}`, so it renders monospaced (12pt medium) everywhere it appears: Secrets rows, the name field, import candidates, the approval callout, the delete alert. Long names truncate `.middle` with the full name in `.help()`. This is an identifier treatment, not a general label style — do not widen it without a design decision.
+4. **SF Mono for secret names, nowhere else** (added 2026-08-08; sizing amended 2026-08-21). A secret name is the exact string typed inside `{{secrets.…}}`, so it renders monospaced everywhere it appears: Secrets rows, the name field, import candidates, the approval callout, the delete alert, capability chips. **Size follows the containing role** — 12pt medium where the name stands on its own, and the container's own size where it sits inside one (10pt in a capability chip, 11pt in a list subtitle) — the same way radius scales with element size. The substance of this rule is the monospace, not the point size. Long names truncate `.middle` with the full name in `.help()`. This is an identifier treatment, not a general label style — do not widen it without a design decision.
 
 ---
 
@@ -155,6 +155,41 @@ Used for any "list of items, each with on/off." Established by `ConnectorsSettin
 - **Label:** 12pt medium, `caiTextPrimary`. Subtitle: 10pt regular, `caiTextSecondary.opacity(0.7)` — carries scope/status, not decoration.
 - **Toggle:** `.toggleStyle(.switch).controlSize(.mini).tint(.caiPrimary).labelsHidden()`, right-aligned via `Spacer()`.
 - **No chevron** unless the row drills into a sub-detail.
+
+### Chip shape: fact vs control (added 2026-08-21)
+
+Cai has two chip families and **shape is what tells them apart**. Get this wrong and passive text looks tappable.
+
+| Shape | Meaning | Examples |
+|---|---|---|
+| **Borderless capsule**, `caiSurface` fill, `caiTextSecondary` | Cai stating a fact. Not interactive. | capability chips |
+| **Bordered rounded-rect**, radius 5, hairline border, hover wash, pointing-hand cursor | A control. Click does something. | `ChipToggle`, `ChipButton`, `DestinationChip` |
+
+**Compact form (added 2026-08-21).** In a 42/56pt list row at 11pt, the same facts render as **dot-separated plain text**, not capsules — `Sends to hooks.slack.com · Uses secret API_KEY · +2`. Capsule chrome at that size is noise in a row that already carries an icon, a title, a provenance badge and a `…` menu. This is a sanctioned third rendering of the fact family, not a deviation: same copy, same source, same order, same no-indigo rule. `CapabilitySubtitle.swift` owns it.
+
+Rules for the capsule (fact) family:
+
+- **No border, no hover state, no cursor change, no indigo, ever.** Per Indigo discipline these are passive structure; per the Red rule orange stays reserved for the escalation callout, so a fact chip is never itself an alarm.
+- **They appear on every item, not only risky ones.** A chip family that showed up only on dangerous actions would quietly become a second warning channel competing with the callout.
+- **Never mix the two families in one row.** This is why the action editor does NOT show capability chips: its chip row is `ChipToggle`s, and look-alike passive chips there would fail the Indigo-discipline mental test ("would the user expect tapping it to do something?"). Decided 2026-08-21; do not revisit as a quick add.
+
+### Read-only status row (grant Cai cannot request)
+
+Sibling to the toggle row above, for state the app can **report but not change**. Established by `NativeAccessSettingsView` (Connections → System Access: Accessibility, Automation).
+
+```
+┌────────────────────────────────────────────────────────┐
+│  [icon]  Label                      Granted   [Open ↗] │
+│          Subtitle (why this exists, or the real rule)  │
+└────────────────────────────────────────────────────────┘
+```
+
+- **Same shell as the toggle row** (container, leading icon, 12pt label / 10pt subtitle). The two kinds must differ at the **trailing edge only** — that is where their semantics differ — so they read as one system, not two screens.
+- **Never a toggle.** A switch the user cannot move is a trap. Trailing edge is status text (11pt, plain `caiTextSecondary`) plus a neutral "Open" button (11pt + `arrow.up.forward.app`, padding + `contentShape`, `caiSurface.opacity(0.6)` hover wash).
+- **Not indigo.** The button navigates out of the app; it does not act. Per indigo discipline, that earns no accent.
+- **Do not colour the status text.** Semantic green/orange for the same fact belongs in at most one place per journey.
+- **Group them under a header that explains the missing affordance.** "Managed by macOS" answers "why can't I flip this" before the user asks. Separate groups by `spacingXl` (24pt).
+- **If a status cannot be honestly determined, leave the slot empty.** Do not fill it with a hedge word. A string in the position where "Granted" appears reads as a state the app verified: that is a lie by layout even when the words are cautious. Put the real rule in the subtitle instead. (Automation is the live example: Apple Events is granted per app pair, so there is no app-level status to show.)
 
 ### Pin button (progressive disclosure)
 

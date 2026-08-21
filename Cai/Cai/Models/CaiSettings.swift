@@ -575,7 +575,7 @@ class CaiSettings: ObservableObject {
             // `BuiltInDestinations.all` won't appear otherwise.
             let existingIds = Set(decoded.map(\.id))
             let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
-            var working = missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns
+            var working = Self.canonicalizingBuiltIns(missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns)
 
             // One-shot migration: promote Replace Selection to on-by-default and
             // position 0 (Cmd+1). Runs once per user; after that, their order and
@@ -697,20 +697,156 @@ class CaiSettings: ObservableObject {
         shortcuts.map(\.actionSnapshot)
     }
 
-    /// Destination names and kinds only. Configs (webhook URLs, headers,
-    /// AppleScript templates) deliberately stay out of the authoring surface.
+    /// Destination names and kinds, plus the two derived facts capability chips
+    /// need. Configs (webhook URLs, headers, AppleScript templates) still
+    /// deliberately stay out of the authoring surface — what crosses is a host
+    /// and a role, and `DestinationSummary` keeps both out of its Codable shape
+    /// so neither reaches `actions-snapshot.json` or an agent.
     private var destinationSummaries: [DestinationSummary] {
         outputDestinations.map { destination in
             let kind: DestinationSummary.Kind
+            var networkTarget: String?
             switch destination.type {
             case .applescript: kind = .applescript
-            case .webhook: kind = .webhook
-            case .deeplink: kind = .deeplink
+            case .webhook(let config):
+                kind = .webhook
+                networkTarget = Self.webhookHost(config.url)
+            case .deeplink(let template):
+                kind = .deeplink
+                networkTarget = Self.deeplinkScheme(template)
             case .shell: kind = .shell
             case .pasteBack: kind = .pasteBack
             case .clipboardCopy: kind = .clipboardCopy
             }
-            return DestinationSummary(name: destination.name, kind: kind)
+            return DestinationSummary(
+                name: destination.name,
+                kind: kind,
+                networkTarget: networkTarget,
+                builtInRole: Self.builtInRole(for: destination)
+            )
+        }
+    }
+
+    /// Forces any destination carrying a built-in's UUID to carry that
+    /// built-in's actual payload.
+    ///
+    /// `builtInRole` is derived from `id` + `isBuiltIn`, and since capability
+    /// chips began resolving built-ins by role, that role is load-bearing twice
+    /// over: it labels the chip "Writes to Notes" AND it tells
+    /// `ApprovalClassifier` not to escalate the destination as a shell command.
+    /// Trusting a decoded `id` for that means a stored destination with a
+    /// built-in's UUID and a hand-written `tell application …` / `do shell
+    /// script` template would render as a bounded, unescalated "Writes to
+    /// Notes" while running attacker AppleScript.
+    ///
+    /// No supported path can produce that today — `ExtensionParser` forces
+    /// `isBuiltIn: false` and a fresh UUID, duplication does the same, and
+    /// agents cannot author destinations at all — so this is local tampering
+    /// only. It is written now because the exposure is one feature away: any
+    /// settings import, sync or backup-restore that reintroduces
+    /// `[OutputDestination]` from JSON would turn trust-by-id into an
+    /// escalation-suppression bypass. Canonicalizing at load makes the identity
+    /// mean what it claims, so that feature cannot arrive pre-broken.
+    ///
+    /// Only `type` and `isBuiltIn` are restored — the executable half. Order,
+    /// enabled state, `showInActionList` and `next` stay the user's, and the
+    /// name is left alone because chain steps resolve destinations BY name and
+    /// rewriting it could break a working chain.
+    static func canonicalizingBuiltIns(_ destinations: [OutputDestination]) -> [OutputDestination] {
+        let canonical = Dictionary(
+            BuiltInDestinations.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+        )
+        return destinations.map { destination in
+            guard let template = canonical[destination.id] else { return destination }
+            guard destination.type != template.type || !destination.isBuiltIn else { return destination }
+            var restored = destination
+            restored.type = template.type
+            restored.isBuiltIn = true
+            return restored
+        }
+    }
+
+    /// Built-in destinations by their fixed UUID, never by display name. A
+    /// user-authored destination renamed "Save to Notes" must not borrow the
+    /// built-in's chip.
+    private static func builtInRole(for destination: OutputDestination) -> BuiltInDestinationRole? {
+        guard destination.isBuiltIn else { return nil }
+        switch destination.id {
+        case BuiltInDestinations.email.id: return .mailDraft
+        case BuiltInDestinations.notes.id: return .notes
+        case BuiltInDestinations.reminders.id: return .reminders
+        case BuiltInDestinations.pasteBack.id: return .replaceSelection
+        case BuiltInDestinations.clipboard.id: return .clipboard
+        default: return nil
+        }
+    }
+
+    /// The host of a webhook URL, and nothing else.
+    ///
+    /// Host-only is the whole point: for a Slack incoming webhook the path is
+    /// the credential and the host is public. A templated authority yields nil
+    /// rather than a guess — `CapabilityDetector.host(inURLTemplate:)` holds the
+    /// same rule for url actions, including the `https://github.com@evil.com/`
+    /// userinfo trick that a hand-rolled split gets wrong.
+    static func webhookHost(_ url: String) -> String? {
+        CapabilityDetector.host(inURLTemplate: url)
+    }
+
+    /// A deeplink's scheme, with no host claimed. `obsidian://open?vault=…` is
+    /// "opens obsidian://": the host segment of a custom-scheme URL is not a
+    /// network destination and vouching for it would be inventing precision.
+    static func deeplinkScheme(_ template: String) -> String? {
+        let trimmed = template.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scheme = trimmed.prefix { $0 != ":" }.lowercased()
+        guard !scheme.isEmpty, scheme.count < 32, trimmed.dropFirst(scheme.count).hasPrefix("://"),
+              scheme.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-" || $0 == "+") })
+        else { return nil }
+        return scheme
+    }
+
+    /// Whether an endpoint keeps the selection on this Mac.
+    ///
+    /// Pure and static so the claim can be table-tested: "Runs on-device AI" is
+    /// a privacy statement in Cai's own voice, and the failure that matters is
+    /// over-claiming. Parsed with `URLComponents` rather than a substring
+    /// search, so `http://127.0.0.1@evil.com/` reads as the host `evil.com`
+    /// (loopback in the userinfo is the obvious spoof) and
+    /// `http://localhost.evil.com/` is not localhost. An unset endpoint is
+    /// unknown, and unknown is not local.
+    static func endpointIsOnDevice(_ url: String) -> Bool {
+        // `host` may arrive bracketed for IPv6 depending on the SDK, so both
+        // spellings count.
+        let loopback: Set<String> = ["127.0.0.1", "localhost", "::1", "[::1]"]
+        guard let host = URLComponents(string: url)?.host?.lowercased() else { return false }
+        return loopback.contains(host)
+    }
+
+    /// The engine the AI capability chip names, and whether Cai can honestly
+    /// call it on-device.
+    ///
+    /// "On-device" is claimed only where it is guaranteed: the built-in MLX
+    /// model and Apple Intelligence run in-process with no endpoint at all, and
+    /// a configured endpoint counts only when its host is loopback. LM Studio
+    /// and Ollama default to localhost but the user can point either at another
+    /// machine, and telling someone their selection stayed on their Mac when it
+    /// did not is exactly the false reassurance these chips exist to avoid. When
+    /// in doubt the chip says "Sends to", which is the safe direction.
+    var aiEngine: ActionReviewPresentation.AIEngine {
+        switch modelProvider {
+        case .builtIn, .apple:
+            // In-process, no endpoint at all. The only two that are on-device
+            // by construction rather than by configuration.
+            return .init(name: modelProvider.rawValue, isOnDevice: true, isInProcess: true)
+        default:
+            // Everything else has a configurable endpoint, so honesty comes
+            // from the endpoint and not from the provider's reputation. An
+            // empty one is unconfigured, not local: claiming on-device for a
+            // custom provider with no URL set would be an over-claim in exactly
+            // the direction these chips exist to prevent.
+            return .init(
+                name: modelProvider.rawValue,
+                isOnDevice: Self.endpointIsOnDevice(modelURL)
+            )
         }
     }
 

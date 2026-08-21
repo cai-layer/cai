@@ -3,6 +3,9 @@ import SwiftUI
 struct ActionRow: View {
     let action: ActionItem
     let isSelected: Bool
+    /// Which model engine the AI chip names. Passed in rather than read from
+    /// `CaiSettings.shared`, so the row stays a function of its inputs.
+    let engine: ActionReviewPresentation.AIEngine
 
     var body: some View {
         HStack(spacing: 12) {
@@ -21,7 +24,14 @@ struct ActionRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.caiTextPrimary)
 
-                if let subtitle = action.subtitle {
+                // Custom actions describe themselves with the same capability
+                // chips the approval sheet draws, so what you approved and what
+                // you pick weeks later read identically. Built-ins keep their
+                // hand-written subtitles: "Create a concise summary" is already
+                // a plain statement of purpose and beats a chip row.
+                if !action.capabilities.isEmpty {
+                    CapabilitySubtitle(capabilities: action.capabilities, engine: engine)
+                } else if let subtitle = action.subtitle {
                     Text(subtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.caiTextSecondary)
@@ -57,9 +67,43 @@ struct ActionRow: View {
                 .fill(isSelected ? Color.caiPrimarySubtle : Color.clear)
         )
         .contentShape(Rectangle())
+        // The raw payload is still one hover away for a custom action, where
+        // the chips replaced it as the subtitle. Only where there is one to
+        // show: an empty `.help("")` on every built-in row is a tooltip that
+        // flashes nothing.
+        .modifier(OptionalHelp(text: payloadTooltip))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(action.title)\(action.subtitle.map { ", \($0)" } ?? ""), Command \(action.shortcut)")
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// The raw payload, reachable on hover for a custom action where the chips
+    /// replaced it as the subtitle. Nil for built-ins, whose subtitle is already
+    /// on screen.
+    private var payloadTooltip: String? {
+        action.capabilities.isEmpty ? nil : action.subtitle
+    }
+
+    /// What VoiceOver reads for the row.
+    ///
+    /// For a custom action this must speak the capabilities, not `subtitle`:
+    /// `subtitle` is the raw payload, which the chips deliberately replaced
+    /// because `curl -s https://api.git…` answers nothing. Reading it aloud
+    /// while sighted users get "Sends to hooks.slack.com" would hand the screen
+    /// reader strictly worse information than the screen — the inverse of the
+    /// approval sheet, where VoiceOver gets Cai's prose line as well as the
+    /// chips.
+    private var accessibilityLabel: String {
+        let description: String
+        if !action.capabilities.isEmpty {
+            description = CapabilitySubtitle(
+                capabilities: action.capabilities, engine: engine
+            ).spokenLabel
+        } else {
+            description = action.subtitle ?? ""
+        }
+        let middle = description.isEmpty ? "" : ", \(description)"
+        return "\(action.title)\(middle), Command \(action.shortcut)"
     }
 
     @ViewBuilder

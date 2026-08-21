@@ -21,7 +21,17 @@ struct ActionRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.caiTextPrimary)
 
-                if let subtitle = action.subtitle {
+                // Custom actions describe themselves with the same capability
+                // chips the approval sheet draws, so what you approved and what
+                // you pick weeks later read identically. Built-ins keep their
+                // hand-written subtitles: "Create a concise summary" is already
+                // a plain statement of purpose and beats a chip row.
+                if !action.capabilities.isEmpty {
+                    CapabilitySubtitle(
+                        capabilities: action.capabilities,
+                        engine: CaiSettings.shared.aiEngine
+                    )
+                } else if let subtitle = action.subtitle {
                     Text(subtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.caiTextSecondary)
@@ -57,6 +67,9 @@ struct ActionRow: View {
                 .fill(isSelected ? Color.caiPrimarySubtle : Color.clear)
         )
         .contentShape(Rectangle())
+        // The raw payload is still one hover away for a custom action, where
+        // the chips replaced it as the subtitle.
+        .help(action.capabilities.isEmpty ? "" : (action.subtitle ?? ""))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(action.title)\(action.subtitle.map { ", \($0)" } ?? ""), Command \(action.shortcut)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])

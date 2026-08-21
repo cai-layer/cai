@@ -348,6 +348,13 @@ struct ShortcutsManagementView: View {
         // Names the chain references that aren't installed locally — flagged
         // via a warning glyph so the user can fix the chain before running it.
         let unresolvedSteps = settings.unresolvedChainSteps(in: shortcut.next)
+        // Live-derived at render, never cached: the same rule the approval sheet
+        // follows (CAI-25). A destination the chain reaches can be edited or
+        // removed after this action was approved, and a stale chip would then
+        // describe an action that no longer exists.
+        let capabilities = CapabilityDetector.capabilities(
+            for: shortcut.actionSnapshot, known: settings.knownActions
+        )
 
         return HStack(spacing: 12) {
             // Leading icon — doubles as pin toggle on hover.
@@ -395,12 +402,25 @@ struct ShortcutsManagementView: View {
                     }
                 }
 
-                Text(shortcut.value)
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                // What this action touches, not the raw payload it used to
+                // show. `Text(shortcut.value)` truncated-middle rendered a shell
+                // action as `curl -s https://api.git…jq -r '.[].title'`, which
+                // answers nothing weeks later — and answering that is the recall
+                // problem this feature was built for. The payload is not lost:
+                // it is the row's tooltip, and the editor shows it in full.
+                CapabilitySubtitle(
+                    capabilities: capabilities,
+                    engine: settings.aiEngine,
+                    // The orange triangle beside this row already owns the
+                    // unresolved-steps warning and its tooltip names them, so
+                    // the chip would be the same fact twice in one 56pt row.
+                    excluding: { capability in
+                        if case .runsUninstalled = capability { return true }
+                        return false
+                    }
+                )
             }
+            .help(shortcut.value)
 
             // Chain dependency warning — shown when `next:` references local
             // actions/destinations the user doesn't have installed yet.

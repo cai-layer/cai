@@ -1,3 +1,4 @@
+import CaiActionCore
 import Foundation
 
 // MARK: - Action Generator
@@ -26,7 +27,7 @@ struct ActionGenerator {
         // `ShortcutsManagementView` determines the relative order within the
         // pinned section. Iterating `where sc.pinned` preserves that order.
         for sc in settings.shortcuts where sc.pinned {
-            items.append(actionItem(from: sc, clipboardText: text, shortcut: shortcut))
+            items.append(actionItem(from: sc, clipboardText: text, shortcut: shortcut, settings: settings))
             shortcut += 1
         }
 
@@ -567,7 +568,8 @@ struct ActionGenerator {
     static func actionItem(
         from sc: CaiShortcut,
         clipboardText: String,
-        shortcut: Int
+        shortcut: Int,
+        settings: CaiSettings
     ) -> ActionItem {
         let actionType: ActionType
         let subtitle: String
@@ -593,6 +595,9 @@ struct ActionGenerator {
         return ActionItem(
             id: "shortcut_\(sc.id.uuidString)",
             title: sc.name,
+            // Chips replace the raw-payload subtitle for custom actions (see
+            // `CapabilitySubtitle`). `subtitle` stays populated as the row's
+            // tooltip and as the fallback for anything that reads the string.
             subtitle: subtitle,
             icon: sc.type.icon,
             shortcut: shortcut,
@@ -601,7 +606,10 @@ struct ActionGenerator {
             next: sc.next,
             // Only meaningful for the prompt branch of executeAction; shell
             // dispatch reads `runInBackground` from the .shortcutShell enum case.
-            runInBackground: sc.type == .prompt && sc.runInBackground
+            runInBackground: sc.type == .prompt && sc.runInBackground,
+            capabilities: CapabilityDetector.capabilities(
+                for: sc.actionSnapshot, known: settings.knownActions
+            )
         )
     }
 }

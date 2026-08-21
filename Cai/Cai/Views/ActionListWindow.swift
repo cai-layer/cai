@@ -167,7 +167,8 @@ struct ActionListWindow: View {
                 items.append(ActionGenerator.actionItem(
                     from: sc,
                     clipboardText: text,
-                    shortcut: shortcut
+                    shortcut: shortcut,
+                    settings: settings
                 ))
                 shortcut += 1
             }

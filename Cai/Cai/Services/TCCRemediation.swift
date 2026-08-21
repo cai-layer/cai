@@ -23,7 +23,9 @@ enum TCCRemediation {
         let label: String
         let settingsURL: URL
 
-        enum Key: String, Equatable {
+        /// `CaseIterable` so `NativeAccessTests` can assert its requestable-vs-
+        /// guide-only table covers every key, instead of only promising to.
+        enum Key: String, Equatable, CaseIterable {
             case appleEvents
             case calendars
             case reminders
@@ -53,6 +55,7 @@ enum TCCRemediation {
         init(_ domain: NativeAccessManager.Domain) {
             switch domain {
             case .calendars: self = .calendars
+            case .reminders: self = .reminders
             case .contacts: self = .contacts
             }
         }

@@ -8,7 +8,9 @@ import SwiftUI
 /// - **Agents** — coding agents that reach into Cai to propose actions: the
 ///   `cai-mcp` helper. (Internally the MCP *server*.)
 /// - **System Access** — the on-demand macOS privacy grants an action may read
-///   from (Calendar, Contacts): `NativeAccessSettingsView`.
+///   from (Calendar, Reminders, Contacts), plus read-only status for the
+///   grants Cai cannot request (Accessibility, Automation):
+///   `NativeAccessSettingsView`.
 ///
 /// One row in Settings rather than three, because to a user they are one
 /// question — "who/what has access" — and a person hunting for any of them
@@ -80,7 +82,9 @@ struct MCPManagementView: View {
         case .agents:
             return "Agents that can propose actions to Cai"
         case .systemAccess:
-            return "What Cai can read on your Mac"
+            // "read" would be a promise the tab breaks: Reminders creates,
+            // Calendar adds, Automation sends. "access" covers all five grants.
+            return "What Cai can access on your Mac"
         }
     }
 }

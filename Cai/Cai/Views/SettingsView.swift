@@ -10,6 +10,9 @@ struct SettingsView: View {
     var onShowDestinations: (() -> Void)? = nil
     var onShowExtensions: (() -> Void)? = nil
     var onShowConnectors: (() -> Void)? = nil
+    /// Opens Connections → System Access. Used by the header Accessibility
+    /// shield, which is a shortcut into the consolidated grants tab.
+    var onShowSystemAccess: (() -> Void)? = nil
     var onShowSecrets: (() -> Void)? = nil
     var onShowBuiltInActions: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
@@ -1001,12 +1004,15 @@ struct SettingsView: View {
 
     // MARK: - Permission Indicator
 
+    /// Always-visible Accessibility status. Kept in the header because it is the
+    /// one grant Cai is useless without, but it now deep-links into
+    /// Connections → System Access in **both** states rather than only opening
+    /// System Settings when missing (the granted state used to be a dead
+    /// button). One consistent meaning: system access lives there. The extra hop
+    /// for the not-granted case buys the other four grants and an Open button on
+    /// the same screen.
     private var permissionIndicator: some View {
-        Button(action: {
-            if !permissions.hasAccessibilityPermission {
-                permissions.openAccessibilityPreferences()
-            }
-        }) {
+        Button(action: { onShowSystemAccess?() }) {
             Image(systemName: permissions.hasAccessibilityPermission
                   ? "checkmark.shield.fill"
                   : "exclamationmark.shield.fill")
@@ -1015,8 +1021,11 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .help(permissions.hasAccessibilityPermission
-              ? "Accessibility permission granted"
-              : "Accessibility permission required — click to open Settings")
+              ? "Accessibility granted. Click to review system access."
+              : "Accessibility needed. Click to review system access.")
+        .accessibilityLabel(permissions.hasAccessibilityPermission
+              ? "Accessibility granted. Review system access."
+              : "Accessibility needed. Review system access.")
     }
 
     // MARK: - Settings Layout Helpers

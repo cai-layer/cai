@@ -90,10 +90,22 @@ class WindowController: NSObject, ObservableObject {
             // prompt we verified works). `offerGrantIfPossible` returns false for
             // every non-TCC message, so this is a no-op for ordinary toasts.
             // This observer runs on the main queue, so `assumeIsolated` is safe.
-            let handledByGrantOffer = MainActor.assumeIsolated {
-                NativeAccessManager.shared.offerGrantIfPossible(forErrorMessage: message)
+            // Never run denial detection over an action's own output. This
+            // channel carries BOTH Cai status messages and success snippets
+            // (ChainExecutor posts up to 60 chars of the result), and the
+            // detector reads prose — so an innocent result mentioning a denial
+            // would have its toast swallowed and a permission prompt raised in
+            // its place. Opt-out rather than opt-in on failure: ~25 sites post
+            // to this channel, and missing one here merely restores today's
+            // behaviour, whereas missing one in an opt-in scheme would silently
+            // kill remediation on that path.
+            let isActionResult = notification.userInfo?["isActionResult"] as? Bool ?? false
+            if !isActionResult {
+                let handledByGrantOffer = MainActor.assumeIsolated {
+                    NativeAccessManager.shared.offerGrantIfPossible(forErrorMessage: message)
+                }
+                if handledByGrantOffer { return }
             }
-            if handledByGrantOffer { return }
 
             let icon = (notification.userInfo?["icon"] as? String).flatMap(ToastQueue.Icon.init(rawValue:)) ?? .success
             if let duration = notification.userInfo?["duration"] as? TimeInterval {

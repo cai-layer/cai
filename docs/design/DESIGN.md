@@ -173,6 +173,24 @@ Rules for the capsule (fact) family:
 - **They appear on every item, not only risky ones.** A chip family that showed up only on dangerous actions would quietly become a second warning channel competing with the callout.
 - **Never mix the two families in one row.** This is why the action editor does NOT show capability chips: its chip row is `ChipToggle`s, and look-alike passive chips there would fail the Indigo-discipline mental test ("would the user expect tapping it to do something?"). Decided 2026-08-21; do not revisit as a quick add.
 
+### Read-only status row (grant Cai cannot request)
+
+Sibling to the toggle row above, for state the app can **report but not change**. Established by `NativeAccessSettingsView` (Connections → System Access: Accessibility, Automation).
+
+```
+┌────────────────────────────────────────────────────────┐
+│  [icon]  Label                      Granted   [Open ↗] │
+│          Subtitle (why this exists, or the real rule)  │
+└────────────────────────────────────────────────────────┘
+```
+
+- **Same shell as the toggle row** (container, leading icon, 12pt label / 10pt subtitle). The two kinds must differ at the **trailing edge only** — that is where their semantics differ — so they read as one system, not two screens.
+- **Never a toggle.** A switch the user cannot move is a trap. Trailing edge is status text (11pt, plain `caiTextSecondary`) plus a neutral "Open" button (11pt + `arrow.up.forward.app`, padding + `contentShape`, `caiSurface.opacity(0.6)` hover wash).
+- **Not indigo.** The button navigates out of the app; it does not act. Per indigo discipline, that earns no accent.
+- **Do not colour the status text.** Semantic green/orange for the same fact belongs in at most one place per journey.
+- **Group them under a header that explains the missing affordance.** "Managed by macOS" answers "why can't I flip this" before the user asks. Separate groups by `spacingXl` (24pt).
+- **If a status cannot be honestly determined, leave the slot empty.** Do not fill it with a hedge word. A string in the position where "Granted" appears reads as a state the app verified: that is a lie by layout even when the words are cautious. Put the real rule in the subtitle instead. (Automation is the live example: Apple Events is granted per app pair, so there is no app-level status to show.)
+
 ### Pin button (progressive disclosure)
 
 For items with a binary "elevated/normal" state, where the row already has a leading icon (e.g., Custom Actions). The icon doubles as the pin toggle.

@@ -125,16 +125,20 @@ struct ActionReviewView: View {
                 // matters less than what it is. One line, tail-truncated: the
                 // name is sanitized and capped, but a long legitimate name
                 // still must not wrap the header into the payload.
-                HStack(spacing: 6) {
-                    (Text(title.prefix + " · ").foregroundColor(.caiTextSecondary)
-                        + Text(title.name).foregroundColor(.caiTextPrimary))
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityLabel(title.combined)
-
-                    typeChip(for: validated.after.type)
-                }
+                //
+                // No type chip here any more. "shell" beside a "Runs a shell
+                // command" capability chip is the same fact in two chip
+                // vocabularies 20pt apart — the noun sprawl the chips exist to
+                // remove (design review, 2026-08-21). The type still leads the
+                // payload's VoiceOver label, which is where it earns its keep;
+                // `ActionReviewPresentation.typeChip` went with it rather than
+                // lingering as dead copy no surface renders.
+                (Text(title.prefix + " · ").foregroundColor(.caiTextSecondary)
+                    + Text(title.name).foregroundColor(.caiTextPrimary))
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityLabel(title.combined)
 
                 // Provenance as the title's subtitle. Single line by
                 // construction: the validator strips control characters and
@@ -152,22 +156,19 @@ struct ActionReviewView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-                // What the action does, in Cai's own voice, derived only from
-                // the type and the resolved chain (and the prompt engine, which
-                // is privacy-relevant). Full-strength secondary and set a touch
-                // apart from the byline so it reads as Cai's factual claim about
-                // the content, not as a second subtitle. Never the agent's words.
-                Text(ActionReviewPresentation.actionSummary(
-                    type: validated.after.type,
-                    steps: validated.after.next,
-                    known: settings.knownActions,
-                    promptModel: validated.after.type == .prompt ? settings.modelProvider.rawValue : nil
-                ))
-                .font(.system(size: 11))
-                .foregroundColor(.caiTextSecondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 2)
+                // What the action will touch, in Cai's own voice, derived
+                // only from the action itself by `CapabilityDetector`. This
+                // replaced the prose mechanism line rather than joining it
+                // (design review, option B): the header already carried name +
+                // provenance, and a fourth claim restating the third is sprawl.
+                // The prose survives as this row's VoiceOver string, so nothing
+                // is lost to a screen reader.
+                //
+                // Chips say WHAT is touched, not in what order. The numbered
+                // chain block in the scroll below is the ordered evidence and
+                // must not be dropped on the grounds this row covers it.
+                capabilityRow(for: validated.after)
+                    .padding(.top, 2)
             }
 
             Spacer(minLength: 8)
@@ -201,17 +202,85 @@ struct ActionReviewView: View {
         .padding(.bottom, 12)
     }
 
-    /// The neutral taxonomy chip beside the title. Gray, not indigo or orange:
-    /// it names what the action is, it does not raise an alarm, and it appears
-    /// on every card so a chip is never itself a risk signal.
-    private func typeChip(for type: CaiActionType) -> some View {
-        Text(ActionReviewPresentation.typeChip(for: type))
-            .font(.system(size: 10, weight: .medium))
-            .foregroundColor(.caiTextSecondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(Color.caiSurface.opacity(0.8)))
-            .accessibilityLabel("Type: \(ActionReviewPresentation.typeChip(for: type))")
+    // MARK: - Capability chips
+
+    /// What the action will touch, as small neutral capsules under the byline.
+    ///
+    /// Informational, never a warning. Gray capsules, no border, no hover, no
+    /// indigo: per DESIGN.md a capsule is Cai stating a fact and a bordered
+    /// rounded-rect is a control, which is what keeps these from reading like
+    /// the editor's interactive `ChipToggle`s. Orange stays reserved for the
+    /// escalation callout below, so a chip is never itself an alarm — a chip row
+    /// that only appeared on dangerous actions would quietly become a second
+    /// warning channel, and these appear on every action.
+    ///
+    /// The row lives in the pinned header rather than the scroll, so the glance
+    /// cannot be scrolled away from Approve. It wraps and is never truncated
+    /// here: eliding a capability on the approval surface is the under-detection
+    /// this whole feature exists to avoid. Compact rows elsewhere may elide, and
+    /// `Capability.sortOrder` guarantees the open-ended floor chip survives that.
+    @ViewBuilder
+    private func capabilityRow(for action: ActionSnapshot) -> some View {
+        let capabilities = CapabilityDetector.capabilities(
+            for: action, known: settings.knownActions
+        )
+        let engine = settings.aiEngine
+        let summary = ActionReviewPresentation.actionSummary(
+            type: action.type,
+            steps: action.next,
+            known: settings.knownActions,
+            promptModel: action.type == .prompt ? settings.modelProvider.rawValue : nil
+        )
+
+        FlowLayout(spacing: 4) {
+            ForEach(ActionReviewPresentation.chips(for: capabilities, engine: engine)) { chip in
+                capabilityChip(chip)
+            }
+
+            // The row admitting its own limits. Plain text, not a chip: this is
+            // not a capability, it is what Cai cannot promise. Wording is
+            // derived from the cause, because exhaustiveness clears for shell,
+            // Shortcuts and uninstalled steps alike.
+            if let tail = ActionReviewPresentation.capabilityTail(for: capabilities) {
+                Text(tail)
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.8))
+                    .padding(.vertical, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // One element, one sentence: the prose line option B retired visually,
+        // then what the chips say, then the row's limits.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(ActionReviewPresentation.capabilityAccessibilityLabel(
+            summary: summary, capabilities: capabilities, engine: engine
+        ))
+    }
+
+    private func capabilityChip(_ chip: ActionReviewPresentation.CapabilityChip) -> some View {
+        HStack(spacing: 3) {
+            Text(chip.label)
+                .font(.system(size: 10, weight: .medium))
+
+            // A secret name is the exact string typed inside `{{secrets.…}}`,
+            // so it keeps the identifier treatment. Monospaced at the chip's own
+            // size rather than at 12pt: DESIGN.md rule 4's substance is the
+            // monospace, and type scales with its container the way radius does.
+            // Truncates `.middle` with the full name in `.help()` — the
+            // never-truncate rule governs which chips appear, not how wide one
+            // identifier may grow.
+            if let identifier = chip.identifier {
+                Text(identifier)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .foregroundColor(.caiTextSecondary)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(Color.caiSurface.opacity(0.8)))
+        .help(chip.identifier ?? "")
     }
 
     private var canGoBack: Bool { browseIndex > 0 }

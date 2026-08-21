@@ -56,20 +56,6 @@ enum ActionReviewPresentation {
         return WindowTitle(prefix: isUpdate ? "Update" : "New action", name: String(clean))
     }
 
-    /// The neutral taxonomy chip beside the title: "shell" / "url" / "prompt".
-    ///
-    /// Informational, not a warning. It shows for every type, including the
-    /// unescalating `prompt`, precisely so that a chip is never itself a risk
-    /// signal: escalation stays the callout's job, and a gray chip that only
-    /// appeared on dangerous types would quietly become a second alarm.
-    static func typeChip(for type: CaiActionType) -> String {
-        switch type {
-        case .prompt: return "prompt"
-        case .url: return "url"
-        case .shell: return "shell"
-        }
-    }
-
     // MARK: - Escalation copy
 
     /// The plain-language warning shown under the payload, one per reason.
@@ -227,7 +213,14 @@ enum ActionReviewPresentation {
     /// buttons below the bottom of the screen, which is the one control that
     /// must always be reachable. On a large display the 80% target wins.
     static func bodyMaxHeight(screenHeight: CGFloat) -> CGFloat {
-        let reservedChrome: CGFloat = 340
+        // Raised from 340 when the capability chip row replaced the one-line
+        // prose summary in the header. The prose was capped at two 11pt lines;
+        // a wrapping chip row on a secrets-heavy action plausibly reaches three
+        // lines plus its "plus anything else the command does" tail, so the
+        // header band grew and the floor that keeps Approve on screen has to
+        // grow with it. Approve is the one control that must always be
+        // reachable, so this errs high.
+        let reservedChrome: CGFloat = 380
         let byFraction = screenHeight * 0.8
         let byChrome = screenHeight - reservedChrome
         return max(240, min(byFraction, byChrome))
@@ -450,6 +443,161 @@ enum ActionReviewPresentation {
         case .pasteBack: return "replaces your selection"
         case .clipboardCopy: return "copies to the clipboard"
         }
+    }
+
+    // MARK: - Capability chips
+
+    /// One capability as it renders: a label, plus whether part of it is an
+    /// identifier that takes the monospace treatment.
+    ///
+    /// Chips are Cai's own factual claims, derived by `CapabilityDetector` from
+    /// the action alone. They are an unordered bag stating what the action
+    /// reaches, NOT the order it reaches things in — the numbered chain block
+    /// below the payload remains the ordered evidence, and must not be dropped
+    /// on the grounds that the chips cover it.
+    ///
+    /// These replace the prose mechanism line on the sheet rather than sitting
+    /// beside it (design review, 2026-08-21, option B). The deciding argument
+    /// was band count, not duplication: the header already carries the name, the
+    /// provenance and a type chip, and a fourth claim saying what the prose line
+    /// said is the noun sprawl the CPO review flagged. `actionSummary` survives
+    /// as this row's VoiceOver string and as the one-line plain-text fallback.
+    struct CapabilityChip: Equatable, Identifiable {
+        let label: String
+        /// The identifier inside the label, if any — a secret name. Rendered in
+        /// SF Mono per the typography rule, at the chip's own size.
+        let identifier: String?
+
+        var id: String { label + (identifier ?? "") }
+    }
+
+    /// The engine a model step runs on, folded into the AI chip's label.
+    ///
+    /// Privacy-relevant, not decoration: it is the difference between the
+    /// selection staying on device and it leaving for a cloud provider. The
+    /// configured engine is app state rather than a property of the action, so
+    /// the detector cannot know it and the label takes it as a parameter. Option
+    /// B would otherwise have deleted a fact the prose line carried.
+    struct AIEngine: Equatable {
+        let name: String
+        let isOnDevice: Bool
+    }
+
+    static func chip(for capability: Capability, engine: AIEngine?) -> CapabilityChip {
+        switch capability {
+        case .runsShellCommand:
+            return CapabilityChip(label: "Runs a shell command", identifier: nil)
+        case .runsAppleScript:
+            return CapabilityChip(label: "Runs an AppleScript", identifier: nil)
+        case .runsAppleShortcut:
+            return CapabilityChip(label: "Runs a Shortcut", identifier: nil)
+        case .runsUninstalled(let name):
+            // Names the step and reuses the phrase the callout and the chain
+            // block already use. "Chains to something Cai can't see" was
+            // authoring jargon that also dropped the name the case carries,
+            // while the secrets chip shows its name.
+            return CapabilityChip(label: "Runs \(oneLine(name)) (not installed)", identifier: nil)
+        case .sendsToHost(let host):
+            return CapabilityChip(label: "Sends to \(host)", identifier: nil)
+        case .opensHost(let host):
+            return CapabilityChip(label: "Opens \(host)", identifier: nil)
+        case .opensScheme(let scheme):
+            return CapabilityChip(label: "Opens \(scheme)://", identifier: nil)
+        case .usesSecret(let name):
+            return CapabilityChip(label: "Uses", identifier: name)
+        case .runsAI:
+            guard let engine else {
+                return CapabilityChip(label: "Runs an AI step", identifier: nil)
+            }
+            // One verb rule: "sends" means the selection leaves the Mac. A
+            // cloud model is a network destination and says so in the same
+            // words a webhook does.
+            return CapabilityChip(
+                label: engine.isOnDevice ? "Runs on-device AI" : "Sends to \(engine.name)",
+                identifier: nil
+            )
+        case .opensMailDraft:
+            return CapabilityChip(label: "Opens a Mail draft", identifier: nil)
+        case .writesTo(let app):
+            return CapabilityChip(label: "Writes to \(app)", identifier: nil)
+        case .replacesSelection:
+            return CapabilityChip(label: "Replaces your selection", identifier: nil)
+        case .copiesToClipboard:
+            return CapabilityChip(label: "Copies to the clipboard", identifier: nil)
+        }
+    }
+
+    static func chips(for capabilities: [Capability], engine: AIEngine?) -> [CapabilityChip] {
+        capabilities.map { chip(for: $0, engine: engine) }
+    }
+
+    /// The row's own admission that it cannot be complete, or nil when it can.
+    ///
+    /// Plain text, not a chip: this is the row's epistemics, not a capability.
+    /// The copy is derived from the CAUSE, because `isExhaustive` clears for
+    /// three different reasons and "that command" is false for two of them. When
+    /// an uninstalled step is the only cause, the "(not installed)" chip already
+    /// says it and this returns nil rather than repeating it.
+    static func capabilityTail(for capabilities: [Capability]) -> String? {
+        guard !capabilities.isExhaustive else { return nil }
+        if capabilities.contains(.runsShellCommand) {
+            return "plus anything else the command does"
+        }
+        if capabilities.contains(.runsAppleScript) {
+            return "plus anything else the script does"
+        }
+        if capabilities.contains(.runsAppleShortcut) {
+            return "plus whatever the Shortcut does"
+        }
+        return nil
+    }
+
+    /// How many chips a compact row (a list subtitle) shows before eliding.
+    static let compactCapabilityLimit = 3
+
+    /// The compact subset for a list row, and how many were left out.
+    ///
+    /// Honest by construction rather than by the "+N": `Capability.sortOrder`
+    /// puts every open-ended capability first, so the floor chip can never be
+    /// the one cut. `excluding` drops a capability a given surface already
+    /// states another way — the Settings row keeps its orange unresolved-steps
+    /// triangle, whose tooltip names the steps, and chip-plus-triangle would be
+    /// the same fact twice in one 56pt row.
+    static func compactCapabilities(
+        _ capabilities: [Capability],
+        excluding: (Capability) -> Bool = { _ in false }
+    ) -> (shown: [Capability], hidden: Int) {
+        let eligible = capabilities.filter { !excluding($0) }
+        guard eligible.count > compactCapabilityLimit else { return (eligible, 0) }
+        return (
+            Array(eligible.prefix(compactCapabilityLimit)),
+            eligible.count - compactCapabilityLimit
+        )
+    }
+
+    /// "+2" for the elided remainder.
+    static func compactOverflowLabel(hidden: Int) -> String? {
+        hidden > 0 ? "+\(hidden)" : nil
+    }
+
+    /// The whole chip row as one spoken sentence. VoiceOver gets Cai's prose
+    /// line (which option B retired visually, not semantically) followed by the
+    /// row's own limits, so a screen-reader user is told exactly what a sighted
+    /// reader is.
+    static func capabilityAccessibilityLabel(
+        summary: String, capabilities: [Capability], engine: AIEngine?
+    ) -> String {
+        var spoken = summary
+        let labels = chips(for: capabilities, engine: engine).map { chip in
+            chip.identifier.map { "\(chip.label) \($0)" } ?? chip.label
+        }
+        if !labels.isEmpty {
+            spoken += " Touches: " + labels.joined(separator: ", ") + "."
+        }
+        if let tail = capabilityTail(for: capabilities) {
+            spoken += " " + tail.prefix(1).uppercased() + tail.dropFirst() + "."
+        }
+        return spoken
     }
 
     // MARK: - Payload folding

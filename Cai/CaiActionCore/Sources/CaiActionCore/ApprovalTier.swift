@@ -61,7 +61,19 @@ public enum ApprovalClassifier {
 
         for (current, _) in reach.actions {
             if current.type == .shell { found.insert(.runsShellCommands) }
-            if current.type == .url { found.insert(.sendsSelectionToURL) }
+            // Only when the template actually carries the selection. Escalating
+            // every url action meant the sheet told the user "sends your
+            // selected text to the URL shown above" over
+            // `https://github.com/notifications`, which sends nothing — while
+            // the capability chip beside it correctly read "Opens
+            // github.com". One of the two had to be wrong, and it was this one:
+            // both runtimes substitute only `%s` and `{{…}}`. A static URL still
+            // shows its chip and its payload; it just no longer claims to
+            // upload something it does not.
+            if current.type == .url,
+               CapabilityDetector.embedsSelection(inURLTemplate: current.value) {
+                found.insert(.sendsSelectionToURL)
+            }
             if current.autoReplaceSelection { found.insert(.replacesSelection) }
             if current.runInBackground { found.insert(.runsWithoutShowingOutput) }
             // The advisory scanner, not the engine's parser: over-reporting

@@ -79,6 +79,14 @@ final class CapabilityDetectorTests: XCTestCase {
                 [.opensHost("github.com")]
             ),
             (
+                // The chain path renders the value through TemplateEngine with
+                // the piped text bound to `result`, so this uploads the
+                // selection with no %s in sight.
+                "a {{result}} placeholder sends, even with no %s",
+                action(.url, "https://x.com/?q={{result}}"),
+                [.sendsToHost("x.com")]
+            ),
+            (
                 "webhook destination names its host",
                 action(.prompt, "x", next: [.action(name: "Slack")]),
                 [.sendsToHost("hooks.slack.com"), .runsAI]
@@ -397,6 +405,34 @@ final class CapabilityDetectorTests: XCTestCase {
         XCTAssertFalse(
             CapabilityDetector.capabilities(for: userScript, known: known).isExhaustive
         )
+    }
+
+    /// A static URL must not be told it uploads the selection.
+    ///
+    /// The chip said "Opens github.com" while the callout said "sends your
+    /// selected text to the URL shown above" — a contradiction on the sheet,
+    /// and the callout was the wrong one. Both runtimes substitute only `%s`
+    /// and `{{…}}`.
+    func testOnlyASelectionCarryingURLCountsAsASend() {
+        let cases: [(value: String, sends: Bool)] = [
+            ("https://github.com/search?q=%s", true),
+            ("https://x.com/?q={{result}}", true),
+            ("https://x.com/?v={{secrets.KEY}}", true),
+            ("https://github.com/notifications", false),
+            ("https://example.com/", false),
+        ]
+        for c in cases {
+            let subject = action(.url, c.value)
+            let escalates = ApprovalClassifier.escalationReasons(for: subject, known: known)
+                .contains(.sendsSelectionToURL)
+            let chipsSay = CapabilityDetector.capabilities(for: subject, known: known).contains {
+                if case .sendsToHost = $0 { return true }
+                if case .sendsToUnknownHost = $0 { return true }
+                return false
+            }
+            XCTAssertEqual(escalates, c.sends, "escalation disagrees for \(c.value)")
+            XCTAssertEqual(chipsSay, c.sends, "chip disagrees for \(c.value)")
+        }
     }
 
     // MARK: - The app-side derivations

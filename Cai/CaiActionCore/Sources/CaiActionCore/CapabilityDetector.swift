@@ -134,7 +134,28 @@ public enum CapabilityDetector {
         // URL — the escalation classifier says so — but Cai cannot name where.
         // The honest answer is the open-ended chip, never an empty row.
         guard let host = host(inURLTemplate: template) else { return [.sendsToUnknownHost] }
-        return template.contains("%s") ? [.sendsToHost(host)] : [.opensHost(host)]
+        return embedsSelection(inURLTemplate: template) ? [.sendsToHost(host)] : [.opensHost(host)]
+    }
+
+    /// Whether a url action's template carries the selection into the request.
+    ///
+    /// `%s` is the documented spelling and the only one the direct ⌥C path
+    /// substitutes (`ActionListWindow`). But run as a CHAIN step the same value
+    /// goes through `TemplateEngine` with the piped text bound to `result`
+    /// (`ChainExecutor`), so `https://x.com/?q={{result}}` sends the selection
+    /// with no `%s` anywhere. A `%s`-only test therefore under-claims on the
+    /// chain path — it would say "Opens x.com" about an action that uploads
+    /// what you selected.
+    ///
+    /// So any placeholder counts. That over-reports for something like
+    /// `?v={{secrets.KEY}}`, which sends a secret rather than the selection —
+    /// still a send, still the conservative direction, and "sends" is the claim
+    /// we would rather be wrong about on an approval surface.
+    ///
+    /// Shared with `ApprovalClassifier` rather than duplicated, so the chip and
+    /// the callout cannot disagree about whether a URL is a send.
+    public static func embedsSelection(inURLTemplate template: String) -> Bool {
+        template.contains("%s") || template.contains("{{")
     }
 
     /// The host of a `%s`-templated URL, or nil when it cannot be known.

@@ -349,12 +349,32 @@ enum ActionReviewPresentation {
             case .shortcut(let shortcut):
                 return "\(shortcut.type.label) action"
             case .destination(let destination):
+                // By role for Cai's own built-ins. Labelling these by kind read
+                // "AppleScript destination" on the row for Save to Notes, while
+                // the chip above said a bounded "Writes to Notes" and — since
+                // built-ins stopped escalating — no callout appeared at all. A
+                // reader seeing "AppleScript destination" with no warning would
+                // reasonably conclude one had been missed. Same fact, one
+                // vocabulary.
+                if let role = destination.builtInRole {
+                    return "\(builtInRoleLabel(role)) destination"
+                }
                 return "\(destinationLabel(destination.kind)) destination"
             case .builtIn:
                 return "Built-in action"
             case .unresolved:
                 return "Not installed"
             }
+        }
+    }
+
+    private static func builtInRoleLabel(_ role: BuiltInDestinationRole) -> String {
+        switch role {
+        case .mailDraft: return "Mail"
+        case .notes: return "Notes"
+        case .reminders: return "Reminders"
+        case .replaceSelection: return "Replace Selection"
+        case .clipboard: return "Copy to Clipboard"
         }
     }
 

@@ -68,12 +68,23 @@ public enum Capability: Equatable, Hashable, Sendable {
     /// desync — and a chip row that wrongly claims completeness is the exact
     /// false reassurance this feature exists to avoid. Computed from the list,
     /// the desync is unrepresentable.
+    /// **Exhaustive on purpose — do not add a `default` here.** This is the one
+    /// switch in the feature where a fall-through is dangerous rather than
+    /// merely wrong: a new case absorbed by `default: false` would be treated as
+    /// bounded, `isExhaustive` would wrongly return true, and the row would
+    /// claim to account for an effect it has never heard of. The compiler
+    /// stopping you here is the guard.
+    ///
+    /// If you are adding a case and it is open-ended, also give it a tail in
+    /// `ActionReviewPresentation.capabilityTail(for:)`, which is what tells the
+    /// reader the row cannot be complete.
     public var isOpenEnded: Bool {
         switch self {
         case .runsShellCommand, .runsAppleScript, .runsAppleShortcut, .runsUninstalled,
              .sendsToUnknownHost:
             return true
-        default:
+        case .sendsToHost, .opensHost, .opensScheme, .usesSecret, .runsAI,
+             .opensMailDraft, .writesTo, .replacesSelection, .copiesToClipboard:
             return false
         }
     }

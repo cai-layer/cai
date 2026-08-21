@@ -765,6 +765,23 @@ class CaiSettings: ObservableObject {
         return scheme
     }
 
+    /// Whether an endpoint keeps the selection on this Mac.
+    ///
+    /// Pure and static so the claim can be table-tested: "Runs on-device AI" is
+    /// a privacy statement in Cai's own voice, and the failure that matters is
+    /// over-claiming. Parsed with `URLComponents` rather than a substring
+    /// search, so `http://127.0.0.1@evil.com/` reads as the host `evil.com`
+    /// (loopback in the userinfo is the obvious spoof) and
+    /// `http://localhost.evil.com/` is not localhost. An unset endpoint is
+    /// unknown, and unknown is not local.
+    static func endpointIsOnDevice(_ url: String) -> Bool {
+        // `host` may arrive bracketed for IPv6 depending on the SDK, so both
+        // spellings count.
+        let loopback: Set<String> = ["127.0.0.1", "localhost", "::1", "[::1]"]
+        guard let host = URLComponents(string: url)?.host?.lowercased() else { return false }
+        return loopback.contains(host)
+    }
+
     /// The engine the AI capability chip names, and whether Cai can honestly
     /// call it on-device.
     ///
@@ -787,12 +804,10 @@ class CaiSettings: ObservableObject {
             // empty one is unconfigured, not local: claiming on-device for a
             // custom provider with no URL set would be an over-claim in exactly
             // the direction these chips exist to prevent.
-            // `host` may arrive bracketed for IPv6 depending on the SDK, so
-            // both spellings count.
-            let host = URLComponents(string: modelURL)?.host?.lowercased()
-            let loopback: Set<String> = ["127.0.0.1", "localhost", "::1", "[::1]"]
-            let isLoopback = host.map(loopback.contains) ?? false
-            return .init(name: modelProvider.rawValue, isOnDevice: isLoopback)
+            return .init(
+                name: modelProvider.rawValue,
+                isOnDevice: Self.endpointIsOnDevice(modelURL)
+            )
         }
     }
 

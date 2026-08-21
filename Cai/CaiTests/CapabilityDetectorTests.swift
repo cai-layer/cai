@@ -1,4 +1,5 @@
 import XCTest
+@testable import Cai
 @testable import CaiActionCore
 
 /// One table per property, because the properties are what matter here and they
@@ -230,10 +231,33 @@ final class CapabilityDetectorTests: XCTestCase {
         XCTAssertFalse(capabilities.isExhaustive)
         XCTAssertGreaterThan(capabilities.count, 3)
 
-        let compact = Array(capabilities.prefix(3))
+        // Exercises the shipped helper, not a hand-rolled `prefix(3)`. The
+        // invariant is only worth anything if it holds on the code the rows
+        // actually call.
+        let compact = ActionReviewPresentation.compactCapabilities(capabilities)
         XCTAssertTrue(
-            compact.contains(where: \.isOpenEnded),
-            "a compact row dropped the honest floor: \(compact)"
+            compact.shown.contains(where: \.isOpenEnded),
+            "a compact row dropped the honest floor: \(compact.shown)"
+        )
+        XCTAssertEqual(compact.shown.count, 3)
+        XCTAssertEqual(compact.hidden, capabilities.count - 3)
+        XCTAssertEqual(ActionReviewPresentation.compactOverflowLabel(hidden: compact.hidden), "+\(compact.hidden)")
+        XCTAssertNil(ActionReviewPresentation.compactOverflowLabel(hidden: 0), "nothing hidden, nothing to say")
+
+        // The Settings row's exclusion. It drops `runsUninstalled`, which IS
+        // open-ended, so the honest floor there rests on the orange
+        // unresolved-steps triangle beside the row rather than on a chip. That
+        // is the one surface allowed to elide an open-ended capability, and only
+        // because another channel states it.
+        let ghosted = action(.prompt, "x", next: [.action(name: "Ghost")])
+        let ghostCaps = CapabilityDetector.capabilities(for: ghosted, known: known)
+        let settingsRow = ActionReviewPresentation.compactCapabilities(ghostCaps) { capability in
+            if case .runsUninstalled = capability { return true }
+            return false
+        }
+        XCTAssertFalse(
+            settingsRow.shown.contains { if case .runsUninstalled = $0 { return true }; return false },
+            "the Settings row must leave the not-installed claim to its triangle"
         )
     }
 
@@ -373,6 +397,53 @@ final class CapabilityDetectorTests: XCTestCase {
         XCTAssertFalse(
             CapabilityDetector.capabilities(for: userScript, known: known).isExhaustive
         )
+    }
+
+    // MARK: - The app-side derivations
+
+    /// A deeplink claims its scheme and never a host: `obsidian://open?vault=x`
+    /// has a "host" of `open`, which is a document name, not a network
+    /// destination. Claiming it would be inventing precision.
+    func testDeeplinkSchemeClaimsTheSchemeOrNothing() {
+        let cases: [(template: String, scheme: String?)] = [
+            ("obsidian://open?vault=Notes", "obsidian"),
+            ("things:///add?title=%s", "things"),
+            ("OBSIDIAN://x", "obsidian"),
+            ("x-devonthink://y", "x-devonthink"),
+            ("no-scheme-here", nil),
+            ("obsidian:/single-slash", nil),
+            ("://leading", nil),
+            ("", nil),
+        ]
+        for c in cases {
+            XCTAssertEqual(CaiSettings.deeplinkScheme(c.template), c.scheme, c.template)
+        }
+    }
+
+    /// "Runs on-device AI" is a privacy claim shown in Cai's own voice, so it is
+    /// only made where it is true. A loopback endpoint is on-device; anything
+    /// else is a send, and an unconfigured provider is not evidence of locality.
+    @MainActor
+    func testOnDeviceIsOnlyClaimedWhenItIsTrue() {
+        let cases: [(url: String, isOnDevice: Bool)] = [
+            ("http://127.0.0.1:1234", true),
+            ("http://localhost:11434", true),
+            ("http://[::1]:8080", true),
+            ("https://api.anthropic.com", false),
+            ("https://openrouter.ai/api", false),
+            ("http://192.168.1.50:1234", false),
+            // The obvious spoof: loopback in the userinfo, not the host.
+            ("http://127.0.0.1@evil.com/", false),
+            ("http://localhost.evil.com/", false),
+            // Unconfigured is unknown, and unknown is not local.
+            ("", false),
+        ]
+        for c in cases {
+            XCTAssertEqual(
+                CaiSettings.endpointIsOnDevice(c.url), c.isOnDevice,
+                "\(c.url) — on-device must never be over-claimed"
+            )
+        }
     }
 
     // MARK: - Host extraction, adversarially

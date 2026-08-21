@@ -501,7 +501,16 @@ enum ActionReviewPresentation {
             // block already use. "Chains to something Cai can't see" was
             // authoring jargon that also dropped the name the case carries,
             // while the secrets chip shows its name.
-            return CapabilityChip(label: "Runs \(oneLine(name)) (not installed)", identifier: nil)
+            //
+            // Capped as well as stripped. This is the one chip label carrying
+            // attacker-controlled text, and the validator only normalizes the
+            // PROPOSED side: the stored `before` action reaches the sheet
+            // un-normalized and `ExtensionParser` keeps chain-step text raw. The
+            // chip row lives in the header band, which — unlike the body — has
+            // no height cap, so an unbounded name would grow the window and
+            // could push the callout and Approve off the bottom of the screen.
+            // Same cap and reasoning as `windowTitle`.
+            return CapabilityChip(label: "Runs \(cappedName(name)) (not installed)", identifier: nil)
         case .sendsToHost(let host):
             return CapabilityChip(label: "Sends to \(host)", identifier: nil)
         case .opensHost(let host):
@@ -547,6 +556,12 @@ enum ActionReviewPresentation {
         }
     }
 
+    /// One bounded line of attacker-controlled text: control characters removed
+    /// so it cannot fake structure, length capped so it cannot resize the sheet.
+    private static func cappedName(_ name: String) -> String {
+        String(oneLine(name).prefix(ActionSchema.maxNameLength))
+    }
+
     static func chips(for capabilities: [Capability], engine: AIEngine?) -> [CapabilityChip] {
         capabilities.map { chip(for: $0, engine: engine) }
     }
@@ -559,22 +574,32 @@ enum ActionReviewPresentation {
     /// an uninstalled step is the only cause, the "(not installed)" chip already
     /// says it and this returns nil rather than repeating it.
     static func capabilityTail(for capabilities: [Capability]) -> String? {
-        guard !capabilities.isExhaustive else { return nil }
-        if capabilities.contains(.runsShellCommand) {
+        // Driven off the first open-ended member of an already-sorted list
+        // rather than a chain of `contains` checks in a hand-kept order. The
+        // two used to be able to drift: the checks encoded their own priority,
+        // and a capability could be open-ended with no branch here at all,
+        // leaving the row non-exhaustive but silent about it.
+        guard let cause = capabilities.first(where: \.isOpenEnded) else { return nil }
+        switch cause {
+        case .runsShellCommand:
             return "plus anything else the command does"
-        }
-        if capabilities.contains(.runsAppleScript) {
+        case .runsAppleScript:
             return "plus anything else the script does"
-        }
-        if capabilities.contains(.runsAppleShortcut) {
+        case .runsAppleShortcut:
             return "plus whatever the Shortcut does"
-        }
-        if capabilities.contains(.sendsToUnknownHost) {
+        case .sendsToUnknownHost:
             // The chip says Cai can't name the address; the tail says why the
             // reader should look at the payload for it.
             return "the address is built when it runs — read it above"
+        case .runsUninstalled:
+            // The "(not installed)" chip already states it; a tail would be the
+            // same fact twice.
+            return nil
+        default:
+            // Unreachable while `isOpenEnded` is exhaustive — the compiler stops
+            // a new case there first, and its doc comment sends you here.
+            return nil
         }
-        return nil
     }
 
     /// How many chips a compact row (a list subtitle) shows before eliding.

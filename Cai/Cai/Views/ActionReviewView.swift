@@ -261,6 +261,11 @@ struct ActionReviewView: View {
         HStack(spacing: 3) {
             Text(chip.label)
                 .font(.system(size: 10, weight: .medium))
+                // Belt to the cap in `cappedName`: no single chip may become a
+                // wall of text and reflow the header band the pinned controls
+                // are sized against.
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             // A secret name is the exact string typed inside `{{secrets.…}}`,
             // so it keeps the identifier treatment. Monospaced at the chip's own

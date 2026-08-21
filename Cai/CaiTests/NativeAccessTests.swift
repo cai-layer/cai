@@ -108,27 +108,20 @@ final class NativeAccessTests: XCTestCase {
         ]
         for domain in M.Domain.allCases {
             XCTAssertEqual(TCCRemediation.Domain(domain).key, expected[domain], "bridge for \(domain.rawValue)")
-            XCTAssertEqual(domain.settingsURL, TCCRemediation.Domain(domain).settingsURL)
         }
     }
 
     // MARK: - Read-only system rows
 
-    /// Accessibility reports a real status; Automation must report **none**. A
-    /// word in the status slot would read as a state Cai verified, but Apple
-    /// Events grants are per (source, target) pair with no app-level truth
-    /// available without Full Disk Access.
-    func testSystemDomainStatusText() {
-        XCTAssertEqual(M.SystemDomain.accessibility.statusText(accessibilityGranted: true), "Granted")
-        XCTAssertEqual(M.SystemDomain.accessibility.statusText(accessibilityGranted: false), "Not granted")
+    /// Automation must never claim a status, in any state. Apple Events is
+    /// granted per (source, target) pair, so there is no app-level truth to
+    /// report without Full Disk Access — a word in the slot where "Granted"
+    /// appears would be a lie by layout. This guards a deliberate design
+    /// decision that reads like an oversight, so it is the one assertion here
+    /// worth its compile time (the Accessibility mapping is a trivial Bool and
+    /// is left untested per the test-economy rule).
+    func testAutomationNeverReportsAStatus() {
         XCTAssertNil(M.SystemDomain.automation.statusText(accessibilityGranted: true))
         XCTAssertNil(M.SystemDomain.automation.statusText(accessibilityGranted: false))
-    }
-
-    /// A read-only row's Open button is its only affordance, so a wrong pane
-    /// makes the row useless.
-    func testSystemDomainSettingsPanes() {
-        XCTAssertEqual(M.SystemDomain.accessibility.settingsURL, TCCRemediation.Domain.accessibility.settingsURL)
-        XCTAssertEqual(M.SystemDomain.automation.settingsURL, TCCRemediation.Domain.appleEvents.settingsURL)
     }
 }

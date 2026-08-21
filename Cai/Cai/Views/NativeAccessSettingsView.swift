@@ -28,7 +28,7 @@ struct NativeAccessSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 24) {
                 grantableGroup
                 systemGroup
             }
@@ -131,8 +131,13 @@ struct NativeAccessSettingsView: View {
         )
 
         return rowShell(
+            // Tint on granted, matching the toggle rows: within one screen icon
+            // colour is the state signal, and this is the one grant Cai is
+            // useless without, so a gray icon would read OFF at a glance.
+            // Automation stays untinted — no status claim means no tint, same
+            // reason its status slot is empty.
             icon: domain.icon,
-            iconActive: false,
+            iconActive: status != nil && permissions.hasAccessibilityPermission,
             title: domain.title,
             subtitle: domain.subtitle
         ) {
@@ -145,14 +150,7 @@ struct NativeAccessSettingsView: View {
                         .foregroundColor(.caiTextSecondary)
                 }
 
-                Button(action: { NSWorkspace.shared.open(domain.settingsURL) }) {
-                    HStack(spacing: 3) {
-                        Text("Open")
-                        Image(systemName: "arrow.up.forward.app")
-                    }
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextSecondary)
-                }
+                OpenSettingsButton(url: domain.settingsURL)
                 .buttonStyle(.plain)
                 .help(domain == .automation
                       ? "See per-app grants in System Settings"
@@ -160,6 +158,8 @@ struct NativeAccessSettingsView: View {
                 .accessibilityLabel("Open \(domain.title) in System Settings")
             }
         }
+        // Read as one element ("Accessibility, Granted") instead of three stops.
+        .accessibilityElement(children: .combine)
     }
 
     /// The shared row chrome both kinds use, so the groups differ by header and
@@ -176,6 +176,9 @@ struct NativeAccessSettingsView: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(iconActive ? .caiPrimary : .caiTextSecondary.opacity(0.5))
                 .frame(width: 20)
+                // Decorative: SF Symbols otherwise announce their symbol name
+                // ("checklist") ahead of the row title.
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
@@ -211,5 +214,35 @@ struct NativeAccessSettingsView: View {
         case .restricted:
             return "Restricted by your organization."
         }
+    }
+}
+
+/// The trailing affordance on a read-only row: navigates to System Settings, so
+/// it stays neutral rather than indigo (it doesn't act in-app). Padding plus
+/// `contentShape` give it a real hit target, and the hover wash is the same
+/// neutral-CTA vocabulary used elsewhere, so it reads as a button and not as a
+/// caption.
+private struct OpenSettingsButton: View {
+    let url: URL
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: { NSWorkspace.shared.open(url) }) {
+            HStack(spacing: 3) {
+                Text("Open")
+                Image(systemName: "arrow.up.forward.app")
+            }
+            .font(.system(size: 11))
+            .foregroundColor(.caiTextSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.caiSurface.opacity(isHovering ? 0.6 : 0.0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }

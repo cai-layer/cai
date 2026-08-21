@@ -120,7 +120,7 @@ final class NativeAccessManager: ObservableObject {
         var subtitle: String {
             switch self {
             case .accessibility: return "Lets Cai read your selection when you press \u{2325}C"
-            case .automation: return "macOS asks for each app the first time an action sends to it"
+            case .automation: return "macOS asks per app the first time an action targets it"
             }
         }
 

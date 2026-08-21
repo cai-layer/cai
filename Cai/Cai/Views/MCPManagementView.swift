@@ -80,7 +80,9 @@ struct MCPManagementView: View {
         case .agents:
             return "Agents that can propose actions to Cai"
         case .systemAccess:
-            return "What Cai can read on your Mac"
+            // "read" would be a promise the tab breaks: Reminders creates,
+            // Calendar adds, Automation sends. "access" covers all five grants.
+            return "What Cai can access on your Mac"
         }
     }
 }

@@ -40,6 +40,17 @@ final class ExecutionState: ObservableObject {
         var step: StepProgress?
     }
 
+    /// One finished run's kept output.
+    ///
+    /// `id` is the run's own id, so a late report from a run that already ended
+    /// can be rejected rather than landing on whatever is running now.
+    struct RunRecord: Equatable, Identifiable {
+        let id: UUID
+        let actionName: String
+        let text: String
+        var viewed: Bool
+    }
+
     /// How a finished run turned out.
     ///
     /// `.succeeded` carries the run's unconsumed output — the payload the
@@ -77,44 +88,56 @@ final class ExecutionState: ObservableObject {
         /// header pill long after the fact, where "Finished" or "Failed" alone
         /// doesn't say what of.
         var lastRunName: String?
-        /// Whether the user has seen `lastOutcome`'s result. Drives the header
-        /// pill's "collect me" state: a finished run holding an unviewed result
-        /// keeps the pill on screen (across ⌥C reopen) instead of vanishing
-        /// with the result unread, which is the bug wearing a costume. True
-        /// when there is nothing to collect, so the pill stays quiet.
-        var resultViewed: Bool = true
+        /// Identity of the in-flight run, minted at the outermost `start` and
+        /// cleared at the outermost `finish`. Every result report carries it, so
+        /// a callback that resolves after its run ended (a paste-back
+        /// completion, a stray continuation) is dropped instead of being
+        /// committed against whatever run happens to be live.
+        var runId: UUID?
+        /// Finished runs that kept output, newest first, capped at
+        /// `maxRecent`. A ring rather than one slot: two background actions
+        /// back to back used to destroy the first one's output before the user
+        /// could collect it, which was the original bug surviving for the
+        /// back-to-back case.
+        var recent: [RunRecord] = []
 
         var isRunning: Bool { depth > 0 }
 
-        /// The finished run's unconsumed output, if it produced any.
-        var lastResult: String? {
-            if case .succeeded(let text) = lastOutcome { return text }
-            return nil
-        }
+        /// The newest kept result. The run surface opens here.
+        var lastResult: String? { recent.first?.text }
 
-        /// A result is waiting to be looked at. What keeps the pill visible.
-        var hasUnviewedResult: Bool { lastResult != nil && !resultViewed }
+        /// Results the user hasn't looked at. Drives the header pill, which
+        /// stays up (across ⌥C reopen) until they are collected.
+        var unviewedCount: Int { recent.filter { !$0.viewed }.count }
+
+        var hasUnviewedResult: Bool { unviewedCount > 0 }
     }
 
     enum Event: Equatable {
         /// A run began. Only the outermost (`depth 0 -> 1`) sets the identity.
-        case start(name: String)
+        case start(name: String, id: UUID)
         /// The running chain advanced to a new top-level step.
         case advance(StepProgress)
         /// A step/run failed with a user-facing message.
         case reportFailure(String)
-        /// The run produced output that no destination consumed. Last write
-        /// wins across nesting levels, so a nested chain's terminal output
-        /// (the innermost thing that actually ran last) is what the user gets.
-        case produceResult(String)
+        /// The run produced output that no destination consumed. Carries the
+        /// run's id; a report whose id doesn't match the live run is stale and
+        /// dropped. Last write wins within a run, so a nested chain's terminal
+        /// output (the innermost thing that actually ran last) is what lands.
+        case produceResult(text: String, runId: UUID)
         /// A run ended.
         case finish
-        /// The user looked at the finished run's result — clears the pill.
-        case viewResult
+        /// The user looked at this result — stops the pill advertising it.
+        case viewResult(id: UUID)
     }
 
     /// Whether a newly triggered action may start, or should surface "busy".
     enum StartDecision: Equatable { case start, busy }
+
+    /// Cap on kept results. Session-only and deliberately small: this is a
+    /// collection buffer so back-to-back runs don't eat each other, not the
+    /// History surface (which is its own tracked work).
+    static let maxRecent = 5
 
     @Published private(set) var snapshot = Snapshot()
 
@@ -122,11 +145,14 @@ final class ExecutionState: ObservableObject {
     var runningAction: RunningAction? { snapshot.action }
     /// Outcome of the most recent finished run (nil while running / before any).
     var lastOutcome: Outcome? { snapshot.lastOutcome }
-    /// The finished run's unconsumed output, if any. What the run surface shows.
+    /// The newest kept result. What the run surface opens on.
     var lastResult: String? { snapshot.lastResult }
     /// Name of the most recent run, surviving its completion.
     var lastRunName: String? { snapshot.lastRunName }
-    /// A finished run's result hasn't been looked at yet — keeps the pill up.
+    /// Finished runs holding output, newest first.
+    var recent: [RunRecord] { snapshot.recent }
+    /// Results not yet looked at — keeps the pill up and drives its count.
+    var unviewedCount: Int { snapshot.unviewedCount }
     var hasUnviewedResult: Bool { snapshot.hasUnviewedResult }
 
     // MARK: - Pure logic (unit-tested)
@@ -135,7 +161,7 @@ final class ExecutionState: ObservableObject {
     nonisolated static func reduce(_ snapshot: Snapshot, _ event: Event) -> Snapshot {
         var next = snapshot
         switch event {
-        case .start(let name):
+        case .start(let name, let id):
             // Only the outermost start owns the displayed identity; a nested
             // run (a chain inside an already-running action) just deepens the
             // count and keeps the outer name/step. A fresh run clears the prior
@@ -143,12 +169,11 @@ final class ExecutionState: ObservableObject {
             if next.depth == 0 {
                 next.action = RunningAction(name: name, step: nil)
                 next.lastRunName = name
+                next.runId = id
                 next.pendingOutcome = .succeeded(nil)
                 next.lastOutcome = nil
-                // A new run supersedes the previous result: the pill must not
-                // advertise a stale one, and the old text is gone from the
-                // surface either way.
-                next.resultViewed = true
+                // `recent` is deliberately NOT cleared here — an uncollected
+                // result from the previous run survives into the ring.
             }
             next.depth += 1
         case .advance(let step):
@@ -158,7 +183,11 @@ final class ExecutionState: ObservableObject {
             // discards any result reported before it. A partial payload sitting
             // under a failure banner invites the user to trust half an answer.
             next.pendingOutcome = .failed(message)
-        case .produceResult(let text):
+        case .produceResult(let text, let runId):
+            // Stale report: the run that produced this text already ended, so
+            // committing it now would either vanish (depth 0) or be attributed
+            // to whatever is running instead. Drop it.
+            guard let live = next.runId, live == runId else { return next }
             // A run already marked failed keeps its failure: a later step's
             // output can't un-fail it. Otherwise the newest report wins, so a
             // nested chain's terminal output beats its caller's.
@@ -170,12 +199,28 @@ final class ExecutionState: ObservableObject {
             if next.depth == 0 {
                 next.lastOutcome = next.pendingOutcome
                 next.action = nil
-                // Only a run that actually kept output has something to
-                // collect; anything else leaves the pill quiet.
-                next.resultViewed = next.lastResult == nil
+                // Only a run that actually kept output joins the ring; a
+                // consumed or empty one leaves the pill quiet.
+                if case .succeeded(let text?) = next.pendingOutcome {
+                    next.recent.insert(
+                        RunRecord(
+                            id: next.runId ?? UUID(),
+                            actionName: next.lastRunName ?? "Action",
+                            text: text,
+                            viewed: false
+                        ),
+                        at: 0
+                    )
+                    if next.recent.count > Self.maxRecent {
+                        next.recent.removeLast(next.recent.count - Self.maxRecent)
+                    }
+                }
+                next.runId = nil
             }
-        case .viewResult:
-            next.resultViewed = true
+        case .viewResult(let id):
+            if let i = next.recent.firstIndex(where: { $0.id == id }) {
+                next.recent[i].viewed = true
+            }
         }
         return next
     }
@@ -197,9 +242,15 @@ final class ExecutionState: ObservableObject {
 
     // MARK: - Mutations (thin; keep BackgroundTaskTracker in lockstep)
 
-    func start(name: String) {
-        snapshot = Self.reduce(snapshot, .start(name: name))
+    /// Begins a run and returns its id. Callers hold the id and pass it back to
+    /// `reportResult`, so a report that resolves after the run ended is dropped
+    /// rather than landing on the next one.
+    @discardableResult
+    func start(name: String) -> UUID {
+        let id = UUID()
+        snapshot = Self.reduce(snapshot, .start(name: name, id: id))
         BackgroundTaskTracker.shared.start()
+        return id
     }
 
     func advance(index: Int, total: Int, label: String) {
@@ -216,13 +267,13 @@ final class ExecutionState: ObservableObject {
     /// Records output that no destination consumed, so the finished run has a
     /// result to show instead of a 60-character toast snippet. Safe to call
     /// before the paired `finish()`; the reducer commits it there.
-    func reportResult(_ text: String) {
-        snapshot = Self.reduce(snapshot, .produceResult(text))
+    func reportResult(_ text: String, for runId: UUID) {
+        snapshot = Self.reduce(snapshot, .produceResult(text: text, runId: runId))
     }
 
-    /// The user opened the run surface — stop advertising the result.
-    func markResultViewed() {
-        snapshot = Self.reduce(snapshot, .viewResult)
+    /// The user looked at this result — stop advertising it on the pill.
+    func markResultViewed(_ id: UUID) {
+        snapshot = Self.reduce(snapshot, .viewResult(id: id))
     }
 
     func finish() {

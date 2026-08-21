@@ -573,6 +573,10 @@ class CaiSettings: ObservableObject {
             // Seed any built-in destinations added after the user's first launch.
             // Existing users loaded `decoded` from UserDefaults, so new entries in
             // `BuiltInDestinations.all` won't appear otherwise.
+            // `showInCai` is synthetic and must never be persisted. A build
+            // between this change and the previous one seeded it; drop it on
+            // load so it can't show up twice or travel into a downgrade.
+            let decoded = decoded.filter { $0.type != .showInCai }
             let existingIds = Set(decoded.map(\.id))
             let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
             var working = missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns
@@ -676,7 +680,9 @@ class CaiSettings: ObservableObject {
         // with no chain steps costs nothing.
         ChainResolution.unresolvedChainStepNames(
             in: next,
-            knownNames: Set(shortcuts.map(\.name)).union(outputDestinations.map(\.name))
+            knownNames: Set(shortcuts.map(\.name))
+                .union(outputDestinations.map(\.name))
+                .union([BuiltInDestinations.showInCai.name])
         )
     }
 
@@ -700,7 +706,9 @@ class CaiSettings: ObservableObject {
     /// Destination names and kinds only. Configs (webhook URLs, headers,
     /// AppleScript templates) deliberately stay out of the authoring surface.
     private var destinationSummaries: [DestinationSummary] {
-        outputDestinations.map { destination in
+        // The synthetic "Show in Cai" is appended so agents can see it as a
+        // chain terminator even though it never lives in `outputDestinations`.
+        (outputDestinations + [BuiltInDestinations.showInCai]).map { destination in
             let kind: DestinationSummary.Kind
             switch destination.type {
             case .applescript: kind = .applescript

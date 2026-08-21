@@ -61,19 +61,29 @@ private struct HeaderPill<Content: View>: View {
 /// green: that would invent a second chromatic interactive vocabulary for what
 /// is one control.
 struct ResultReadyPill: View {
+    /// How many finished results are waiting. Pluralised with a count once more
+    /// than one run has gone uncollected, so back-to-back background actions
+    /// read as two things to collect rather than one.
+    let count: Int
     let onTap: () -> Void
+
+    private var label: String { count > 1 ? "\(count) Results" : "Result" }
 
     var body: some View {
         HeaderPill(onTap: onTap) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.caiPrimary)
-            Text("Result")
+            Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.caiPrimary)
+                .monospacedDigit()
         }
-        .help("An action finished — click to see the result")
-        .accessibilityLabel("Action finished with a result. Open it.")
+        .help(count > 1 ? "\(count) actions finished — click to see the results"
+                        : "An action finished — click to see the result")
+        .accessibilityLabel(count > 1
+            ? "\(count) finished results. Open them."
+            : "Action finished with a result. Open it.")
     }
 }
 
@@ -115,6 +125,9 @@ private struct RunningSpinner: View {
 /// that `ResultView` uses, with the same Enter-to-copy affordance.
 struct RunningView: View {
     let reduceMotion: Bool
+    /// Which kept result is on screen (0 = newest). Owned by the parent so the
+    /// existing arrow-key plumbing can move through the ring.
+    @Binding var resultIndex: Int
     let onBack: () -> Void
 
     @ObservedObject private var execution = ExecutionState.shared
@@ -125,21 +138,27 @@ struct RunningView: View {
     /// glyph and body copy instead.
     private var headerTitle: String {
         if execution.isRunning { return "Running" }
-        if let name = execution.lastRunName { return name }
-        if case .failed = execution.lastOutcome { return "Failed" }
-        return "Finished"
+        // A kept result names the run that produced IT, which is not
+        // necessarily the most recent run once the ring holds several.
+        if let record { return record.actionName }
+        // No kept result: a failure, or a run whose output was consumed. Named
+        // by the run itself; "Failed"/"Finished" alone doesn't say what of.
+        return execution.lastRunName ?? "Finished"
     }
 
-    /// The finished run's output, when there is any to show.
-    private var recoveredResult: String? {
-        execution.isRunning ? nil : execution.lastResult
+    /// The kept result currently on screen, if any.
+    private var record: ExecutionState.RunRecord? {
+        guard !execution.isRunning else { return nil }
+        let recent = execution.recent
+        guard !recent.isEmpty else { return nil }
+        return recent[min(max(0, resultIndex), recent.count - 1)]
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header — mirrors the other sub-screens (icon · title).
             HStack(spacing: 10) {
-                Image(systemName: recoveredResult == nil ? "bolt.horizontal.circle" : "sparkles")
+                Image(systemName: record == nil ? "bolt.horizontal.circle" : "sparkles")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.caiPrimary)
                 Text(headerTitle)
@@ -161,35 +180,54 @@ struct RunningView: View {
                 // `execution.snapshot` changing, which nothing wraps in
                 // `withAnimation`, so progress → result would jump-cut.
                 // DESIGN lists result reveals at easeOut 0.2s.
-                .animation(.easeOut(duration: 0.2), value: recoveredResult)
+                .animation(.easeOut(duration: 0.2), value: record?.id)
 
             Spacer(minLength: 0)
             Divider().background(Color.caiDivider)
 
-            HStack {
+            HStack(spacing: 10) {
                 KeyboardHint(key: "Esc", label: "Back")
                 Spacer()
+                // "2 of 3" only once the ring holds more than one, with the
+                // arrows that move through it. Rounded + monospaced numerals so
+                // the caption doesn't jitter as it changes (DESIGN).
+                if execution.recent.count > 1, record != nil {
+                    KeyboardHint(key: "\u{2191}\u{2193}", label: "Results")
+                    Text("\(min(resultIndex, execution.recent.count - 1) + 1) of \(execution.recent.count)")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundColor(.caiTextSecondary)
+                        .monospacedDigit()
+                }
                 // Same affordance ResultView offers on a result, because it is
                 // the same result.
-                if recoveredResult != nil {
+                if record != nil {
                     KeyboardHint(key: "\u{21B5}", label: "Copy")
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        // Opening the surface is what "collecting" the result means, so the
-        // pill stops advertising it from here on. Fires on the terminal state
-        // only — reading progress mid-run doesn't consume anything.
-        .onAppear { if recoveredResult != nil { execution.markResultViewed() } }
-        .onChange(of: execution.snapshot) { _, _ in
-            if recoveredResult != nil { execution.markResultViewed() }
-        }
+        // Looking at a result is what "collecting" it means, so the pill stops
+        // advertising THAT record.
+        //
+        // Gated on the panel actually being on screen: `hideWindow` parks this
+        // hierarchy alive in `cachedWindow` (that is what powers resume), so an
+        // ordered-out run surface keeps observing and would otherwise mark a
+        // result seen that nobody saw — silently clearing the only thing
+        // advertising it.
+        .onAppear { markVisibleRecordViewed() }
+        .onChange(of: execution.snapshot) { _, _ in markVisibleRecordViewed() }
+        .onChange(of: resultIndex) { _, _ in markVisibleRecordViewed() }
+    }
+
+    private func markVisibleRecordViewed() {
+        guard WindowController.isPanelVisible, let record, !record.viewed else { return }
+        execution.markResultViewed(record.id)
     }
 
     @ViewBuilder
     private var content: some View {
-        if let result = recoveredResult {
+        if let record {
             // A real result gets the full scrollable pane, exactly as it would
             // have in ResultView had the action run in the foreground.
             //
@@ -197,7 +235,7 @@ struct RunningView: View {
             // unlike ResultView. Wiring them means routing `executeDestination`
             // into this view, and a recovered result can still be copied with
             // Enter. Noted as a follow-up rather than left as an accident.
-            ResultBody(text: result)
+            ResultBody(text: record.text)
                 .transition(.opacity)
         } else {
             centeredStatus

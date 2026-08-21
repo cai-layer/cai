@@ -52,6 +52,8 @@ struct DestinationsManagementView: View {
         settings.outputDestinations
             .filter { $0.id != excludeId }
             .map(\.name)
+            // Synthetic, never persisted — see BuiltInDestinations.showInCai.
+            + [BuiltInDestinations.showInCai.name]
     }
 
     // AppleScript

@@ -277,6 +277,7 @@ class WindowController: NSObject, ObservableObject {
 
             cached.alphaValue = 0
             NSApp.activate(ignoringOtherApps: true)
+            Self.isPanelVisible = true
             cached.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.08
@@ -384,6 +385,7 @@ class WindowController: NSObject, ObservableObject {
         // Activate our app temporarily so the panel can become key
         panel.alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
+        Self.isPanelVisible = true
         panel.makeKeyAndOrderFront(nil)
 
         // Fade in — 80ms feels instant while still preventing a harsh pop-in
@@ -396,6 +398,16 @@ class WindowController: NSObject, ObservableObject {
 
         print("Action window shown with \(actions.count) actions (height: \(windowHeight))")
     }
+
+    /// Whether the action panel is on screen.
+    ///
+    /// `hideWindow` parks the live SwiftUI hierarchy in `cachedWindow` (that is
+    /// what powers resume), so an ordered-out view keeps observing and keeps
+    /// reacting to state changes. Views that take an action on a state change —
+    /// notably marking a run's result "seen" — must gate on this, or an
+    /// invisible surface silently collects a result the user never saw.
+    /// Mirrors the existing `passThrough` / `submitScreenActive` static flags.
+    static var isPanelVisible: Bool = false
 
     func hideWindow() {
         // Save window position and resized dimensions before dismissing
@@ -427,6 +439,7 @@ class WindowController: NSObject, ObservableObject {
         Self.passThrough = false
         Self.submitScreenActive = false
         Self.acceptsFilterInput = true
+        Self.isPanelVisible = false
         window = nil
         currentText = nil
         actions = []

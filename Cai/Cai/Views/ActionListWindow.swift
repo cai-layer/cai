@@ -41,6 +41,9 @@ struct ActionListWindow: View {
     @State private var showResult: Bool = false
     /// Pill-click opens the running action's live progress view.
     @State private var showRunning: Bool = false
+    /// Which kept result the run surface is showing (0 = newest). Lives here so
+    /// the existing arrow-key plumbing can page through the ring.
+    @State private var runResultIndex: Int = 0
     @State private var resultTitle: String = ""
     @State private var resultGenerator: (() async throws -> String)?
     @State private var resultStreamGenerator: (() async throws -> AsyncThrowingStream<String, Error>)?
@@ -443,6 +446,11 @@ struct ActionListWindow: View {
 
     private func handleArrowUp() {
         switch activeScreen {
+        case .running:
+            // Pages back through kept results (newest first, so "up" = newer).
+            let count = ExecutionState.shared.recent.count
+            guard count > 1 else { return }
+            runResultIndex = runResultIndex > 0 ? runResultIndex - 1 : count - 1
         case .actions:
             let count = displayedActions.count
             guard count > 0 else { return }
@@ -460,6 +468,10 @@ struct ActionListWindow: View {
 
     private func handleArrowDown() {
         switch activeScreen {
+        case .running:
+            let count = ExecutionState.shared.recent.count
+            guard count > 1 else { return }
+            runResultIndex = runResultIndex < count - 1 ? runResultIndex + 1 : 0
         case .actions:
             let count = displayedActions.count
             guard count > 0 else { return }
@@ -495,8 +507,11 @@ struct ActionListWindow: View {
             copyAndDismissWithToast()
         case .running:
             // A recovered result copies on Enter exactly like one in ResultView.
-            guard let recovered = execution.lastResult, !recovered.isEmpty else { return }
-            SystemActions.copyToClipboard(recovered)
+            let recent = execution.recent
+            guard !recent.isEmpty else { return }
+            let shown = recent[min(max(0, runResultIndex), recent.count - 1)]
+            guard !shown.text.isEmpty else { return }
+            SystemActions.copyToClipboard(shown.text)
             copyAndDismissWithToast()
         case .extensionConfirm:
             confirmInstallExtension()
@@ -938,7 +953,8 @@ struct ActionListWindow: View {
                     withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
                 }
             } else if execution.hasUnviewedResult {
-                ResultReadyPill {
+                ResultReadyPill(count: execution.unviewedCount) {
+                    runResultIndex = 0
                     withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
                 }
             }
@@ -1316,39 +1332,47 @@ struct ActionListWindow: View {
                     // blocks a second action — without this, a slow auto-replace
                     // gen races a follow-up action on the single MLX engine and
                     // the pending paste-back races the current selection.
-                    ExecutionState.shared.start(name: autoReplaceTitle)
+                    let runId = ExecutionState.shared.start(name: autoReplaceTitle)
                     defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-                        await MainActor.run {
+                        // AWAITED, not fire-and-forget. `pasteResult` routes every
+                        // completion through `DispatchQueue.main.async`, so handing
+                        // it a closure let this scope exit first — and the deferred
+                        // `finish()` then committed the run before the closure could
+                        // report anything, making the rescue below a guaranteed
+                        // no-op (and, if a later run had started, filing this text
+                        // under that run's name). Same continuation pattern as
+                        // `OutputDestinationService.executePasteBack`.
+                        let outcome = await withCheckedContinuation { (c: CheckedContinuation<ClipboardService.PasteOutcome, Never>) in
                             ClipboardService.shared.pasteResult(trimmed, toBundleId: bundleId) { outcome in
-                                switch outcome {
-                                case .pasted:
-                                    // No toast — user sees the replacement happen.
-                                    // Consumed: the text is in their document.
-                                    break
-                                case .copiedForManualPaste:
-                                    // Not consumed — it's on the clipboard but
-                                    // nowhere the user can read it, so the sink
-                                    // keeps it too.
-                                    Self.recordUnconsumedResult(trimmed)
-                                    NotificationCenter.default.post(
-                                        name: .caiShowToast, object: nil,
-                                        userInfo: ["message": "Response copied → ⌘V to paste"]
-                                    )
-                                case .failed:
-                                    // The paste-back failed, so nothing consumed
-                                    // the output. Without this the LLM's answer
-                                    // is gone and a 1.5s toast is its only
-                                    // trace — finding #18 surviving in one path.
-                                    Self.recordUnconsumedResult(trimmed)
-                                    NotificationCenter.default.post(
-                                        name: .caiShowToast, object: nil,
-                                        userInfo: ["message": "Could not paste. Check Accessibility permission."]
-                                    )
-                                }
+                                c.resume(returning: outcome)
                             }
+                        }
+                        switch outcome {
+                        case .pasted:
+                            // No toast — user sees the replacement happen.
+                            // Consumed: the text is in their document.
+                            break
+                        case .copiedForManualPaste:
+                            // Not consumed — it's on the clipboard but nowhere
+                            // the user can read it, so the sink keeps it too.
+                            Self.recordUnconsumedResult(trimmed, for: runId)
+                            NotificationCenter.default.post(
+                                name: .caiShowToast, object: nil,
+                                userInfo: ["message": "Response copied → ⌘V to paste"]
+                            )
+                        case .failed:
+                            // The paste-back failed, so nothing consumed the
+                            // output. Without this the LLM's answer is gone and a
+                            // 1.5s toast is its only trace — finding #18
+                            // surviving in one path.
+                            Self.recordUnconsumedResult(trimmed, for: runId)
+                            NotificationCenter.default.post(
+                                name: .caiShowToast, object: nil,
+                                userInfo: ["message": "Could not paste. Check Accessibility permission."]
+                            )
                         }
                         if !chainSlugs.isEmpty {
                             await ChainExecutor.shared.runChain(
@@ -1405,7 +1429,7 @@ struct ActionListWindow: View {
                 let actionTitle = action.title
                 onDismiss()
                 Task { @MainActor in
-                    ExecutionState.shared.start(name: actionTitle)
+                    let runId = ExecutionState.shared.start(name: actionTitle)
                     defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
@@ -1413,7 +1437,7 @@ struct ActionListWindow: View {
                         // Default sink: the toast snippet is a preview, not the
                         // result. Keep the full text on the run's record so the
                         // header pill can hand it back (finding #18).
-                        Self.recordUnconsumedResult(trimmed)
+                        Self.recordUnconsumedResult(trimmed, for: runId)
                         let snippet = String(trimmed.prefix(80))
                         NotificationCenter.default.post(
                             name: .caiShowToast, object: nil,
@@ -1485,7 +1509,7 @@ struct ActionListWindow: View {
                 let actionTitle = action.title
                 onDismiss()
                 Task { @MainActor in
-                    ExecutionState.shared.start(name: actionTitle)
+                    let runId = ExecutionState.shared.start(name: actionTitle)
                     defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await Self.runShellCommand(
@@ -1502,7 +1526,8 @@ struct ActionListWindow: View {
                             // Default sink: keep the full stdout, not just the
                             // 80-char toast preview.
                             Self.recordUnconsumedResult(
-                                result.trimmingCharacters(in: .whitespacesAndNewlines)
+                                result.trimmingCharacters(in: .whitespacesAndNewlines),
+                                for: runId
                             )
                             let snippet = String(result.prefix(80))
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1579,9 +1604,9 @@ struct ActionListWindow: View {
     /// left is the blank check, and dressing that up as a routing call implied
     /// the flag mattered here when it cannot change the answer. The naming path
     /// is `ExecutionState.lastRunName`, set when the run started.
-    private static func recordUnconsumedResult(_ text: String) {
+    private static func recordUnconsumedResult(_ text: String, for runId: UUID) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        ExecutionState.shared.reportResult(text)
+        ExecutionState.shared.reportResult(text, for: runId)
     }
 
     /// Navigates to the run surface after a foreground chain finished on
@@ -1597,6 +1622,7 @@ struct ActionListWindow: View {
     private func handleShowRunResult() {
         guard activeScreen == .actions || activeScreen == .running else { return }
         selectionState.filterText = ""
+        runResultIndex = 0
         withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
     }
 
@@ -1786,6 +1812,7 @@ struct ActionListWindow: View {
         } else if showRunning {
             RunningView(
                 reduceMotion: reduceMotion,
+                resultIndex: $runResultIndex,
                 onBack: {
                     withAnimation(.easeInOut(duration: 0.15)) { showRunning = false }
                 }

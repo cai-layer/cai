@@ -545,13 +545,12 @@ extension ChainExecutorTests {
         XCTAssertEqual(run.terminal, .producesText,
                        "a destination's own next: runs after it — that step is the terminal one")
 
-        // 4. "Show in Cai" is a destination that consumes nothing.
-        let showInCai = OutputDestination(
-            name: "Show in Cai", icon: "macwindow", type: .showInCai,
-            isBuiltIn: true, chainOnly: true
-        )
+        // 4. "Show in Cai" is a destination that consumes nothing. Synthetic in
+        // production (never persisted — see BuiltInDestinations.showInCai), so
+        // the fixture resolves the canonical value rather than a copy.
         executor = ChainExecutor(resolver: mixedResolver(
-            shortcuts: ["Echo": echo], destinations: ["Show in Cai": showInCai]
+            shortcuts: ["Echo": echo],
+            destinations: ["Show in Cai": BuiltInDestinations.showInCai]
         ))
         run = try await executor.executeTerminalForTesting(
             steps: actions("Echo", "Show in Cai"), initialInput: "in"

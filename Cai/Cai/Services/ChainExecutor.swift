@@ -165,7 +165,7 @@ final class ChainExecutor {
         // Falls back to the last step's label for standalone chain runs.
         // One fallback, used for both the running identity and the result title.
         let runName = name ?? steps.last?.displayLabel ?? "Running"
-        ExecutionState.shared.start(name: runName)
+        let runId = ExecutionState.shared.start(name: runName)
         defer { ExecutionState.shared.finish() }
 
         do {
@@ -183,8 +183,11 @@ final class ChainExecutor {
             let routing = ResultRouting.route(
                 text: finalOutput, terminal: terminal, runInBackground: runInBackground
             )
-            if routing == .record || routing == .showInPanel {
-                ExecutionState.shared.reportResult(finalOutput)
+            switch routing {
+            case .record, .showInPanel:
+                ExecutionState.shared.reportResult(finalOutput, for: runId)
+            case .consumed, .nothing:
+                break
             }
             if routing == .showInPanel {
                 // Foreground run with an explicit "Show in Cai" terminator —
@@ -352,6 +355,12 @@ final class ChainExecutor {
         if let dest = CaiSettings.shared.outputDestinations.first(where: { $0.name == name }) {
             return .destination(dest)
         }
+        // "Show in Cai" is synthetic — never persisted, so never in the array
+        // above (see BuiltInDestinations.showInCai for why). A user destination
+        // of the same name still wins, matching the precedence above.
+        if name == BuiltInDestinations.showInCai.name {
+            return .destination(BuiltInDestinations.showInCai)
+        }
         if let builtIn = BuiltInActionID.allCases.first(where: {
             $0.isChainable && $0.displayLabel == name
         }) {
@@ -372,12 +381,8 @@ final class ChainExecutor {
         initialInput: String,
         sourceBundleId: String? = nil
     ) async throws -> String {
-        try await execute(
-            steps: steps,
-            pipe: initialInput,
-            sourceBundleId: sourceBundleId,
-            visited: [],
-            depth: 0
+        try await executeTerminalForTesting(
+            steps: steps, initialInput: initialInput, sourceBundleId: sourceBundleId
         ).output
     }
 

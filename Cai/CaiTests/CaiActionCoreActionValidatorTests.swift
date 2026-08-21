@@ -560,6 +560,75 @@ final class ActionValidatorTests: XCTestCase {
         XCTAssertFalse(validated.warnings.contains(.invisibleCharactersNormalized(field: .name)))
     }
 
+    /// ZWJ is Cf, so a flat strip broke every emoji sequence in a name. The
+    /// exemption cannot be "keep ZWJ", because ZWJ is invisible and that
+    /// reopens the impersonation the fold closes. The grapheme cluster is the
+    /// discriminator, so both halves belong in one table.
+    func testEmojiSequencesSurviveButInvisibleJoinersDoNot() throws {
+        struct EmojiCase {
+            let label: String
+            let proposed: String
+            let stored: String
+            let line: UInt
+        }
+
+        let cases: [EmojiCase] = [
+            EmojiCase(
+                label: "family ZWJ sequence stays one glyph",
+                proposed: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} Household",
+                stored: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} Household",
+                line: #line
+            ),
+            EmojiCase(
+                label: "emoji plus skin-tone modifier",
+                proposed: "\u{1F44D}\u{1F3FD} Approve",
+                stored: "\u{1F44D}\u{1F3FD} Approve",
+                line: #line
+            ),
+            EmojiCase(
+                // Variation selector mid-sequence, the case a naive
+                // "strip default-ignorables" rule mangles.
+                label: "rainbow flag keeps its variation selector and joiner",
+                proposed: "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308} Pride",
+                stored: "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308} Pride",
+                line: #line
+            ),
+            EmojiCase(
+                label: "joiner between letters is still removed",
+                proposed: "Sum\u{200D}marize",
+                stored: "Summarize",
+                line: #line
+            ),
+            EmojiCase(
+                // Digits are Emoji but not Emoji_Presentation, so they get no
+                // protection and cannot smuggle a joiner.
+                label: "joiner between digits is still removed",
+                proposed: "Report 1\u{200D}2",
+                stored: "Report 12",
+                line: #line
+            ),
+            EmojiCase(
+                label: "trailing joiner after an emoji is invisible padding",
+                proposed: "Household \u{1F468}\u{200D}",
+                stored: "Household \u{1F468}",
+                line: #line
+            ),
+        ]
+
+        for testCase in cases {
+            let validated = try ActionValidator.validate(
+                CoreFixture.createChange(CoreFixture.draft(name: testCase.proposed)),
+                known: CoreFixture.known
+            )
+            XCTAssertEqual(
+                validated.after.name,
+                testCase.stored,
+                testCase.label,
+                line: testCase.line
+            )
+        }
+    }
+
     /// U+2028 / U+2029 are Zl and Zp: not control characters, not
     /// default-ignorable, not `.whitespaces`. They are removed by the
     /// control-character strip before the fold sees them, so the stored name

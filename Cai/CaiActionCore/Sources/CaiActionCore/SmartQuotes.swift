@@ -50,11 +50,55 @@ extension String {
     /// no gutter at the x-position where structure lines begin. The whole
     /// point of the gutter is that one string line is one rendered line.
     public func strippingControlCharacters(keepingNewlines: Bool) -> String {
-        String(unicodeScalars.filter { scalar in
-            if keepingNewlines, scalar == "\n" || scalar == "\t" { return true }
-            return !CharacterSet.controlCharacters.contains(scalar)
-                && !CharacterSet.newlines.contains(scalar)
-        })
+        mappingScalarsPreservingEmoji { scalar in
+            if keepingNewlines, scalar == "\n" || scalar == "\t" { return scalar }
+            if CharacterSet.controlCharacters.contains(scalar) { return nil }
+            if CharacterSet.newlines.contains(scalar) { return nil }
+            return scalar
+        }
+    }
+
+    /// Maps `transform` over every scalar, except inside a grapheme cluster
+    /// that renders as an emoji, which is kept as it is apart from trailing
+    /// invisible padding.
+    ///
+    /// ZWJ is Cf, so a flat scalar filter removes it and an action named
+    /// `"\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} Family"` stores as three
+    /// separate emoji. A flat *exemption* for ZWJ is not the answer either:
+    /// ZWJ is invisible, so `"Sum\u{200D}marize"` would then render exactly
+    /// like `"Summarize"` and reopen the impersonation this file exists to
+    /// close.
+    ///
+    /// The discriminator is the grapheme cluster. Swift's grapheme breaking
+    /// already knows the ZWJ inside a family emoji is structural (one
+    /// `Character`) while the one in `"Sum\u{200D}marize"` is not, so no emoji
+    /// table is needed and nothing here rots as Unicode adds sequences. A
+    /// cluster counts as emoji when any of its scalars has the Unicode
+    /// `Emoji_Presentation` property, which is true of the pictographs and
+    /// false of digits and letters (so `"1\u{200D}2"` is not protected).
+    ///
+    /// Trailing joiners are still dropped: `"\u{1F468}\u{200D}"` is a
+    /// complete cluster to the segmenter, but the joiner adds nothing to the
+    /// glyph and would be invisible padding on a name. Variation selectors are
+    /// kept, since `"\u{2709}\u{FE0F}"` legitimately ends with one.
+    func mappingScalarsPreservingEmoji(
+        _ transform: (Unicode.Scalar) -> Unicode.Scalar?
+    ) -> String {
+        var result = String.UnicodeScalarView()
+        for character in self {
+            guard character.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation }) else {
+                result.append(contentsOf: character.unicodeScalars.compactMap(transform))
+                continue
+            }
+            var scalars = Array(character.unicodeScalars)
+            while let last = scalars.last,
+                  last.properties.isDefaultIgnorableCodePoint,
+                  !last.properties.isVariationSelector {
+                scalars.removeLast()
+            }
+            result.append(contentsOf: scalars)
+        }
+        return String(result)
     }
 }
 
@@ -103,15 +147,13 @@ extension String {
     /// loud; a value is bounded by the pending-file byte cap and renders in a
     /// scrollable block, not a one-line row.
     public func foldingInvisibleScalars() -> String {
-        let folded = precomposedStringWithCanonicalMapping.unicodeScalars
-            .compactMap { scalar -> Unicode.Scalar? in
-                if scalar == "\u{2800}" { return nil }
-                let properties = scalar.properties
-                if properties.isDefaultIgnorableCodePoint && !properties.isVariationSelector {
-                    return nil
-                }
-                return CharacterSet.whitespacesAndNewlines.contains(scalar) ? " " : scalar
+        return precomposedStringWithCanonicalMapping.mappingScalarsPreservingEmoji { scalar in
+            if scalar == "\u{2800}" { return nil }
+            let properties = scalar.properties
+            if properties.isDefaultIgnorableCodePoint && !properties.isVariationSelector {
+                return nil
             }
-        return String(String.UnicodeScalarView(folded))
+            return CharacterSet.whitespacesAndNewlines.contains(scalar) ? " " : scalar
+        }
     }
 }

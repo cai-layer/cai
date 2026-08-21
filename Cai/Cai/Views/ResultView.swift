@@ -22,6 +22,12 @@ struct ResultView: View {
     /// Binding to parent's follow-up text.
     @Binding var followUpText: String
 
+    /// Observed so the TCC remediation button re-renders when a grant resolves.
+    /// Without it, denying the OS prompt leaves the button reading "Grant …
+    /// Access" forever: macOS won't re-prompt, so every further tap is a no-op
+    /// and the "open Settings" branch is unreachable until the view rebuilds.
+    @ObservedObject private var nativeAccess = NativeAccessManager.shared
+
     @State private var result: String = ""
     @State private var isLoading: Bool = true
     /// True from stream start until completion or error. Drives the Esc-label
@@ -89,6 +95,7 @@ struct ResultView: View {
                             .font(.system(size: 12))
                             .foregroundColor(.caiTextSecondary)
                             .multilineTextAlignment(.center)
+                            .accessibilityLabel("Error: \(error)")
                         // Only show the "Check Settings → Model Provider" hint when the
                         // error actually looks like an LLM/provider issue. Non-LLM errors
                         // (e.g. extension install rejected, shell command failed) shouldn't
@@ -107,8 +114,10 @@ struct ResultView: View {
                             remediationButton(guidance)
                         }
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Error: \(error)")
+                    // The combine deliberately wraps only the explanatory text
+                    // above, NOT this VStack: the remediation button is the one
+                    // actionable control here, and combining the container
+                    // swallows it into a static element VoiceOver can't trigger.
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: showFollowUpInput ? 160 : 240)
@@ -263,8 +272,10 @@ struct ResultView: View {
         }
     }
 
-    /// One-tap remediation button under a TCC-denial error. Behaves identically
-    /// to the toast grant-on-denial path (`NativeAccessManager`): for a
+    /// One-tap remediation button under a TCC-denial error. Shares the *grant*
+    /// entry point with the toast path (`requestAndConfirm`), but not its whole
+    /// behaviour: the toast path bails out for domains Cai can't request, while
+    /// this button still deep-links their Settings pane. For a
     /// requestable domain (Calendar, Reminders, Contacts) that hasn't been
     /// asked yet, it fires Cai's
     /// in-process OS prompt ("Grant … Access"); otherwise — already-denied, or a

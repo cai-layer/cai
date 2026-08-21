@@ -42,7 +42,16 @@ struct NativeAccessSettingsView: View {
         // Settings and comes back. Without this, they return to the still-open
         // tab and see the status they just changed, unchanged. The Accessibility
         // poller can't cover it: it only runs at launch and stops on first grant.
+        //
+        // Both notifications, deliberately: PermissionsManager notes that
+        // LSUIElement apps don't reliably get didBecomeActive, and clicking
+        // straight back into the floating panel is exactly that case, so
+        // didBecomeKey backstops it. Refreshing twice is harmless — refreshAll
+        // only publishes when a value actually changed.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshGrants()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             refreshGrants()
         }
     }
@@ -222,7 +231,10 @@ struct NativeAccessSettingsView: View {
         case .notDetermined, .authorized:
             return domain.subtitle
         case .denied:
-            return "Denied. Re-enable in System Settings."
+            // Covers a real denial AND a partial grant (EventKit .writeOnly,
+            // Contacts .limited), which both map to .denied. "Denied" alone
+            // would accuse a user who deliberately chose "Add Events Only".
+            return "No full access. Change it in System Settings."
         case .restricted:
             return "Restricted by your organization."
         }

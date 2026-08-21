@@ -261,10 +261,16 @@ final class NativeAccessManager: ObservableObject {
         }
     }
 
+    /// Assigns only on change: this runs on every app activation while the
+    /// System Access tab is open, and an unconditional write would fire
+    /// `objectWillChange` three times per activation for no reason.
     func refreshAll() {
-        calendars = Self.liveState(for: .calendars)
-        reminders = Self.liveState(for: .reminders)
-        contacts = Self.liveState(for: .contacts)
+        let newCalendars = Self.liveState(for: .calendars)
+        let newReminders = Self.liveState(for: .reminders)
+        let newContacts = Self.liveState(for: .contacts)
+        if calendars != newCalendars { calendars = newCalendars }
+        if reminders != newReminders { reminders = newReminders }
+        if contacts != newContacts { contacts = newContacts }
     }
 
     // MARK: - Toggle handling
@@ -337,7 +343,7 @@ final class NativeAccessManager: ObservableObject {
         case .denied, .restricted:
             let alert = NSAlert()
             alert.messageText = "Cai needs \(label) access"
-            alert.informativeText = "\(label) access was turned off. Re-enable Cai under \(label) in System Settings, then run the action again."
+            alert.informativeText = "Cai doesn't have full \(label) access. Enable Cai under \(label) in System Settings, then run the action again."
             alert.addButton(withTitle: "Open \(label) Settings")
             alert.addButton(withTitle: "Not Now")
             NSApplication.shared.activate()

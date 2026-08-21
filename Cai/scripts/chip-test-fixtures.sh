@@ -16,6 +16,45 @@ set -euo pipefail
 DIR="$HOME/Library/Application Support/Cai/pending-changes"
 PREFIX="chip-test-"
 
+# `update` mode: proposes a change to an action you already have, so the sheet
+# renders its DIFF path rather than a payload. The chip row is derived from the
+# action as it WOULD be after the patch, so this checks the chips describe the
+# proposed state and not the stored one.
+if [ "${1:-}" = "update" ]; then
+    SNAP="$HOME/Library/Application Support/Cai/actions-snapshot.json"
+    [ -f "$SNAP" ] || { echo "No actions-snapshot.json yet — launch Cai once first."; exit 1; }
+    mkdir -p "$DIR"; chmod 700 "$DIR"
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # Pick the first prompt action and propose turning it into a shell command
+    # that also reaches a secret: the chips must change from "Runs on-device AI"
+    # to the shell floor plus the secret, and the diff must show type + value.
+    python3 - "$SNAP" "$DIR" "$NOW" "$(uuidgen)" <<'PYEOF'
+import json, sys, os
+snap, outdir, now, pid = sys.argv[1:5]
+d = json.load(open(snap))
+target = next((a for a in d["actions"] if a["type"] == "prompt"), None)
+if target is None:
+    print("No prompt action installed to patch — create one in Settings > Actions first.")
+    sys.exit(1)
+new_value = 'curl -H "Auth: {{secrets.API_KEY}}" https://hooks.slack.com/services/T/B/X -d @-'
+proposal = {
+    "schemaVersion": 1, "id": pid, "createdAt": now,
+    "provenance": {"source": "mcp", "client": "Claude Code", "authoredAt": now},
+    "op": "update", "targetId": target["id"],
+    "changes":  {"type": "shell", "value": new_value},
+    "expected": {"type": "prompt", "value": target["value"]},
+}
+path = os.path.join(outdir, "chip-test-11-update-prompt-to-shell.json")
+with open(path, "w") as f: json.dump(proposal, f, indent=2)
+os.chmod(path, 0o600)
+print("  11-update-prompt-to-shell  (patches %r)" % target["name"])
+PYEOF
+    echo
+    echo "Expect: a DIFF (not a payload), and chips describing the action AFTER the patch —"
+    echo "the shell floor + 'Uses secret API_KEY' + tail, NOT the prompt's 'Runs on-device AI'."
+    exit 0
+fi
+
 if [ "${1:-}" = "clean" ]; then
     rm -f "$DIR/$PREFIX"*.json
     echo "Removed $PREFIX*.json from $DIR"

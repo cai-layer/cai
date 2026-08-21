@@ -213,6 +213,13 @@ struct ActionListWindow: View {
             .onReceive(NotificationCenter.default.publisher(for: .caiShowClipboardHistory)) { _ in
                 handleShowHistory()
             }
+            // A foreground chain ended in "Show in Cai" — land on the run
+            // surface. Only fires for a run that asked for it (never for a
+            // `runInBackground` action), so this is not an unbidden pop.
+            .onReceive(NotificationCenter.default.publisher(for: .caiShowRunResult)) { _ in
+                selectionState.filterText = ""
+                withAnimation(.easeInOut(duration: 0.15)) { showRunning = true }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .caiCmdNumber)) { notification in
                 if let number = notification.userInfo?["number"] as? Int {
                     handleCmdNumber(number)
@@ -477,6 +484,11 @@ struct ActionListWindow: View {
             if !pendingResultText.isEmpty {
                 SystemActions.copyToClipboard(pendingResultText)
             }
+            copyAndDismissWithToast()
+        case .running:
+            // A recovered result copies on Enter exactly like one in ResultView.
+            guard let recovered = execution.lastResult, !recovered.text.isEmpty else { return }
+            SystemActions.copyToClipboard(recovered.text)
             copyAndDismissWithToast()
         case .extensionConfirm:
             confirmInstallExtension()
@@ -907,8 +919,18 @@ struct ActionListWindow: View {
             // Running pill — always visible while an action runs, independent of
             // the type-to-filter field (which only appears when the user types).
             // Tapping opens the live progress view.
+            //
+            // It also STAYS after the run ends when that run left a result
+            // nobody consumed, switching to its "Result" state. Without that,
+            // the default sink would keep the text but advertise it only via a
+            // 1.5s toast, which is the original bug wearing a costume: the
+            // pill is the one signal that survives ⌥C reopen.
             if execution.isRunning {
                 RunningPill(reduceMotion: reduceMotion) {
+                    withAnimation(.easeInOut(duration: 0.15)) { showRunning = true }
+                }
+            } else if execution.hasUnviewedResult {
+                ResultReadyPill {
                     withAnimation(.easeInOut(duration: 0.15)) { showRunning = true }
                 }
             }
@@ -1266,6 +1288,8 @@ struct ActionListWindow: View {
             let chainSlugs = action.next
             if action.autoReplaceSelection {
                 let bundleId = self.sourceBundleId
+                let autoReplaceTitle = action.title
+                let autoReplaceInBackground = action.runInBackground
                 // Truncate long names so the toast pill doesn't stretch across screen.
                 let displayName = action.title.count > 40
                     ? action.title.prefix(38) + "…"
@@ -1280,7 +1304,7 @@ struct ActionListWindow: View {
                     // blocks a second action — without this, a slow auto-replace
                     // gen races a follow-up action on the single MLX engine and
                     // the pending paste-back races the current selection.
-                    ExecutionState.shared.start(name: action.title)
+                    ExecutionState.shared.start(name: autoReplaceTitle)
                     defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
@@ -1306,7 +1330,8 @@ struct ActionListWindow: View {
                         }
                         if !chainSlugs.isEmpty {
                             await ChainExecutor.shared.runChain(
-                                chainSlugs, initialInput: trimmed, sourceBundleId: bundleId
+                                chainSlugs, initialInput: trimmed, sourceBundleId: bundleId,
+                                name: autoReplaceTitle, runInBackground: autoReplaceInBackground
                             )
                         }
                     } catch {
@@ -1327,15 +1352,18 @@ struct ActionListWindow: View {
             // mid-chain (matches the shell-bg + dest UX).
             if !chainSlugs.isEmpty {
                 let bundleId = self.sourceBundleId
+                let actionTitle = action.title
+                let runsInBackground = action.runInBackground
                 onDismiss()
                 Task { @MainActor in
-                    ExecutionState.shared.start(name: action.title)
+                    ExecutionState.shared.start(name: actionTitle)
                     defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
                         await ChainExecutor.shared.runChain(
-                            chainSlugs, initialInput: trimmed, sourceBundleId: bundleId
+                            chainSlugs, initialInput: trimmed, sourceBundleId: bundleId,
+                            name: actionTitle, runInBackground: runsInBackground
                         )
                     } catch {
                         ExecutionState.shared.reportFailure(error.localizedDescription)
@@ -1360,6 +1388,10 @@ struct ActionListWindow: View {
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                        // Default sink: the toast snippet is a preview, not the
+                        // result. Keep the full text on the run's record so the
+                        // header pill can hand it back (finding #18).
+                        Self.recordUnconsumedResult(trimmed, actionName: actionTitle)
                         let snippet = String(trimmed.prefix(80))
                         NotificationCenter.default.post(
                             name: .caiShowToast, object: nil,
@@ -1435,11 +1467,19 @@ struct ActionListWindow: View {
                             command, text: clipboardText, sourceBundleId: bundleId
                         )
                         if !chainSlugs.isEmpty {
-                            // ChainExecutor posts its own terminal toast.
+                            // ChainExecutor posts its own terminal toast, and
+                            // routes the chain's final output to the sink.
                             await ChainExecutor.shared.runChain(
-                                chainSlugs, initialInput: result, sourceBundleId: bundleId
+                                chainSlugs, initialInput: result, sourceBundleId: bundleId,
+                                name: actionTitle, runInBackground: runInBackground
                             )
                         } else {
+                            // Default sink: keep the full stdout, not just the
+                            // 80-char toast preview.
+                            Self.recordUnconsumedResult(
+                                result.trimmingCharacters(in: .whitespacesAndNewlines),
+                                actionName: actionTitle
+                            )
                             let snippet = String(result.prefix(80))
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
                             NotificationCenter.default.post(
@@ -1505,6 +1545,23 @@ struct ActionListWindow: View {
             // System actions (openURL, openMaps, search, createCalendar)
             onExecute(action)
         }
+    }
+
+    /// Routes a background run's output through the default sink.
+    ///
+    /// These two call sites (background prompt, background shell) have no chain
+    /// and no destination, so their terminal is always `.producesText` and the
+    /// user set `runInBackground` to get here — the route is always `.record`
+    /// or `.nothing`. Going through `ResultRouting` anyway keeps one decision
+    /// in one place, including "blank output is not a result".
+    private static func recordUnconsumedResult(_ text: String, actionName: String) {
+        let routing = ResultRouting.route(
+            text: text, terminal: .producesText, runInBackground: true
+        )
+        guard routing == .record || routing == .showInPanel else { return }
+        ExecutionState.shared.reportResult(
+            ExecutionState.RunResult(actionName: actionName, text: text)
+        )
     }
 
     private func showResultView(

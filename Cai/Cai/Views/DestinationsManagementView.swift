@@ -1118,6 +1118,10 @@ struct DestinationsManagementView: View {
             // rendered. Reaching here is a code-path bug.
             assertionFailure("clipboardCopy is a built-in destination and cannot be edited")
             return
+        case .showInCai:
+            // Same contract as clipboardCopy: built-in, chain-only, no fields.
+            assertionFailure("showInCai is a built-in destination and cannot be edited")
+            return
         }
     }
 
@@ -1259,6 +1263,9 @@ struct DestinationsManagementView: View {
         case .clipboardCopy:
             // clipboardCopy is built-in only and chain-scoped; not
             // shareable as an extension.
+            return
+        case .showInCai:
+            // showInCai is built-in only and has no config to share.
             return
         }
 

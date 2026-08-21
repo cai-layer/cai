@@ -25,7 +25,7 @@ final class ExecutionStateTests: XCTestCase {
         s = S.reduce(s, .finish)
         XCTAssertFalse(s.isRunning)
         XCTAssertNil(s.action)
-        XCTAssertEqual(s.lastOutcome, .succeeded)   // clean run → success
+        XCTAssertEqual(s.lastOutcome, .succeeded(nil))   // clean run, nothing kept
     }
 
     func testExtraFinishClampsAtZero() {
@@ -73,6 +73,50 @@ final class ExecutionStateTests: XCTestCase {
         XCTAssertNil(s.lastOutcome)
         s = S.reduce(s, .finish)      // outer ends — failure committed
         XCTAssertEqual(s.lastOutcome, .failed("boom"))
+    }
+
+    /// The default sink's commit rules, as one table. These are the non-obvious
+    /// ones: which nesting level's result survives, that a failure discards a
+    /// result reported before it, and when the pill should still be advertising.
+    func testResultCommitRules() {
+        let sink = ExecutionState.RunResult(actionName: "Digest", text: "the answer")
+        let inner = ExecutionState.RunResult(actionName: "Digest", text: "inner answer")
+
+        let cases: [(name: String, events: [ExecutionState.Event],
+                     result: ExecutionState.RunResult?, unviewed: Bool)] = [
+            ("no result reported → nothing to collect",
+             [.start(name: "A"), .finish], nil, false),
+
+            ("reported result commits at the outermost finish",
+             [.start(name: "A"), .produceResult(sink), .finish], sink, true),
+
+            ("result is pending until the outermost finish",
+             [.start(name: "A"), .produceResult(sink)], nil, false),
+
+            ("nested report wins — it ran last",
+             [.start(name: "A"), .start(name: "inner"), .produceResult(inner),
+              .finish, .finish], inner, true),
+
+            ("a failure discards a result reported before it",
+             [.start(name: "A"), .produceResult(sink), .reportFailure("boom"), .finish],
+             nil, false),
+
+            ("a result reported after a failure cannot un-fail the run",
+             [.start(name: "A"), .reportFailure("boom"), .produceResult(sink), .finish],
+             nil, false),
+
+            ("viewing clears the pill but keeps the result",
+             [.start(name: "A"), .produceResult(sink), .finish, .viewResult], sink, false),
+
+            ("a new run supersedes the previous result",
+             [.start(name: "A"), .produceResult(sink), .finish, .start(name: "B")], nil, false),
+        ]
+
+        for c in cases {
+            let s = run(c.events)
+            XCTAssertEqual(s.lastResult, c.result, c.name)
+            XCTAssertEqual(s.hasUnviewedResult, c.unviewed, c.name)
+        }
     }
 
     func testNewRunClearsPriorOutcome() {

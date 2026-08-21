@@ -125,7 +125,9 @@ public enum ApprovalClassifier {
                             found.insert(.sendsSelectionToURL)
                         case .pasteBack:
                             found.insert(.replacesSelection)
-                        case .clipboardCopy:
+                        case .clipboardCopy, .showInCai:
+                            // Neither reaches outside Cai: one writes the
+                            // pasteboard, the other only puts text on screen.
                             continue
                         }
                     case .builtIn:

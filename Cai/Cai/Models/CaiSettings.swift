@@ -709,6 +709,7 @@ class CaiSettings: ObservableObject {
             case .shell: kind = .shell
             case .pasteBack: kind = .pasteBack
             case .clipboardCopy: kind = .clipboardCopy
+            case .showInCai: kind = .showInCai
             }
             return DestinationSummary(name: destination.name, kind: kind)
         }

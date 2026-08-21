@@ -85,6 +85,7 @@ public struct DestinationSummary: Codable, Equatable, Sendable {
         case shell
         case pasteBack
         case clipboardCopy
+        case showInCai
     }
 
     public let name: String

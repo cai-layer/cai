@@ -36,6 +36,43 @@ struct RunningPill: View {
     }
 }
 
+/// The "Result" pill that replaces `RunningPill` once a run finishes holding
+/// output nothing consumed. It is the default sink's discoverability backbone:
+/// the toast is gone in 1.5s, but this survives ⌥C reopen until the user looks
+/// (or the next run starts), so a result is never merely announced.
+///
+/// Same indigo treatment as `RunningPill` — it is the same affordance in a
+/// later state, and it acts, so indigo is earned. Deliberately NOT `caiSuccess`
+/// green: that would invent a second chromatic interactive vocabulary for what
+/// is one control.
+struct ResultReadyPill: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.caiPrimary)
+                Text("Result")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiPrimary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.caiPrimarySubtle)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("An action finished — click to see the result")
+        .accessibilityLabel("Action finished with a result. Open it.")
+    }
+}
+
 /// Spinner that respects reduced motion: an animating `ProgressView` normally,
 /// a static glyph when motion is reduced. Reused by the pill and the view.
 private struct RunningSpinner: View {
@@ -58,11 +95,20 @@ private struct RunningSpinner: View {
     }
 }
 
-/// Live progress view for the running action, opened from the header pill.
-/// Reads `ExecutionState` so it updates as the chain advances, and reflects
-/// completion when the run ends (the pill disappears at the same moment). The
-/// final result surfacing into a full result view is the separate History /
-/// "Show in Cai" work; this view is the progress signal.
+/// The run surface: progress while an action runs, its result when it finishes,
+/// its error when it fails. Opened from the header pill (or automatically when a
+/// foreground chain terminates in "Show in Cai").
+///
+/// Reads `ExecutionState`, so it updates live as the chain advances and then
+/// switches to the terminal state in place — one screen for one run's lifecycle,
+/// rather than a jump cut to a second view.
+///
+/// The result branch is the default sink's payoff (finding #18). Before it, a
+/// chain ending on an LLM or shell step showed "This action has finished. See
+/// the notification for the result." while the text itself had already been
+/// discarded — the notification was a 60-character snippet and there was nothing
+/// else to see. It now renders the actual output through the same `ResultBody`
+/// that `ResultView` uses, with the same Enter-to-copy affordance.
 struct RunningView: View {
     let reduceMotion: Bool
     let onBack: () -> Void
@@ -72,14 +118,22 @@ struct RunningView: View {
     private var headerTitle: String {
         if execution.isRunning { return "Running" }
         if case .failed = execution.lastOutcome { return "Failed" }
+        // A recovered result titles itself with the action that produced it —
+        // arriving here from the pill, "Finished" alone doesn't say what of.
+        if let result = execution.lastResult { return result.actionName }
         return "Finished"
+    }
+
+    /// The finished run's output, when there is any to show.
+    private var recoveredResult: ExecutionState.RunResult? {
+        execution.isRunning ? nil : execution.lastResult
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header — mirrors the other sub-screens (icon · title).
             HStack(spacing: 10) {
-                Image(systemName: "bolt.horizontal.circle")
+                Image(systemName: recoveredResult == nil ? "bolt.horizontal.circle" : "sparkles")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.caiPrimary)
                 Text(headerTitle)
@@ -104,14 +158,38 @@ struct RunningView: View {
             HStack {
                 KeyboardHint(key: "Esc", label: "Back")
                 Spacer()
+                // Same affordance ResultView offers on a result, because it is
+                // the same result.
+                if recoveredResult != nil {
+                    KeyboardHint(key: "\u{21B5}", label: "Copy")
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+        }
+        // Opening the surface is what "collecting" the result means, so the
+        // pill stops advertising it from here on. Fires on the terminal state
+        // only — reading progress mid-run doesn't consume anything.
+        .onAppear { if recoveredResult != nil { execution.markResultViewed() } }
+        .onChange(of: execution.snapshot) { _, _ in
+            if recoveredResult != nil { execution.markResultViewed() }
         }
     }
 
     @ViewBuilder
     private var content: some View {
+        if let result = recoveredResult {
+            // A real result gets the full scrollable pane, exactly as it would
+            // have in ResultView had the action run in the foreground.
+            ResultBody(text: result.text)
+                .transition(.opacity)
+        } else {
+            centeredStatus
+        }
+    }
+
+    @ViewBuilder
+    private var centeredStatus: some View {
         VStack {
             Spacer()
             VStack(spacing: 12) {
@@ -173,18 +251,18 @@ struct RunningView: View {
                         .padding(.horizontal, 32)
                         .textSelection(.enabled)
                 } else {
-                    // Succeeded — safe to show the success check now that the
-                    // outcome is known. The result itself lands in the toast.
+                    // Succeeded with nothing to show: either a destination
+                    // consumed the output (the completion toast confirmed it) or
+                    // the terminal step produced no text at all. Deliberately no
+                    // "see the notification for the result" — a run that kept a
+                    // result takes the branch above and shows it, so pointing at
+                    // a toast here would be pointing at nothing.
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 24))
                         .foregroundColor(.caiSuccess)
                     Text("This action has finished.")
                         .font(.system(size: 12))
                         .foregroundColor(.caiTextSecondary)
-                        .multilineTextAlignment(.center)
-                    Text("See the notification for the result.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary.opacity(0.6))
                         .multilineTextAlignment(.center)
                 }
             }

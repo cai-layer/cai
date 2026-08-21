@@ -113,15 +113,8 @@ struct ResultView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: showFollowUpInput ? 160 : 240)
             } else {
-                ScrollView {
-                    Text(markdownAttributedString(from: result))
-                        .font(.system(size: 13))
-                        .foregroundColor(.caiTextPrimary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                }
-                .frame(maxHeight: showFollowUpInput ? 160 : 240)
+                ResultBody(text: result)
+                    .frame(maxHeight: showFollowUpInput ? 160 : 240)
             }
 
             Spacer(minLength: 0)
@@ -333,9 +326,31 @@ struct ResultView: View {
         return providerKeywords.contains { lower.contains($0) }
     }
 
+}
+
+/// The scrollable, markdown-rendered result pane.
+///
+/// Extracted so `ResultView` and `RunningView` render a finished result through
+/// the same code rather than two copies that drift apart: with the default sink,
+/// a result reached from the header pill has to look identical to one reached by
+/// running the action in the foreground, because it IS the same thing.
+struct ResultBody: View {
+    let text: String
+
+    var body: some View {
+        ScrollView {
+            Text(Self.markdownAttributedString(from: text))
+                .font(.system(size: 13))
+                .foregroundColor(.caiTextPrimary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+        }
+    }
+
     /// Parses a markdown string into an AttributedString for rich rendering.
     /// Falls back to plain text if markdown parsing fails.
-    private func markdownAttributedString(from text: String) -> AttributedString {
+    static func markdownAttributedString(from text: String) -> AttributedString {
         do {
             var attributed = try AttributedString(
                 markdown: text,

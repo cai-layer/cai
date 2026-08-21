@@ -17,6 +17,11 @@ extension NSNotification.Name {
     static let caiExecuteAction = NSNotification.Name("CaiExecuteAction")
     static let caiShowClipboardHistory = NSNotification.Name("CaiShowClipboardHistory")
     static let caiShowToast = NSNotification.Name("CaiShowToast")
+    /// A finished run's output wants the panel NOW — posted only when a
+    /// foreground chain terminates in the "Show in Cai" destination. Brings up
+    /// the panel (or navigates the open one) on the run surface. Never posted
+    /// for a `runInBackground` action; see `ResultRouting.route`.
+    static let caiShowRunResult = NSNotification.Name("CaiShowRunResult")
     /// Posted by `CaiSettings` whenever a property that affects action generation
     /// changes (shortcuts, hidden built-ins, output destinations, translation language).
     /// Observed by `WindowController` (clears the resume cache) and by

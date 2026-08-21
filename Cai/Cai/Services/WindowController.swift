@@ -119,6 +119,32 @@ class WindowController: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.clearCache()
         }
+        // A foreground chain finished on "Show in Cai". Chains dismiss the panel
+        // at trigger, so there is usually no window left to navigate — bring one
+        // up, then re-post so the freshly mounted view lands on the run surface.
+        NotificationCenter.default.addObserver(
+            forName: .caiShowRunResult,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showRunResultWindow() }
+        }
+    }
+
+    /// Brings the panel up on the finished run's result.
+    ///
+    /// A visible window needs nothing from here: `ActionListWindow` observes the
+    /// same notification and navigates itself. Only the dismissed case has work
+    /// to do, and the re-post is what drives navigation there — it arrives once
+    /// the window exists, and this observer no-ops on it because the window is
+    /// visible by then, so there is no loop.
+    private func showRunResultWindow() {
+        guard !isVisible else { return }
+        let emptyDetection = ContentResult(type: .shortText, confidence: 0.0, entities: ContentEntities())
+        showActionWindow(text: "", detection: emptyDetection)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .caiShowRunResult, object: nil)
+        }
     }
 
     /// Clears saved window dimensions and animates the current window (if visible)

@@ -81,7 +81,31 @@ struct BuiltInDestinations {
         chainOnly: true
     )
 
+    /// Terminates a chain by putting its output on screen in Cai. A no-op
+    /// destination: `ResultRouting` reads it as "not consumed" and the run
+    /// surface renders the text.
+    ///
+    /// `chainOnly` for the same reason as `clipboard` — it exists to give a
+    /// chain a meaningful terminal step, and outside that context it would be
+    /// noise: a "Show in Cai" chip in the result view would be a button that
+    /// shows you what you are already looking at. It still appears in chain
+    /// editor autocomplete and in the destinations an agent sees over MCP,
+    /// which are the two places a chain actually gets terminated.
+    ///
+    /// Note it does NOT override `runInBackground`: a background action stays
+    /// quiet and records its result even when it ends here.
+    static let showInCai = OutputDestination(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
+        name: "Show in Cai",
+        icon: "macwindow",
+        type: .showInCai,
+        isEnabled: true,
+        isBuiltIn: true,
+        showInActionList: false,
+        chainOnly: true
+    )
+
     /// All built-in destinations, seeded on first launch.
     /// Order matters — it drives Cmd+1, Cmd+2, … shortcuts in the result view.
-    static let all: [OutputDestination] = [pasteBack, email, notes, reminders, clipboard]
+    static let all: [OutputDestination] = [pasteBack, email, notes, reminders, clipboard, showInCai]
 }

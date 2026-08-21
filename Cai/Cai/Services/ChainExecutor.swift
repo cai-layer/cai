@@ -147,11 +147,17 @@ final class ChainExecutor {
     ///     clipboard at chain start).
     ///   - sourceBundleId: bundle ID of the app the user copied from; forwarded
     ///     to `|llm` filters, inline LLM steps, and Context Snippet lookups.
+    ///   - runInBackground: the originating action's own flag. Chains always
+    ///     dismiss the panel at trigger, so this is NOT "are we on the
+    ///     background path" (we always are) — it's whether the user asked this
+    ///     action to stay out of the way, which outranks a "Show in Cai"
+    ///     terminator. See `ResultRouting.route`.
     func runChain(
         _ steps: [ChainStep],
         initialInput: String,
         sourceBundleId: String?,
-        name: String? = nil
+        name: String? = nil,
+        runInBackground: Bool = false
     ) async {
         // Drives the in-progress indicator (and, in lockstep, the menu-bar
         // blink). `name` is the originating action's title when the caller knows
@@ -161,13 +167,33 @@ final class ChainExecutor {
         defer { ExecutionState.shared.finish() }
 
         do {
-            let finalOutput = try await execute(
+            let (finalOutput, terminal) = try await execute(
                 steps: steps,
                 pipe: initialInput,
                 sourceBundleId: sourceBundleId,
                 visited: [],
                 depth: 0
             )
+
+            // The default sink: output no destination consumed is kept on the
+            // run's completion record instead of being dropped once the toast
+            // snippet is built (finding #18).
+            let routing = ResultRouting.route(
+                text: finalOutput, terminal: terminal, runInBackground: runInBackground
+            )
+            let runName = name ?? steps.last?.displayLabel ?? "Action"
+            if routing == .record || routing == .showInPanel {
+                ExecutionState.shared.reportResult(
+                    ExecutionState.RunResult(actionName: runName, text: finalOutput)
+                )
+            }
+            if routing == .showInPanel {
+                // Foreground run with an explicit "Show in Cai" terminator —
+                // the only path that opens the panel on its own, because it is
+                // the only one where the chain asked for it.
+                NotificationCenter.default.post(name: .caiShowRunResult, object: nil)
+            }
+
             // Toast with a sanitized snippet (collapsed whitespace, capped at
             // 60 chars) so the user sees the chain produced something. The
             // toast pill is single-line AppKit, so internal newlines from
@@ -210,7 +236,16 @@ final class ChainExecutor {
 
     // MARK: - Recursive executor
 
-    /// Executes the steps sequentially. Returns the final pipe value.
+    /// Executes the steps sequentially. Returns the final pipe value together
+    /// with what the LAST step to actually run was, which the default sink
+    /// needs in order to tell "a destination took this" from "nobody took this".
+    ///
+    /// The terminal kind cannot be read off `steps.last`: this function recurses
+    /// depth-first into a resolved action's own `next:` AFTER running it, so a
+    /// chain `[Summarize, Notes]` where Notes carries `next: [Translate]` ends
+    /// on an LLM step even though the top-level list ends on a destination.
+    /// Reading the array would report that translation as consumed and drop it —
+    /// exactly the bug this whole change exists to fix.
     /// Each `.action`-typed step also runs ITS OWN `next:` chain before
     /// moving on, so a chain of [A→B] where A also has `next: [Z]` produces
     /// A → Z → B (depth-first). Inline LLM and Apple Shortcut steps don't
@@ -226,9 +261,12 @@ final class ChainExecutor {
         sourceBundleId: String?,
         visited: Set<String>,
         depth: Int
-    ) async throws -> String {
+    ) async throws -> (output: String, terminal: ResultRouting.TerminalStep) {
         var currentPipe = pipe
         var currentVisited = visited
+        // An empty step list changes nothing, so the pipe it hands back is just
+        // its input — treat that as plain text rather than a consumed one.
+        var terminal: ResultRouting.TerminalStep = .producesText
 
         for (stepIndex, step) in steps.enumerated() {
             if depth >= Self.maxDepth {
@@ -255,7 +293,7 @@ final class ChainExecutor {
             // Dispatch the step.
             let stepOutput: String
             do {
-                stepOutput = try await runStep(
+                (stepOutput, terminal) = try await runStep(
                     step,
                     input: currentPipe,
                     sourceBundleId: sourceBundleId
@@ -277,7 +315,9 @@ final class ChainExecutor {
             if case .action(let name) = step,
                let resolved = resolve(name),
                !resolved.next.isEmpty {
-                currentPipe = try await execute(
+                // The nested chain ran after this step, so ITS terminal is the
+                // one that counts.
+                (currentPipe, terminal) = try await execute(
                     steps: resolved.next,
                     pipe: currentPipe,
                     sourceBundleId: sourceBundleId,
@@ -287,7 +327,7 @@ final class ChainExecutor {
             }
         }
 
-        return currentPipe
+        return (currentPipe, terminal)
     }
 
     // MARK: - Lookup
@@ -334,6 +374,23 @@ final class ChainExecutor {
             sourceBundleId: sourceBundleId,
             visited: [],
             depth: 0
+        ).output
+    }
+
+    /// Same as `executeForTesting` but also returns the step that actually ran
+    /// last — what the default sink routes on. Separate entry point so the
+    /// existing chain tests keep their simpler signature.
+    func executeTerminalForTesting(
+        steps: [ChainStep],
+        initialInput: String,
+        sourceBundleId: String? = nil
+    ) async throws -> (output: String, terminal: ResultRouting.TerminalStep) {
+        try await execute(
+            steps: steps,
+            pipe: initialInput,
+            sourceBundleId: sourceBundleId,
+            visited: [],
+            depth: 0
         )
     }
     #endif
@@ -344,7 +401,7 @@ final class ChainExecutor {
         _ step: ChainStep,
         input: String,
         sourceBundleId: String?
-    ) async throws -> String {
+    ) async throws -> (String, ResultRouting.TerminalStep) {
         switch step {
         case .action(let name):
             guard let resolved = resolve(name) else {
@@ -361,10 +418,13 @@ final class ChainExecutor {
             guard !trimmed.isEmpty else {
                 throw ChainError.invalidStep("Inline LLM step has no directive")
             }
-            return try await runInlineLLM(directive: trimmed, input: input, sourceBundleId: sourceBundleId)
+            let output = try await runInlineLLM(
+                directive: trimmed, input: input, sourceBundleId: sourceBundleId
+            )
+            return (output, .producesText)
 
         case .appleShortcut(let name):
-            return try await runAppleShortcut(name: name, input: input)
+            return (try await runAppleShortcut(name: name, input: input), .producesText)
         }
     }
 
@@ -372,14 +432,20 @@ final class ChainExecutor {
         _ action: ResolvedAction,
         input: String,
         sourceBundleId: String?
-    ) async throws -> String {
+    ) async throws -> (String, ResultRouting.TerminalStep) {
         switch action {
         case .shortcut(let s):
             switch s.type {
             case .shell:
-                return try await runShell(template: s.value, input: input, sourceBundleId: sourceBundleId)
+                let output = try await runShell(
+                    template: s.value, input: input, sourceBundleId: sourceBundleId
+                )
+                return (output, .producesText)
             case .prompt:
-                return try await runPrompt(prompt: s.value, input: input, sourceBundleId: sourceBundleId)
+                let output = try await runPrompt(
+                    prompt: s.value, input: input, sourceBundleId: sourceBundleId
+                )
+                return (output, .producesText)
             case .url:
                 let resolved = try await TemplateEngine.render(
                     s.value.replacingOccurrences(of: "%s", with: "{{result|url_encode|raw}}"),
@@ -390,7 +456,9 @@ final class ChainExecutor {
                 if let url = URL(string: resolved) {
                     NSWorkspace.shared.open(url)
                 }
-                return ""  // URL actions don't propagate output
+                // URL actions don't propagate output; the empty pipe routes to
+                // `.nothing`, so no blank result surface.
+                return ("", .producesText)
             }
         case .destination(let d):
             // OutputDestinationService is an actor; it handles its own threading.
@@ -399,9 +467,14 @@ final class ChainExecutor {
             // side-effect on the input, but the pipe keeps flowing so a
             // subsequent step (typically another destination) gets the same
             // content. See the doc comment at the top of the file.
-            return input
+            //
+            // "Show in Cai" is the one destination that consumes nothing: it
+            // exists to say "put this on screen", so it reports itself as such
+            // and the default sink takes over.
+            return (input, d.type == .showInCai ? .showInCai : .consumingDestination)
         case .builtIn(let id):
-            return try await runBuiltIn(id, input: input, sourceBundleId: sourceBundleId)
+            let output = try await runBuiltIn(id, input: input, sourceBundleId: sourceBundleId)
+            return (output, .producesText)
         }
     }
 

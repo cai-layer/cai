@@ -77,7 +77,7 @@ Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) {
 
 **New content type:** add case to `ContentType` (`ContentDetector.swift`) → detection logic in `detect()` (priority order matters) → action generation in `ActionGenerator` → tests in `ContentDetectorTests`.
 
-**New built-in destination:** add `static let` with fixed UUID in `BuiltInDestinations.swift` → append to `BuiltInDestinations.all` → migration in `CaiSettings.init()` (existing users won't get new built-ins otherwise). **Exception:** a destination with no config and no toggle should be *synthetic* — kept OUT of `all` and injected at the read points, like `showInCai`. See the gotcha below.
+**New built-in destination:** add `static let` with fixed UUID in `BuiltInDestinations.swift` → append to `BuiltInDestinations.all` → migration in `CaiSettings.init()` (existing users won't get new built-ins otherwise) → **map its UUID in `CaiSettings.builtInRole(for:)`** and handle the new `BuiltInDestinationRole` in `CapabilityDetector` + `ActionReviewPresentation`. Skip the role and it falls through to kind-based classification, which escalates a benign built-in as "runs terminal commands" and contradicts its own capability chip. **Exception:** a destination with no config and no toggle should be *synthetic* — kept OUT of `all` and injected at the read points, like `showInCai`. See the gotcha below.
 
 **New setting:** key in `CaiSettings.Keys` → `@Published` with `didSet` persistence → init in `CaiSettings.init()` → UI in `SettingsView.swift`.
 

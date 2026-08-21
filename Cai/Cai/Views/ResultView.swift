@@ -265,7 +265,8 @@ struct ResultView: View {
 
     /// One-tap remediation button under a TCC-denial error. Behaves identically
     /// to the toast grant-on-denial path (`NativeAccessManager`): for a
-    /// Calendar/Contacts domain that hasn't been asked yet, it fires Cai's
+    /// requestable domain (Calendar, Reminders, Contacts) that hasn't been
+    /// asked yet, it fires Cai's
     /// in-process OS prompt ("Grant … Access"); otherwise — already-denied, or a
     /// domain Cai can't request (Apple Events / Full Disk Access) — it deep-links
     /// the correct Settings pane. It *acts*, so it earns indigo per Indigo discipline.
@@ -275,7 +276,11 @@ struct ResultView: View {
         // process; every other case → open Settings (macOS won't re-prompt once
         // answered, and Apple Events / FDA aren't requestable at all).
         let requestable = NativeAccessManager.requestableDomain(for: guidance.domain.key)
-        let currentState = requestable.map { NativeAccessManager.shared.state(for: $0) }
+        // `liveState`, not the cached `state(for:)`: a grant revoked in System
+        // Settings while Cai was open would otherwise still read `.authorized`
+        // here and render EmptyView, leaving the user staring at a raw TCC error
+        // with no way forward. Body-safe because it publishes nothing.
+        let currentState = requestable.map { NativeAccessManager.liveState(for: $0) }
         let promptable = currentState == .notDetermined
 
         if currentState == .authorized {

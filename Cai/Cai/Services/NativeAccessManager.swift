@@ -245,10 +245,26 @@ final class NativeAccessManager: ObservableObject {
         }
     }
 
+    /// Reads a domain's **current** authorization status straight from the
+    /// framework, without touching `@Published` state.
+    ///
+    /// Safe to call from a SwiftUI `body`, which `refreshAll()` is not (writing
+    /// published state during a view update is a "Modifying state during view
+    /// update" bug). Use this wherever a decision must reflect a grant the user
+    /// changed in System Settings while Cai was already open, rather than
+    /// whatever was cached the last time something called `refreshAll()`.
+    nonisolated static func liveState(for domain: Domain) -> AccessState {
+        switch domain {
+        case .calendars: return state(from: EKEventStore.authorizationStatus(for: .event))
+        case .reminders: return state(from: EKEventStore.authorizationStatus(for: .reminder))
+        case .contacts: return state(from: CNContactStore.authorizationStatus(for: .contacts))
+        }
+    }
+
     func refreshAll() {
-        calendars = Self.state(from: EKEventStore.authorizationStatus(for: .event))
-        reminders = Self.state(from: EKEventStore.authorizationStatus(for: .reminder))
-        contacts = Self.state(from: CNContactStore.authorizationStatus(for: .contacts))
+        calendars = Self.liveState(for: .calendars)
+        reminders = Self.liveState(for: .reminders)
+        contacts = Self.liveState(for: .contacts)
     }
 
     // MARK: - Toggle handling
@@ -282,7 +298,8 @@ final class NativeAccessManager: ObservableObject {
         }
     }
 
-    /// When an action fails because a Calendar/Contacts grant is missing, fix it
+    /// When an action fails because a requestable grant (Calendar, Reminders,
+    /// Contacts) is missing, fix it
     /// *inside Cai* instead of dumping a raw error on the user.
     ///
     /// - `.notDetermined` → go **straight to the system prompt** (no custom

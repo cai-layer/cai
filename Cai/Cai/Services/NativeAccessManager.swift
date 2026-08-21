@@ -255,14 +255,22 @@ final class NativeAccessManager: ObservableObject {
         }
     }
 
-    /// Reads a domain's **current** authorization status straight from the
-    /// framework, without touching `@Published` state.
+    /// Reads a domain's authorization status from the framework, without
+    /// touching `@Published` state. Safe to call from a SwiftUI `body`, which
+    /// `refreshAll()` is not (writing published state during a view update is a
+    /// "Modifying state during view update" bug).
     ///
-    /// Safe to call from a SwiftUI `body`, which `refreshAll()` is not (writing
-    /// published state during a view update is a "Modifying state during view
-    /// update" bug). Use this wherever a decision must reflect a grant the user
-    /// changed in System Settings while Cai was already open, rather than
-    /// whatever was cached the last time something called `refreshAll()`.
+    /// **"Live" only relative to Cai's own cache, NOT to tccd.** Measured: after
+    /// an external `tccutil reset`, a fresh process read `.notDetermined` while a
+    /// long-running one still read `.authorized` from the same API at the same
+    /// moment. The framework caches per process and Apple documents no freshness
+    /// guarantee, so a grant changed in System Settings may not be visible until
+    /// relaunch.
+    ///
+    /// Therefore: use this to choose *wording*, never to decide whether the user
+    /// gets an escape hatch at all. The only self-correcting operation is a real
+    /// request on a fresh store, which reaches tccd and resolves instantly when
+    /// already answered.
     nonisolated static func liveState(for domain: Domain) -> AccessState {
         switch domain {
         case .calendars: return state(from: EKEventStore.authorizationStatus(for: .event))
@@ -334,10 +342,12 @@ final class NativeAccessManager: ObservableObject {
         guard let guidance = TCCRemediation.detect(in: message),
               let domain = Self.requestableDomain(for: guidance.domain.key) else { return false }
 
-        // Re-read live status before deciding. The cached state is only
-        // refreshed at init, on tab open, and after a request, so a grant
-        // revoked in System Settings mid-session would otherwise look
-        // `.authorized` here and fall through to the raw error.
+        // Re-read before deciding: the published cache is only refreshed at
+        // init, on tab open, and after a request. This narrows the staleness
+        // window but does NOT close it — the framework itself caches per process
+        // (see `liveState`), so a mid-session revoke can still read
+        // `.authorized` here and fall through to the raw error. Tracked as a
+        // follow-up; the fix is to stop gating on status at all.
         refreshAll()
 
         let label = guidance.domain.label

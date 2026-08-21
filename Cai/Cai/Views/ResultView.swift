@@ -286,20 +286,19 @@ struct ResultView: View {
         // A domain Cai can request that is still `.notDetermined` → prompt in
         // process; every other case → open Settings (macOS won't re-prompt once
         // answered, and Apple Events / FDA aren't requestable at all).
+        //
+        // Status picks the WORDING only. There is deliberately no branch that
+        // renders nothing: this used to bail out with `EmptyView` when the read
+        // said `.authorized`, on the theory that the failure could not be a
+        // permission problem. But the read is stale-able (the framework caches
+        // per process — see `NativeAccessManager.liveState`), and that turned a
+        // rare, harmless wrong button into a reproducible dead end: a raw TCC
+        // error with no way forward. Guessing wrong now costs the user one
+        // needless trip to System Settings, which is the cheaper mistake.
         let requestable = NativeAccessManager.requestableDomain(for: guidance.domain.key)
-        // `liveState`, not the cached `state(for:)`: a grant revoked in System
-        // Settings while Cai was open would otherwise still read `.authorized`
-        // here and render EmptyView, leaving the user staring at a raw TCC error
-        // with no way forward. Body-safe because it publishes nothing.
         let currentState = requestable.map { NativeAccessManager.liveState(for: $0) }
         let promptable = currentState == .notDetermined
 
-        if currentState == .authorized {
-            // Access is already granted, so this failure isn't a permission
-            // problem (a stray detector match). Don't show a misleading button —
-            // the raw error text above still explains what happened.
-            EmptyView()
-        } else {
         VStack(spacing: 8) {
             Text(promptable ? "This action needs \(guidance.domain.label) access." : guidance.message)
                 .font(.system(size: 11))
@@ -328,7 +327,6 @@ struct ResultView: View {
             .buttonStyle(.plain)
         }
         .padding(.top, 4)
-        }
     }
 
     /// Heuristic: does this error message look like it came from the LLM / model

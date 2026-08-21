@@ -4,8 +4,11 @@ import EventKit
 
 /// Owns Cai's on-demand macOS privacy (TCC) grants for the domains an action
 /// can legitimately reach through the intact responsibility chain
-/// (`Cai.app → Process(/bin/zsh) → osascript/JXA`): **Calendar** and
-/// **Contacts**, both via the Apple-signed EventKit / Contacts frameworks.
+/// (`Cai.app → Process(/bin/zsh) → osascript/JXA`): **Calendar**, **Reminders**
+/// and **Contacts**, via the Apple-signed EventKit / Contacts frameworks.
+///
+/// Grants Cai can only *report on* — Accessibility and Automation — live in
+/// `SystemDomain` and are never requested from here.
 ///
 /// Posture "B — Shortcuts-modeled, chain-intact" (see
 /// `_docs/architecture/PERMISSIONS.md`). Because Cai is non-sandboxed and stays
@@ -28,13 +31,18 @@ import EventKit
 final class NativeAccessManager: ObservableObject {
     static let shared = NativeAccessManager()
 
-    /// A macOS privacy domain Cai can request on demand. Reminders is
-    /// deliberately absent: its EventKit usage string ships in Info.plist so an
-    /// agent-authored Reminders action prompts on first use, but there is no
-    /// in-app toggle for it (the existing "Create Reminder" destination covers
-    /// the common case through Automation). Adding one later is a new `case`.
+    /// A macOS privacy domain Cai can request on demand — the *grantable*
+    /// half of System Access. Every case here must have (a) an Info.plist usage
+    /// string and (b) a real request API, because `handleToggle` fires a live OS
+    /// prompt. Domains Cai can only report on live in `SystemDomain`.
+    ///
+    /// Calendar and Reminders are both EventKit and share one hardened-runtime
+    /// entitlement (`com.apple.security.personal-information.calendars`); there
+    /// is no separate reminders entitlement key. See `PERMISSIONS.md`.
     enum Domain: String, CaseIterable, Identifiable {
         case calendars
+        // Reminders sits next to Calendar: same framework, same entitlement.
+        case reminders
         case contacts
 
         var id: String { rawValue }
@@ -43,6 +51,7 @@ final class NativeAccessManager: ObservableObject {
         var title: String {
             switch self {
             case .calendars: return "Calendar"
+            case .reminders: return "Reminders"
             case .contacts: return "Contacts"
             }
         }
@@ -51,6 +60,7 @@ final class NativeAccessManager: ObservableObject {
         var icon: String {
             switch self {
             case .calendars: return "calendar"
+            case .reminders: return "checklist"
             case .contacts: return "person.crop.circle"
             }
         }
@@ -59,6 +69,7 @@ final class NativeAccessManager: ObservableObject {
         var subtitle: String {
             switch self {
             case .calendars: return "Read events and add new ones"
+            case .reminders: return "Read and create reminders"
             case .contacts: return "Look up people you mention"
             }
         }
@@ -67,6 +78,70 @@ final class NativeAccessManager: ObservableObject {
         /// by the "re-enable in System Settings" flow when access is denied and
         /// by runtime remediation. Single-sourced with `TCCRemediation`.
         var settingsURL: URL { TCCRemediation.Domain(self).settingsURL }
+    }
+
+    /// A macOS grant Cai can **report on but never request** — the read-only
+    /// half of System Access. Kept separate from `Domain` on purpose: `request`,
+    /// `state(for:)` and `refreshAll()` switch exhaustively over `Domain`, so
+    /// folding these in behind an `isRequestable` flag would push unreachable
+    /// branches into all three and let a future call site ask for a grant that
+    /// has no request API.
+    ///
+    /// - **Accessibility** has no request API beyond the AX prompt onboarding
+    ///   already owns (`PermissionsManager`); a second door here would re-prompt
+    ///   users who have answered.
+    /// - **Automation** (Apple Events) is granted per *(source, target)* pair and
+    ///   prompts on first use through the destination path. There is no
+    ///   app-level status to read: the only non-prompting API
+    ///   (`AEDeterminePermissionToAutomateTarget`) needs a specific *running*
+    ///   target, and the only other source of truth is TCC.db, which would need
+    ///   Full Disk Access — a hard never. So this row makes **no status claim**;
+    ///   its subtitle states the per-app truth instead.
+    enum SystemDomain: String, CaseIterable, Identifiable {
+        case accessibility
+        case automation
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .accessibility: return "Accessibility"
+            case .automation: return "Automation"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .accessibility: return "accessibility"
+            case .automation: return "gearshape.2"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .accessibility: return "Lets Cai read your selection when you press \u{2325}C"
+            case .automation: return "macOS asks per app the first time an action targets it"
+            }
+        }
+
+        var settingsURL: URL {
+            switch self {
+            case .accessibility: return TCCRemediation.Domain.accessibility.settingsURL
+            case .automation: return TCCRemediation.Domain.appleEvents.settingsURL
+            }
+        }
+
+        /// Trailing status text, or `nil` when Cai cannot honestly claim one.
+        /// Automation returns `nil` so the status slot stays **empty** rather
+        /// than showing a word in the position where "Granted" appears — a
+        /// string there reads as a state Cai verified, which for a per-app grant
+        /// would be a lie by layout.
+        nonisolated func statusText(accessibilityGranted: Bool) -> String? {
+            switch self {
+            case .accessibility: return accessibilityGranted ? "Granted" : "Not granted"
+            case .automation: return nil
+            }
+        }
     }
 
     /// UI-facing tri(+1)-state for a domain, derived from the framework's raw
@@ -104,10 +179,21 @@ final class NativeAccessManager: ObservableObject {
     }
 
     @Published private(set) var calendars: AccessState = .notDetermined
+    @Published private(set) var reminders: AccessState = .notDetermined
     @Published private(set) var contacts: AccessState = .notDetermined
 
-    private let eventStore = EKEventStore()
-    private let contactStore = CNContactStore()
+    // `var`, and deliberately recreated before every request. An EKEventStore /
+    // CNContactStore instance binds to the authorization state it was created
+    // under: once it has seen an answer, `requestFullAccess*` short-circuits and
+    // returns WITHOUT ever contacting tccd — no prompt, no log entry, and the
+    // toggle silently snaps back. Indistinguishable from a missing entitlement.
+    //
+    // This bites real users, not just a `tccutil reset` test loop: Calendar and
+    // Reminders share one store, so granting Calendar and then flipping
+    // Reminders reuses a store that is already "answered" and the second prompt
+    // never appears. See `refreshedEventStore()`.
+    private var eventStore = EKEventStore()
+    private var contactStore = CNContactStore()
 
     private init() {
         refreshAll()
@@ -164,13 +250,45 @@ final class NativeAccessManager: ObservableObject {
     func state(for domain: Domain) -> AccessState {
         switch domain {
         case .calendars: return calendars
+        case .reminders: return reminders
         case .contacts: return contacts
         }
     }
 
+    /// Reads a domain's authorization status from the framework, without
+    /// touching `@Published` state. Safe to call from a SwiftUI `body`, which
+    /// `refreshAll()` is not (writing published state during a view update is a
+    /// "Modifying state during view update" bug).
+    ///
+    /// **"Live" only relative to Cai's own cache, NOT to tccd.** Measured: after
+    /// an external `tccutil reset`, a fresh process read `.notDetermined` while a
+    /// long-running one still read `.authorized` from the same API at the same
+    /// moment. The framework caches per process and Apple documents no freshness
+    /// guarantee, so a grant changed in System Settings may not be visible until
+    /// relaunch.
+    ///
+    /// Therefore: use this to choose *wording*, never to decide whether the user
+    /// gets an escape hatch at all. The only self-correcting operation is a real
+    /// request on a fresh store, which reaches tccd and resolves instantly when
+    /// already answered.
+    nonisolated static func liveState(for domain: Domain) -> AccessState {
+        switch domain {
+        case .calendars: return state(from: EKEventStore.authorizationStatus(for: .event))
+        case .reminders: return state(from: EKEventStore.authorizationStatus(for: .reminder))
+        case .contacts: return state(from: CNContactStore.authorizationStatus(for: .contacts))
+        }
+    }
+
+    /// Assigns only on change: this runs on every app activation while the
+    /// System Access tab is open, and an unconditional write would fire
+    /// `objectWillChange` three times per activation for no reason.
     func refreshAll() {
-        calendars = Self.state(from: EKEventStore.authorizationStatus(for: .event))
-        contacts = Self.state(from: CNContactStore.authorizationStatus(for: .contacts))
+        let newCalendars = Self.liveState(for: .calendars)
+        let newReminders = Self.liveState(for: .reminders)
+        let newContacts = Self.liveState(for: .contacts)
+        if calendars != newCalendars { calendars = newCalendars }
+        if reminders != newReminders { reminders = newReminders }
+        if contacts != newContacts { contacts = newContacts }
     }
 
     // MARK: - Toggle handling
@@ -194,12 +312,18 @@ final class NativeAccessManager: ObservableObject {
     nonisolated static func requestableDomain(for key: TCCRemediation.Domain.Key) -> Domain? {
         switch key {
         case .calendars: return .calendars
+        // Requestable as of the "Complete System Access" change: a mid-action
+        // Reminders denial now fires the OS prompt instead of only guiding to
+        // Settings. Safe because Reminders rides EventKit's calendars
+        // entitlement, which Cai already holds.
+        case .reminders: return .reminders
         case .contacts: return .contacts
-        case .appleEvents, .reminders, .accessibility, .fullDiskAccess: return nil
+        case .appleEvents, .accessibility, .fullDiskAccess: return nil
         }
     }
 
-    /// When an action fails because a Calendar/Contacts grant is missing, fix it
+    /// When an action fails because a requestable grant (Calendar, Reminders,
+    /// Contacts) is missing, fix it
     /// *inside Cai* instead of dumping a raw error on the user.
     ///
     /// - `.notDetermined` → go **straight to the system prompt** (no custom
@@ -218,6 +342,14 @@ final class NativeAccessManager: ObservableObject {
         guard let guidance = TCCRemediation.detect(in: message),
               let domain = Self.requestableDomain(for: guidance.domain.key) else { return false }
 
+        // Re-read before deciding: the published cache is only refreshed at
+        // init, on tab open, and after a request. This narrows the staleness
+        // window but does NOT close it — the framework itself caches per process
+        // (see `liveState`), so a mid-session revoke can still read
+        // `.authorized` here and fall through to the raw error. Tracked as a
+        // follow-up; the fix is to stop gating on status at all.
+        refreshAll()
+
         let label = guidance.domain.label
 
         switch state(for: domain) {
@@ -231,7 +363,7 @@ final class NativeAccessManager: ObservableObject {
         case .denied, .restricted:
             let alert = NSAlert()
             alert.messageText = "Cai needs \(label) access"
-            alert.informativeText = "\(label) access was turned off. Re-enable Cai under \(label) in System Settings, then run the action again."
+            alert.informativeText = "Cai doesn't have full \(label) access. Enable Cai under \(label) in System Settings, then run the action again."
             alert.addButton(withTitle: "Open \(label) Settings")
             alert.addButton(withTitle: "Not Now")
             NSApplication.shared.activate()
@@ -275,6 +407,8 @@ final class NativeAccessManager: ObservableObject {
         switch domain {
         case .calendars:
             await requestCalendars()
+        case .reminders:
+            await requestReminders()
         case .contacts:
             await requestContacts()
         }
@@ -282,6 +416,7 @@ final class NativeAccessManager: ObservableObject {
     }
 
     private func requestCalendars() async {
+        eventStore = EKEventStore()   // see the eventStore declaration
         let strategy = Self.eventKitRequestStrategy(
             macOSMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         )
@@ -302,7 +437,33 @@ final class NativeAccessManager: ObservableObject {
         }
     }
 
+    /// Mirrors `requestCalendars()` — same EventKit version branch, same silent
+    /// catch (a thrown error resolves to a status `refreshAll()` reads back).
+    /// Gated by `NSRemindersFullAccessUsageDescription` plus the shared EventKit
+    /// `personal-information.calendars` entitlement.
+    private func requestReminders() async {
+        eventStore = EKEventStore()   // see the eventStore declaration
+        let strategy = Self.eventKitRequestStrategy(
+            macOSMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        )
+        do {
+            switch strategy {
+            case .fullAccess:
+                if #available(macOS 14.0, *) {
+                    _ = try await eventStore.requestFullAccessToReminders()
+                } else {
+                    _ = try await eventStore.requestAccess(to: .reminder)
+                }
+            case .legacy:
+                _ = try await eventStore.requestAccess(to: .reminder)
+            }
+        } catch {
+            // See requestCalendars().
+        }
+    }
+
     private func requestContacts() async {
+        contactStore = CNContactStore()   // see the contactStore declaration
         _ = try? await contactStore.requestAccess(for: .contacts)
     }
 }

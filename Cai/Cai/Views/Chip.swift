@@ -13,23 +13,36 @@ import SwiftUI
 
 struct ChipToggle: View {
     let label: String
-    let icon: String
+    /// Optional (2026-08-22): tag chips in the extensions browser carry no
+    /// glyph, and a second chip type just for them would have split one
+    /// vocabulary in two.
+    let icon: String?
     let isOn: Bool
     let tooltip: String
     let action: () -> Void
 
+    /// Truncation cap. Only remote-sourced labels (catalog tags) ever reach
+    /// it; a label must be able to size to its own text, so this is a max and
+    /// never a fixed width.
+    var maxLabelWidth: CGFloat? = nil
+
     @State private var isHovered: Bool = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
+                }
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: maxLabelWidth)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -39,17 +52,31 @@ struct ChipToggle: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(borderColor, lineWidth: 0.5)
+                    .strokeBorder(borderColor, lineWidth: isFocused ? 1 : 0.5)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focused($isFocused)
         .help(tooltip)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : [.isButton])
         .onHover { hovering in
             isHovered = hovering
             if hovering {
                 NSCursor.pointingHand.push()
             } else {
                 NSCursor.pop()
+            }
+        }
+        // A chip can be removed from the hierarchy while hovered (a filter row
+        // unmounting on reload), and SwiftUI does not reliably deliver
+        // `onHover(false)` on the way out, so the pushed cursor would outlive
+        // the chip.
+        .onDisappear {
+            if isHovered {
+                NSCursor.pop()
+                isHovered = false
             }
         }
     }
@@ -64,7 +91,9 @@ struct ChipToggle: View {
     }
 
     private var borderColor: Color {
-        if isOn { return Color.caiPrimary.opacity(0.4) }
+        // Keyboard focus borrows the indigo focus-ring rule from form fields:
+        // a tabbed-to chip has to be visible before the mouse matters.
+        if isOn || isFocused { return Color.caiPrimary.opacity(0.4) }
         return Color(nsColor: .separatorColor).opacity(0.5)
     }
 }

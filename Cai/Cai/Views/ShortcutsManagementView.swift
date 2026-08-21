@@ -232,12 +232,15 @@ struct ShortcutsManagementView: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             } else {
+                // Built once for the whole pass and handed down, so the O(n)
+                // snapshot rebuild does not become O(n^2) across n rows.
+                let known = knownActions
                 ForEach(orderedShortcuts) { shortcut in
                     Group {
                         if editingShortcutId == shortcut.id {
                             shortcutForm(isNew: false, shortcutId: shortcut.id)
                         } else {
-                            shortcutRow(shortcut)
+                            shortcutRow(shortcut, known: known)
                         }
                     }
                     .listRowSeparator(.hidden)
@@ -342,7 +345,12 @@ struct ShortcutsManagementView: View {
 
     // MARK: - Shortcut Row
 
-    private func shortcutRow(_ shortcut: CaiShortcut) -> some View {
+    /// One build of `knownActions` per render pass, not one per row. It rebuilds
+    /// every action snapshot and re-parses every webhook URL, and this list
+    /// re-renders on every pin hover.
+    private var knownActions: KnownActions { settings.knownActions }
+
+    private func shortcutRow(_ shortcut: CaiShortcut, known: KnownActions) -> some View {
         let isHovered = hoveredShortcutId == shortcut.id
         // Show the pin glyph when pinned (always) or hovered (progressive disclosure
         // for unpinned rows — same pattern as `ClipboardHistoryView.historyRow`).
@@ -350,6 +358,13 @@ struct ShortcutsManagementView: View {
         // Names the chain references that aren't installed locally — flagged
         // via a warning glyph so the user can fix the chain before running it.
         let unresolvedSteps = settings.unresolvedChainSteps(in: shortcut.next)
+        // Live-derived at render, never cached: the same rule the approval sheet
+        // follows (CAI-25). A destination the chain reaches can be edited or
+        // removed after this action was approved, and a stale chip would then
+        // describe an action that no longer exists.
+        let capabilities = CapabilityDetector.capabilities(
+            for: shortcut.actionSnapshot, known: known
+        )
 
         return HStack(spacing: 12) {
             // Leading icon — doubles as pin toggle on hover.
@@ -397,12 +412,25 @@ struct ShortcutsManagementView: View {
                     }
                 }
 
-                Text(shortcut.value)
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                // What this action touches, not the raw payload it used to
+                // show. `Text(shortcut.value)` truncated-middle rendered a shell
+                // action as `curl -s https://api.git…jq -r '.[].title'`, which
+                // answers nothing weeks later — and answering that is the recall
+                // problem this feature was built for. The payload is not lost:
+                // it is the row's tooltip, and the editor shows it in full.
+                CapabilitySubtitle(
+                    capabilities: capabilities,
+                    engine: settings.aiEngine,
+                    // The orange triangle beside this row already owns the
+                    // unresolved-steps warning and its tooltip names them, so
+                    // the chip would be the same fact twice in one 56pt row.
+                    excluding: { capability in
+                        if case .runsUninstalled = capability { return true }
+                        return false
+                    }
+                )
             }
+            .help(shortcut.value)
 
             // Chain dependency warning — shown when `next:` references local
             // actions/destinations the user doesn't have installed yet.

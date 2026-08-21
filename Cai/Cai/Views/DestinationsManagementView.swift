@@ -209,17 +209,11 @@ struct DestinationsManagementView: View {
         // existence and its precedence rule live only in a code comment and a
         // 10pt autocomplete hint, and a user who puts it in a background action
         // watches nothing happen with no way to find out why.
+        //
+        // The Automation-permission footnote that used to sit here is gone on
+        // purpose (master): System Access now covers it.
         showInCaiReferenceRow
             .padding(.horizontal, 12)
-
-        if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled && !$0.chainOnly }) {
-            Text("macOS will ask for Automation permission on first use. If denied, re-enable in System Settings → Automation.")
-                .font(.system(size: 10))
-                .foregroundColor(.caiTextSecondary.opacity(0.5))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-        }
     }
 
     /// Custom destinations — pinned-first ordering, click-anywhere row,

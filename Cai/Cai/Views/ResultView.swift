@@ -22,6 +22,12 @@ struct ResultView: View {
     /// Binding to parent's follow-up text.
     @Binding var followUpText: String
 
+    /// Observed so the TCC remediation button re-renders when a grant resolves.
+    /// Without it, denying the OS prompt leaves the button reading "Grant …
+    /// Access" forever: macOS won't re-prompt, so every further tap is a no-op
+    /// and the "open Settings" branch is unreachable until the view rebuilds.
+    @ObservedObject private var nativeAccess = NativeAccessManager.shared
+
     @State private var result: String = ""
     @State private var isLoading: Bool = true
     /// True from stream start until completion or error. Drives the Esc-label
@@ -94,6 +100,7 @@ struct ResultView: View {
                             .font(.system(size: 12))
                             .foregroundColor(.caiTextSecondary)
                             .multilineTextAlignment(.center)
+                            .accessibilityLabel("Error: \(error)")
                         // Only show the "Check Settings → Model Provider" hint when the
                         // error actually looks like an LLM/provider issue. Non-LLM errors
                         // (e.g. extension install rejected, shell command failed) shouldn't
@@ -112,8 +119,10 @@ struct ResultView: View {
                             remediationButton(guidance)
                         }
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Error: \(error)")
+                    // The combine deliberately wraps only the explanatory text
+                    // above, NOT this VStack: the remediation button is the one
+                    // actionable control here, and combining the container
+                    // swallows it into a static element VoiceOver can't trigger.
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: showFollowUpInput ? 160 : 240)
@@ -261,9 +270,12 @@ struct ResultView: View {
         }
     }
 
-    /// One-tap remediation button under a TCC-denial error. Behaves identically
-    /// to the toast grant-on-denial path (`NativeAccessManager`): for a
-    /// Calendar/Contacts domain that hasn't been asked yet, it fires Cai's
+    /// One-tap remediation button under a TCC-denial error. Shares the *grant*
+    /// entry point with the toast path (`requestAndConfirm`), but not its whole
+    /// behaviour: the toast path bails out for domains Cai can't request, while
+    /// this button still deep-links their Settings pane. For a
+    /// requestable domain (Calendar, Reminders, Contacts) that hasn't been
+    /// asked yet, it fires Cai's
     /// in-process OS prompt ("Grant … Access"); otherwise — already-denied, or a
     /// domain Cai can't request (Apple Events / Full Disk Access) — it deep-links
     /// the correct Settings pane. It *acts*, so it earns indigo per Indigo discipline.
@@ -272,16 +284,19 @@ struct ResultView: View {
         // A domain Cai can request that is still `.notDetermined` → prompt in
         // process; every other case → open Settings (macOS won't re-prompt once
         // answered, and Apple Events / FDA aren't requestable at all).
+        //
+        // Status picks the WORDING only. There is deliberately no branch that
+        // renders nothing: this used to bail out with `EmptyView` when the read
+        // said `.authorized`, on the theory that the failure could not be a
+        // permission problem. But the read is stale-able (the framework caches
+        // per process — see `NativeAccessManager.liveState`), and that turned a
+        // rare, harmless wrong button into a reproducible dead end: a raw TCC
+        // error with no way forward. Guessing wrong now costs the user one
+        // needless trip to System Settings, which is the cheaper mistake.
         let requestable = NativeAccessManager.requestableDomain(for: guidance.domain.key)
-        let currentState = requestable.map { NativeAccessManager.shared.state(for: $0) }
+        let currentState = requestable.map { NativeAccessManager.liveState(for: $0) }
         let promptable = currentState == .notDetermined
 
-        if currentState == .authorized {
-            // Access is already granted, so this failure isn't a permission
-            // problem (a stray detector match). Don't show a misleading button —
-            // the raw error text above still explains what happened.
-            EmptyView()
-        } else {
         VStack(spacing: 8) {
             Text(promptable ? "This action needs \(guidance.domain.label) access." : guidance.message)
                 .font(.system(size: 11))
@@ -310,7 +325,6 @@ struct ResultView: View {
             .buttonStyle(.plain)
         }
         .padding(.top, 4)
-        }
     }
 
     /// Heuristic: does this error message look like it came from the LLM / model

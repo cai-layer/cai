@@ -43,49 +43,37 @@ public enum ApprovalClassifier {
     ///
     /// Chains are followed because the payload the user reads has to account
     /// for what the action actually triggers: a prompt action whose chain ends
-    /// in a shell destination runs shell. Resolution order matches
-    /// `ChainExecutor`, and a visited set plus the step cap stop a cyclic or
-    /// runaway chain from spinning here.
+    /// in a shell destination runs shell. The traversal itself lives in
+    /// `ChainWalk.reachable(from:known:)` — resolution order, breadth-first
+    /// depth capping and the id-keyed visited set are documented there, and
+    /// `CapabilityDetector` folds over the same walk so the chips and the
+    /// callouts can never describe different chains.
     ///
     /// Reasons come back in `EscalationReason.allCases` order so the sheet
     /// renders callouts in a stable sequence and table tests can compare
     /// arrays directly.
-    /// The walk is a breadth-first traversal over reachable actions with one
-    /// shared visited set, which pins down two properties at once:
-    ///
-    /// - **Linear cost.** `found` is a union over reachable actions, so each
-    ///   action needs visiting exactly once. A per-path visited set (the
-    ///   depth-first alternative) enumerates every simple path instead, and a
-    ///   10-wide mesh of a dozen proposals is millions of paths walked on the
-    ///   main actor, retriggered by every rescan of the pending directory.
-    /// - **Correct depth capping.** Breadth-first reaches every action at its
-    ///   MINIMAL depth, so an action cut off by the step cap is genuinely out
-    ///   of reach within the cap on every route. Depth-first with a shared
-    ///   set gets this wrong: a long route walked first can park an action in
-    ///   `visited` with its chain uncounted, and the short route the executor
-    ///   would actually run then skips it — an under-escalation.
-    ///
-    /// `visited` holds action ids, never names. Names are not unique: a
-    /// proposal may be named the same as an installed action, and a name-keyed
-    /// visited set would then skip the chain step that resolves to the OTHER
-    /// action. A proposal named "Deploy" chaining to "Deploy" would read as a
-    /// harmless prompt while `ChainExecutor` resolved that step to the user's
-    /// existing shell action and ran it.
     public static func escalationReasons(
         for action: ActionSnapshot,
         known: KnownActions
     ) -> [EscalationReason] {
         var found: Set<EscalationReason> = []
-        var visited: Set<UUID> = [action.id]
-        var queue: [(action: ActionSnapshot, depth: Int)] = [(action, 0)]
-        var head = 0
+        let reach = ChainWalk.reachable(from: action, known: known)
 
-        while head < queue.count {
-            let (current, depth) = queue[head]
-            head += 1
-
+        for (current, _) in reach.actions {
             if current.type == .shell { found.insert(.runsShellCommands) }
-            if current.type == .url { found.insert(.sendsSelectionToURL) }
+            // Only when the template actually carries the selection. Escalating
+            // every url action meant the sheet told the user "sends your
+            // selected text to the URL shown above" over
+            // `https://github.com/notifications`, which sends nothing — while
+            // the capability chip beside it correctly read "Opens
+            // github.com". One of the two had to be wrong, and it was this one:
+            // both runtimes substitute only `%s` and `{{…}}`. A static URL still
+            // shows its chip and its payload; it just no longer claims to
+            // upload something it does not.
+            if current.type == .url,
+               CapabilityDetector.embedsSelection(inURLTemplate: current.value) {
+                found.insert(.sendsSelectionToURL)
+            }
             if current.autoReplaceSelection { found.insert(.replacesSelection) }
             if current.runInBackground { found.insert(.runsWithoutShowingOutput) }
             // The advisory scanner, not the engine's parser: over-reporting
@@ -94,54 +82,65 @@ public enum ApprovalClassifier {
             if SecretReference.referencesAnySecret(current.value) {
                 found.insert(.referencesSecrets)
             }
+        }
 
-            guard depth < ActionSchema.maxChainSteps else { continue }
-
-            for step in current.next {
-                switch step {
-                case .inlineLLM:
-                    continue
-                case .appleShortcut:
-                    // `shortcuts run` launches a user workflow through a
-                    // subprocess. Cai cannot see what it does, so it escalates
-                    // with the executable callout rather than passing silently.
-                    found.insert(.runsShellCommands)
-                case .action(let name):
-                    switch known.resolveChainName(name) {
-                    case .shortcut(let referenced):
-                        // An action already queued contributes nothing new to
-                        // the union, whether this step is a genuine cycle or a
-                        // second route to the same node. A different action
-                        // that happens to share a name is a different action,
-                        // and its risks count.
-                        guard !visited.contains(referenced.id) else { continue }
-                        visited.insert(referenced.id)
-                        queue.append((referenced, depth + 1))
-                    case .destination(let destination):
-                        switch destination.kind {
-                        case .shell, .applescript:
-                            found.insert(.runsShellCommands)
-                        case .webhook, .deeplink:
-                            found.insert(.sendsSelectionToURL)
-                        case .pasteBack:
-                            found.insert(.replacesSelection)
-                        case .clipboardCopy, .showInCai:
-                            // Neither reaches outside Cai: one writes the
-                            // pasteboard, the other only puts text on screen.
-                            continue
-                        }
-                    case .builtIn:
-                        // Built-ins are leaf LLM transforms.
+        for leaf in reach.leaves {
+            switch leaf {
+            case .appleShortcut:
+                // `shortcuts run` launches a user workflow through a
+                // subprocess. Cai cannot see what it does, so it escalates
+                // with the executable callout rather than passing silently.
+                found.insert(.runsShellCommands)
+            case .destination(let destination):
+                // Cai's own built-ins are classified by ROLE, not by kind.
+                //
+                // Email, Save to Notes and Create Reminder are `.applescript`
+                // destinations, and kind alone therefore escalated them as "can
+                // run terminal commands on your Mac". That is both scarier than
+                // the truth — the script is a fixed template Cai ships, not
+                // user or agent input — and, since the capability chips resolve
+                // the same destinations by role, it made the sheet contradict
+                // itself: the callout shouted about terminal commands while the
+                // chip row said a bounded "Writes to Notes". On an approval
+                // surface the two must agree, so the narrower and more accurate
+                // reading wins. Anything Cai does not own still escalates by
+                // kind, below.
+                if let role = destination.builtInRole {
+                    switch role {
+                    case .mailDraft, .notes, .reminders:
+                        // Bounded, visible, local writes through a script Cai
+                        // wrote. Nothing to escalate.
                         continue
-                    case .unresolved:
-                        // Runs nothing today, but "today" is when the user is
-                        // deciding: a later proposal can claim the name and
-                        // this action starts reaching whatever it does. The
-                        // unresolved-step warning still names the steps; this
-                        // is what makes the approval a deliberate act.
-                        found.insert(.chainsToUnknownAction)
+                    case .replaceSelection:
+                        found.insert(.replacesSelection)
+                    case .clipboard, .showInCai:
+                        // One writes the pasteboard, the other only puts text
+                        // on screen. Neither reaches outside Cai.
+                        continue
                     }
+                    continue
                 }
+
+                switch destination.kind {
+                case .shell, .applescript:
+                    found.insert(.runsShellCommands)
+                case .webhook, .deeplink:
+                    found.insert(.sendsSelectionToURL)
+                case .pasteBack:
+                    found.insert(.replacesSelection)
+                case .clipboardCopy, .showInCai:
+                    continue
+                }
+            case .builtIn:
+                // Built-ins are leaf LLM transforms.
+                continue
+            case .unresolved:
+                // Runs nothing today, but "today" is when the user is
+                // deciding: a later proposal can claim the name and this action
+                // starts reaching whatever it does. The unresolved-step warning
+                // still names the steps; this is what makes the approval a
+                // deliberate act.
+                found.insert(.chainsToUnknownAction)
             }
         }
 

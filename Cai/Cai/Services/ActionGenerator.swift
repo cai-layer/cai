@@ -1,3 +1,4 @@
+import CaiActionCore
 import Foundation
 
 // MARK: - Action Generator
@@ -25,8 +26,9 @@ struct ActionGenerator {
         // pinned-first, where the user's drag order in
         // `ShortcutsManagementView` determines the relative order within the
         // pinned section. Iterating `where sc.pinned` preserves that order.
+        let known = settings.knownActions
         for sc in settings.shortcuts where sc.pinned {
-            items.append(actionItem(from: sc, clipboardText: text, shortcut: shortcut))
+            items.append(actionItem(from: sc, clipboardText: text, shortcut: shortcut, known: known))
             shortcut += 1
         }
 
@@ -564,10 +566,15 @@ struct ActionGenerator {
     /// Converts a `CaiShortcut` into an `ActionItem` for the action list.
     /// Shared by `generateActions` (pinned shortcuts) and `ActionListWindow.filteredActions`
     /// (filter-to-reveal) so the two paths stay in sync.
+    /// `known` rather than the whole `CaiSettings`: building `knownActions`
+    /// rebuilds every action snapshot and re-parses every webhook URL, so a
+    /// caller in a loop has to hoist it once instead of paying per row. Also
+    /// makes this callable from a test without standing up settings.
     static func actionItem(
         from sc: CaiShortcut,
         clipboardText: String,
-        shortcut: Int
+        shortcut: Int,
+        known: KnownActions
     ) -> ActionItem {
         let actionType: ActionType
         let subtitle: String
@@ -593,6 +600,9 @@ struct ActionGenerator {
         return ActionItem(
             id: "shortcut_\(sc.id.uuidString)",
             title: sc.name,
+            // Chips replace the raw-payload subtitle for custom actions (see
+            // `CapabilitySubtitle`). `subtitle` stays populated as the row's
+            // tooltip and as the fallback for anything that reads the string.
             subtitle: subtitle,
             icon: sc.type.icon,
             shortcut: shortcut,
@@ -601,7 +611,8 @@ struct ActionGenerator {
             next: sc.next,
             // Only meaningful for the prompt branch of executeAction; shell
             // dispatch reads `runInBackground` from the .shortcutShell enum case.
-            runInBackground: sc.type == .prompt && sc.runInBackground
+            runInBackground: sc.type == .prompt && sc.runInBackground,
+            capabilities: CapabilityDetector.capabilities(for: sc.actionSnapshot, known: known)
         )
     }
 }

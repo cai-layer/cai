@@ -750,6 +750,13 @@ struct ActionListWindow: View {
                         showConnectors = true
                     }
                 },
+                onShowSystemAccess: {
+                    connectorsInitialTab = .systemAccess
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                        showConnectors = true
+                    }
+                },
                 onShowSecrets: {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = false

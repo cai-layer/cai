@@ -10,6 +10,15 @@
 	     prompt, status stays notDetermined. These are NOT sandbox entitlements
 	     (Cai isn't sandboxed); they're the hardened-runtime equivalent, required
 	     even for a non-sandboxed app. See _docs/architecture/PERMISSIONS.md. -->
+	<!-- calendars covers BOTH EventKit entity types: .event (Calendar) and
+	     .reminder (Reminders). There is NO
+	     com.apple.security.personal-information.reminders key — the
+	     hardened-runtime Resource Access list is audio-input, camera, location,
+	     addressbook, calendars, photos-library and apple-events, and nothing
+	     else (verified against Xcode's capability UI and the system sandbox
+	     profiles, which know only addressbook/calendars/location). The in-app
+	     Reminders toggle rides this entitlement; do NOT "fix" a missing
+	     Reminders prompt by inventing a reminders key. -->
 	<key>com.apple.security.personal-information.calendars</key>
 	<true/>
 	<key>com.apple.security.personal-information.addressbook</key>

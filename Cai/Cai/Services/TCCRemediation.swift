@@ -53,6 +53,7 @@ enum TCCRemediation {
         init(_ domain: NativeAccessManager.Domain) {
             switch domain {
             case .calendars: self = .calendars
+            case .reminders: self = .reminders
             case .contacts: self = .contacts
             }
         }

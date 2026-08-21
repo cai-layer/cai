@@ -628,7 +628,8 @@ class WindowController: NSObject, ObservableObject {
                 }
                 return false  // newline (modified Return, setting off, or another screen)
             }
-            if event.keyCode == 126 || event.keyCode == 125 {
+            if event.keyCode == 126 || event.keyCode == 125
+                || event.keyCode == 123 || event.keyCode == 124 {
                 return false  // arrows move the cursor
             }
         }
@@ -639,6 +640,16 @@ class WindowController: NSObject, ObservableObject {
                 name: .caiArrowUp,
                 object: nil
             )
+            return true
+        }
+
+        // Arrow Left / Right — page the run surface's kept results.
+        if event.keyCode == 123 {
+            NotificationCenter.default.post(name: .caiArrowLeft, object: nil)
+            return true
+        }
+        if event.keyCode == 124 {
+            NotificationCenter.default.post(name: .caiArrowRight, object: nil)
             return true
         }
 

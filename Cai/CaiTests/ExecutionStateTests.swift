@@ -144,17 +144,38 @@ final class ExecutionStateTests: XCTestCase {
         }
     }
 
-    func testRingCapsAtMaxRecent() {
-        // Oldest out first, so a long unattended session can't grow unbounded.
-        var s = Snapshot()
-        for i in 0..<(ExecutionState.maxRecent + 3) {
-            let id = UUID()
-            s = S.reduce(s, .start(name: "run\(i)", id: id))
-            s = S.reduce(s, .produceResult(text: "out\(i)", runId: id))
-            s = S.reduce(s, .finish)
+    /// The run surface's pager domain: a failure slot at -1 followed by the kept
+    /// results. Load-bearing because a bad clamp indexes out of bounds or shows
+    /// the wrong record, and a wrong opening index makes the user arrow past the
+    /// result they just read.
+    func testRunSurfacePager() {
+        func rec(_ text: String, viewed: Bool) -> ExecutionState.RunRecord {
+            ExecutionState.RunRecord(id: UUID(), actionName: "A", text: text, viewed: viewed)
         }
-        XCTAssertEqual(s.recent.count, ExecutionState.maxRecent)
-        XCTAssertEqual(s.recent.first?.text, "out\(ExecutionState.maxRecent + 2)", "newest first")
+
+        // Clamp: in range at both ends, never wrapping, and -1 addressable only
+        // when a failure actually occupies it.
+        XCTAssertEqual(S.clampResultIndex(9, recentCount: 3, hasFailure: false), 2)
+        XCTAssertEqual(S.clampResultIndex(-5, recentCount: 3, hasFailure: true), -1)
+        XCTAssertEqual(S.clampResultIndex(-1, recentCount: 3, hasFailure: false), 0)
+        XCTAssertEqual(S.clampResultIndex(0, recentCount: 0, hasFailure: true), -1)
+
+        // Opening: a failure outranks results; otherwise skip what was collected.
+        XCTAssertEqual(S.openingResultIndex(in: [rec("a", viewed: false)], hasFailure: true), -1)
+        XCTAssertEqual(
+            S.openingResultIndex(
+                in: [rec("new", viewed: true), rec("old", viewed: false)], hasFailure: false
+            ), 1
+        )
+
+        // Copy-and-advance stops when nothing is left, so the caller dismisses.
+        let mixed = [rec("0", viewed: true), rec("1", viewed: false), rec("2", viewed: false)]
+        XCTAssertEqual(S.nextUnviewedIndex(after: 1, in: mixed), 2)
+        XCTAssertNil(
+            S.nextUnviewedIndex(
+                after: 2, in: [rec("0", viewed: true), rec("1", viewed: true), rec("2", viewed: false)]
+            )
+        )
     }
 
     func testNewRunClearsPriorOutcome() {

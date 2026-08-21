@@ -55,6 +55,11 @@ struct ResultView: View {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.caiTextPrimary)
+                    // A long custom-prompt title would otherwise wrap and grow
+                    // the 38pt header row (DESIGN row heights).
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(title)
 
                 Spacer()
             }

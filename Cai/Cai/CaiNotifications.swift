@@ -7,6 +7,12 @@ extension NSNotification.Name {
     static let caiCmdEnterPressed = NSNotification.Name("CaiCmdEnterPressed")
     static let caiArrowUp = NSNotification.Name("CaiArrowUp")
     static let caiArrowDown = NSNotification.Name("CaiArrowDown")
+    /// ←/→ page through the run surface's kept results. Deliberately NOT ↑/↓:
+    /// those mean "move the selection in a visible list" everywhere else in the
+    /// app, and the run surface shows no list — plus spending them here would
+    /// forfeit the obvious future use, scrolling a long result body.
+    static let caiArrowLeft = NSNotification.Name("CaiArrowLeft")
+    static let caiArrowRight = NSNotification.Name("CaiArrowRight")
     static let caiCmdNumber = NSNotification.Name("CaiCmdNumber")
     static let caiTabPressed = NSNotification.Name("CaiTabPressed")
     static let caiCmdNPressed = NSNotification.Name("CaiCmdNPressed")

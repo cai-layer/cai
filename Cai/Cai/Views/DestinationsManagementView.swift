@@ -203,6 +203,15 @@ struct DestinationsManagementView: View {
                 .padding(.horizontal, 12)
         }
 
+        // "Show in Cai" is synthetic (never persisted — see
+        // BuiltInDestinations.showInCai), so it has no row above and no toggle
+        // to own. It still needs one readable home: without it, both its
+        // existence and its precedence rule live only in a code comment and a
+        // 10pt autocomplete hint, and a user who puts it in a background action
+        // watches nothing happen with no way to find out why.
+        showInCaiReferenceRow
+            .padding(.horizontal, 12)
+
         if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled && !$0.chainOnly }) {
             Text("macOS will ask for Automation permission on first use. If denied, re-enable in System Settings → Automation.")
                 .font(.system(size: 10))
@@ -365,6 +374,47 @@ struct DestinationsManagementView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.caiSurface.opacity(0.3))
         )
+    }
+
+    /// Reference row for the synthetic "Show in Cai" destination. Same shell as
+    /// `builtInRow` minus the toggle — it is always available and has nothing to
+    /// configure, so a switch would be a lie. The icon stays `caiPrimary`
+    /// (always on) and the subtitle carries the background-precedence rule,
+    /// which is the part that would otherwise surprise someone.
+    @ViewBuilder
+    private var showInCaiReferenceRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: BuiltInDestinations.showInCai.icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.caiPrimary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(BuiltInDestinations.showInCai.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.caiTextPrimary)
+
+                Text("Ends a chain by showing its result in Cai. Background actions record it on the header pill instead.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            // Where the toggle would sit — states "always on" without pretending
+            // to be interactive.
+            Text("Always on")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.caiSurface.opacity(0.3))
+        )
+        .accessibilityElement(children: .combine)
     }
 
     /// Short, action-verb subtitle for a built-in destination — fills the

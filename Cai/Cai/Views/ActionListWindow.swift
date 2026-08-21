@@ -41,8 +41,8 @@ struct ActionListWindow: View {
     @State private var showResult: Bool = false
     /// Pill-click opens the running action's live progress view.
     @State private var showRunning: Bool = false
-    /// Which kept result the run surface is showing (0 = newest). Lives here so
-    /// the existing arrow-key plumbing can page through the ring.
+    /// Which entry the run surface is showing: -1 is the failure slot, 0 is the
+    /// newest kept result. Lives here so the key handlers can page it.
     @State private var runResultIndex: Int = 0
     @State private var resultTitle: String = ""
     @State private var resultGenerator: (() async throws -> String)?
@@ -239,6 +239,7 @@ struct ActionListWindow: View {
             .onReceive(NotificationCenter.default.publisher(for: .caiArrowUp)) { _ in
                 handleArrowUp()
             }
+            .modifier(RunResultPagingKeys(onPage: pageRunResult))
             .onReceive(NotificationCenter.default.publisher(for: .caiArrowDown)) { _ in
                 handleArrowDown()
             }
@@ -393,7 +394,10 @@ struct ActionListWindow: View {
                 goBackToActions()
             }
         } else if showRunning {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            // easeOut 0.2 both ways — DESIGN's motion table puts screen changes
+            // there, and the door shouldn't swing on a different curve than it
+            // opened on.
+            withAnimation(.easeOut(duration: 0.2)) {
                 showRunning = false
             }
         } else if !selectionState.filterText.isEmpty {
@@ -446,11 +450,6 @@ struct ActionListWindow: View {
 
     private func handleArrowUp() {
         switch activeScreen {
-        case .running:
-            // Pages back through kept results (newest first, so "up" = newer).
-            let count = ExecutionState.shared.recent.count
-            guard count > 1 else { return }
-            runResultIndex = runResultIndex > 0 ? runResultIndex - 1 : count - 1
         case .actions:
             let count = displayedActions.count
             guard count > 0 else { return }
@@ -468,10 +467,6 @@ struct ActionListWindow: View {
 
     private func handleArrowDown() {
         switch activeScreen {
-        case .running:
-            let count = ExecutionState.shared.recent.count
-            guard count > 1 else { return }
-            runResultIndex = runResultIndex < count - 1 ? runResultIndex + 1 : 0
         case .actions:
             let count = displayedActions.count
             guard count > 0 else { return }
@@ -506,13 +501,25 @@ struct ActionListWindow: View {
             }
             copyAndDismissWithToast()
         case .running:
-            // A recovered result copies on Enter exactly like one in ResultView.
+            // Copies like a ResultView result — but with more still waiting it
+            // ADVANCES instead of dismissing. Ejecting the user mid-collection
+            // made three results cost three ⌥C summons.
             let recent = execution.recent
-            guard !recent.isEmpty else { return }
-            let shown = recent[min(max(0, runResultIndex), recent.count - 1)]
-            guard !shown.text.isEmpty else { return }
-            SystemActions.copyToClipboard(shown.text)
-            copyAndDismissWithToast()
+            let i = ExecutionState.clampResultIndex(
+                runResultIndex, recentCount: recent.count,
+                hasFailure: execution.lastRunFailed
+            )
+            guard i >= 0, i < recent.count, !recent[i].text.isEmpty else { return }
+            SystemActions.copyToClipboard(recent[i].text)
+            if let next = ExecutionState.nextUnviewedIndex(after: i, in: recent) {
+                runResultIndex = next
+                NotificationCenter.default.post(
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": "Copied to Clipboard"]
+                )
+            } else {
+                copyAndDismissWithToast()
+            }
         case .extensionConfirm:
             confirmInstallExtension()
         case .mcpForm:
@@ -952,9 +959,15 @@ struct ActionListWindow: View {
                 RunningPill(reduceMotion: reduceMotion) {
                     withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
                 }
-            } else if execution.hasUnviewedResult {
-                ResultReadyPill(count: execution.unviewedCount) {
-                    runResultIndex = 0
+            } else if !execution.recent.isEmpty || execution.lastRunFailed {
+                // Stays while anything is kept, not only while something is
+                // unread: this pill is the ONLY door to the run surface, so
+                // hiding it once everything is viewed left the results sitting
+                // in memory with no gesture able to reach them.
+                ResultReadyPill(unviewed: execution.unviewedCount) {
+                    runResultIndex = ExecutionState.openingResultIndex(
+                        in: execution.recent, hasFailure: execution.lastRunFailed
+                    )
                     withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
                 }
             }
@@ -1609,6 +1622,17 @@ struct ActionListWindow: View {
         ExecutionState.shared.reportResult(text, for: runId)
     }
 
+    /// Steps through the run surface's kept results. No wraparound: no macOS
+    /// pager wraps, and wrapping makes the ends indistinguishable.
+    private func pageRunResult(by delta: Int) {
+        guard activeScreen == .running else { return }
+        runResultIndex = ExecutionState.clampResultIndex(
+            runResultIndex + delta,
+            recentCount: execution.recent.count,
+            hasFailure: execution.lastRunFailed
+        )
+    }
+
     /// Navigates to the run surface after a foreground chain finished on
     /// "Show in Cai".
     ///
@@ -1622,7 +1646,9 @@ struct ActionListWindow: View {
     private func handleShowRunResult() {
         guard activeScreen == .actions || activeScreen == .running else { return }
         selectionState.filterText = ""
-        runResultIndex = 0
+        runResultIndex = ExecutionState.openingResultIndex(
+            in: execution.recent, hasFailure: execution.lastRunFailed
+        )
         withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
     }
 
@@ -1814,7 +1840,7 @@ struct ActionListWindow: View {
                 reduceMotion: reduceMotion,
                 resultIndex: $runResultIndex,
                 onBack: {
-                    withAnimation(.easeInOut(duration: 0.15)) { showRunning = false }
+                    withAnimation(.easeOut(duration: 0.2)) { showRunning = false }
                 }
             )
         } else {

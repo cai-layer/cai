@@ -61,17 +61,21 @@ private struct HeaderPill<Content: View>: View {
 /// green: that would invent a second chromatic interactive vocabulary for what
 /// is one control.
 struct ResultReadyPill: View {
-    /// How many finished results are waiting. Pluralised with a count once more
-    /// than one run has gone uncollected, so back-to-back background actions
-    /// read as two things to collect rather than one.
-    let count: Int
+    /// How many finished results the user hasn't collected. Zero means results
+    /// are still available but all seen, which is a quieter state — not an
+    /// absent one, because the pill is the only door back to them.
+    let unviewed: Int
     let onTap: () -> Void
 
-    private var label: String { count > 1 ? "\(count) Results" : "Result" }
+    /// `tray.fill`, not a checkmark. A checkmark means "done, nothing needed",
+    /// which is the opposite of what this pill asks for — and the 24pt
+    /// `checkmark.circle.fill` on the surface already means "finished, nothing
+    /// kept", so one glyph would carry two contradictory meanings.
+    private var label: String { unviewed > 1 ? "\(unviewed) Results" : "Result" }
 
     var body: some View {
         HeaderPill(onTap: onTap) {
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: "tray.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.caiPrimary)
             Text(label)
@@ -79,11 +83,13 @@ struct ResultReadyPill: View {
                 .foregroundColor(.caiPrimary)
                 .monospacedDigit()
         }
-        .help(count > 1 ? "\(count) actions finished — click to see the results"
-                        : "An action finished — click to see the result")
-        .accessibilityLabel(count > 1
-            ? "\(count) finished results. Open them."
-            : "Action finished with a result. Open it.")
+        // Collected results stay reachable but stop competing for attention.
+        .opacity(unviewed > 0 ? 1 : 0.55)
+        .help(unviewed > 1 ? "\(unviewed) actions finished — click to see the results"
+                           : "Click to see the result")
+        .accessibilityLabel(unviewed > 1
+            ? "\(unviewed) finished results. Open them."
+            : "Finished result. Open it.")
     }
 }
 
@@ -146,12 +152,39 @@ struct RunningView: View {
         return execution.lastRunName ?? "Finished"
     }
 
+    /// Whether the last run failed, and so has a message worth reading.
+    private var hasFailure: Bool {
+        if case .failed = execution.lastOutcome { return true }
+        return false
+    }
+
     /// The kept result currently on screen, if any.
+    ///
+    /// Index -1 is the failure slot. Without it, a failed run whose ring still
+    /// held earlier successes showed the newest SUCCESS and made the failure
+    /// message unreachable — visible only in a 1.5s toast.
     private var record: ExecutionState.RunRecord? {
         guard !execution.isRunning else { return nil }
         let recent = execution.recent
         guard !recent.isEmpty else { return nil }
-        return recent[min(max(0, resultIndex), recent.count - 1)]
+        let i = ExecutionState.clampResultIndex(
+            resultIndex, recentCount: recent.count, hasFailure: hasFailure
+        )
+        guard i >= 0 else { return nil }   // showing the failure
+        return recent[i]
+    }
+
+    /// Total pageable entries, including the failure slot.
+    private var pageCount: Int {
+        execution.recent.count + (hasFailure ? 1 : 0)
+    }
+
+    /// 1-based position of what's on screen, for the footer caption.
+    private var pagePosition: Int {
+        let i = ExecutionState.clampResultIndex(
+            resultIndex, recentCount: execution.recent.count, hasFailure: hasFailure
+        )
+        return hasFailure ? i + 2 : i + 1
     }
 
     var body: some View {
@@ -164,6 +197,11 @@ struct RunningView: View {
                 Text(headerTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.caiTextPrimary)
+                    // A 60-char action name would otherwise wrap and grow the
+                    // 38pt header row (DESIGN row heights).
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(headerTitle)
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -181,6 +219,7 @@ struct RunningView: View {
                 // `withAnimation`, so progress → result would jump-cut.
                 // DESIGN lists result reveals at easeOut 0.2s.
                 .animation(.easeOut(duration: 0.2), value: record?.id)
+                .animation(.easeOut(duration: 0.2), value: resultIndex)
 
             Spacer(minLength: 0)
             Divider().background(Color.caiDivider)
@@ -188,15 +227,16 @@ struct RunningView: View {
             HStack(spacing: 10) {
                 KeyboardHint(key: "Esc", label: "Back")
                 Spacer()
-                // "2 of 3" only once the ring holds more than one, with the
-                // arrows that move through it. Rounded + monospaced numerals so
-                // the caption doesn't jitter as it changes (DESIGN).
-                if execution.recent.count > 1, record != nil {
-                    KeyboardHint(key: "\u{2191}\u{2193}", label: "Results")
-                    Text("\(min(resultIndex, execution.recent.count - 1) + 1) of \(execution.recent.count)")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundColor(.caiTextSecondary)
-                        .monospacedDigit()
+                // One unit: the keys and the position bound together, at the
+                // 10pt footer-hint weight (DESIGN typography) so the pager
+                // never out-shouts Esc and Return. Rounded + monospaced
+                // numerals so it doesn't jitter as it changes.
+                if pageCount > 1 {
+                    KeyboardHint(
+                        key: "\u{2190}\u{2192}",
+                        label: "\(pagePosition) of \(pageCount)"
+                    )
+                    .monospacedDigit()
                 }
                 // Same affordance ResultView offers on a result, because it is
                 // the same result.
@@ -236,7 +276,16 @@ struct RunningView: View {
             // into this view, and a recovered result can still be copied with
             // Enter. Noted as a follow-up rather than left as an accident.
             ResultBody(text: record.text)
+                // Fresh identity per record, so paging actually crossfades AND
+                // the ScrollView starts at the top instead of inheriting the
+                // previous record's scroll offset.
+                .id(record.id)
                 .transition(.opacity)
+                .accessibilityLabel(
+                    pageCount > 1
+                        ? "Result \(pagePosition) of \(pageCount), from \(record.actionName)"
+                        : "Result from \(record.actionName)"
+                )
         } else {
             centeredStatus
         }
@@ -325,5 +374,26 @@ struct RunningView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The ←/→ observers for the run surface's result pager.
+///
+/// A `ViewModifier` rather than two more `.onReceive` calls on the action
+/// window's body: that chain is long enough that adding to it tips the Swift
+/// type-checker into "unable to type-check this expression in reasonable time".
+/// Wrapping them gives them their own inference context.
+struct RunResultPagingKeys: ViewModifier {
+    /// Called with -1 for ←, +1 for →.
+    let onPage: (Int) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .caiArrowLeft)) { _ in
+                onPage(-1)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiArrowRight)) { _ in
+                onPage(1)
+            }
     }
 }

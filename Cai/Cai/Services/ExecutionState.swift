@@ -134,10 +134,12 @@ final class ExecutionState: ObservableObject {
     /// Whether a newly triggered action may start, or should surface "busy".
     enum StartDecision: Equatable { case start, busy }
 
-    /// Cap on kept results. Session-only and deliberately small: this is a
-    /// collection buffer so back-to-back runs don't eat each other, not the
-    /// History surface (which is its own tracked work).
-    static let maxRecent = 5
+    /// Cap on kept results. Session-only and deliberately shallow: three reads
+    /// as a collection buffer, where five starts reading as storage — and
+    /// anything users treat as storage will eventually lose them something to a
+    /// quit or an eviction, which is the opposite of this feature's promise.
+    /// The real list lives in the History surface (its own tracked work).
+    static let maxRecent = 3
 
     @Published private(set) var snapshot = Snapshot()
 
@@ -151,7 +153,13 @@ final class ExecutionState: ObservableObject {
     var lastRunName: String? { snapshot.lastRunName }
     /// Finished runs holding output, newest first.
     var recent: [RunRecord] { snapshot.recent }
-    /// Results not yet looked at — keeps the pill up and drives its count.
+    /// Whether the most recent finished run failed — the run surface keeps a
+    /// slot for its message so earlier successes can't shadow it.
+    var lastRunFailed: Bool {
+        if case .failed = snapshot.lastOutcome { return true }
+        return false
+    }
+    /// Results not yet looked at — drives the pill's count.
     var unviewedCount: Int { snapshot.unviewedCount }
     var hasUnviewedResult: Bool { snapshot.hasUnviewedResult }
 
@@ -230,6 +238,55 @@ final class ExecutionState: ObservableObject {
     /// — only the executeAction entry point does.)
     nonisolated static func startDecision(isRunning: Bool) -> StartDecision {
         isRunning ? .busy : .start
+    }
+
+    // MARK: - Run surface pager (pure)
+    //
+    // The surface pages over a domain of an optional failure slot followed by
+    // the kept results:
+    //
+    //     index:  -1        0         1         2
+    //          [failure]  newest    older    oldest
+    //
+    // The failure slot exists so a failed run can still be read when the ring
+    // holds earlier successes. Without it the newest success shadows the failure
+    // and the error message is only ever visible in a 1.5s toast.
+
+    /// Clamps an index into the pager domain. No wraparound — no macOS pager
+    /// wraps, and wrapping makes "first" and "last" indistinguishable.
+    nonisolated static func clampResultIndex(
+        _ index: Int, recentCount: Int, hasFailure: Bool
+    ) -> Int {
+        let lower = hasFailure ? -1 : 0
+        let upper = recentCount - 1
+        guard upper >= lower else { return lower }
+        return min(max(index, lower), upper)
+    }
+
+    /// Where opening the surface should land: the failure if there is one, else
+    /// the newest result the user hasn't collected, else the newest result.
+    /// Opening on an already-collected result while the pill advertises unread
+    /// ones makes the user arrow past what they just read.
+    nonisolated static func openingResultIndex(
+        in recent: [RunRecord], hasFailure: Bool
+    ) -> Int {
+        if hasFailure { return -1 }
+        if let i = recent.firstIndex(where: { !$0.viewed }) { return i }
+        return 0
+    }
+
+    /// The next uncollected result after `index`, or nil when that was the last
+    /// one. Drives "copy and move on" rather than ejecting the user from the
+    /// panel with results still waiting.
+    nonisolated static func nextUnviewedIndex(
+        after index: Int, in recent: [RunRecord]
+    ) -> Int? {
+        guard !recent.isEmpty else { return nil }
+        let start = max(0, index + 1)
+        if start < recent.count,
+           let i = recent[start...].firstIndex(where: { !$0.viewed }) { return i }
+        // Nothing later — fall back to anything still uncollected before it.
+        return recent.prefix(max(0, index)).firstIndex(where: { !$0.viewed })
     }
 
     /// "Step N of M" caption for the progress view. Clamped so a malformed

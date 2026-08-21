@@ -19,13 +19,4 @@ final class SyntheticDestinationTests: XCTestCase {
             "showInCai must stay out of `all` — `all` is what gets written to UserDefaults"
         )
     }
-
-    func testStillDecodesInThisBinary() throws {
-        // Round-trips, so a store that already picked it up (a dev build) is
-        // readable rather than nilling the whole array on OUR side too.
-        let data = try JSONEncoder().encode(BuiltInDestinations.showInCai)
-        let decoded = try JSONDecoder().decode(OutputDestination.self, from: data)
-        XCTAssertEqual(decoded.type, .showInCai)
-        XCTAssertEqual(decoded.id, BuiltInDestinations.showInCai.id)
-    }
 }

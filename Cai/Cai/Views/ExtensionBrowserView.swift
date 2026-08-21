@@ -107,6 +107,10 @@ struct ExtensionBrowserView: View {
     @State private var installingSlug: String?
     @State private var loadTask: Task<Void, Never>?
 
+    /// Single-list screen: no tabs, but `ManagementScreen` stays generic.
+    private enum ExtensionsTab { case main }
+    @State private var tab: ExtensionsTab = .main
+
     // Shell confirmation
     @State private var shellConfirmSlug: String?
     @State private var shellConfirmCommand: String = ""
@@ -123,93 +127,49 @@ struct ExtensionBrowserView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 10) {
-                Image(systemName: "puzzlepiece.extension.fill")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.caiPrimary)
+        // Single-list management screen, same shell as Secrets: the header,
+        // the live subtitle and the Esc footer all come from `ManagementScreen`
+        // so this screen stops being the one settings surface that draws its
+        // own chrome.
+        ManagementScreen(
+            icon: "puzzlepiece.extension.fill",
+            title: "Extensions",
+            subtitle: subtitle,
+            tabs: [],
+            selection: $tab,
+            customTabId: nil,
+            onAdd: nil
+        ) {
+            VStack(spacing: 0) {
+                searchField
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Extensions")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.caiTextPrimary)
-
-                    Text("Browse community extensions")
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary)
+                // Filter chips. Hidden while loading and while erroring so the
+                // vertical budget goes to content, and hidden when the catalog
+                // carries no tags at all.
+                if !isLoading, errorMessage == nil, !chipTags.isEmpty {
+                    filterChipRow
                 }
 
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-            Divider()
-                .background(Color.caiDivider)
-
-            // Search
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextSecondary.opacity(0.5))
-                TextField("Search extensions...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .focused($isSearchFocused)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.caiSurface.opacity(0.4))
-            .cornerRadius(6)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    isSearchFocused = true
-                }
-            }
-
-            // Filter chips. Hidden while loading / erroring so the vertical
-            // budget goes to content, and hidden when the catalog carries no
-            // tags at all.
-            if !isLoading, errorMessage == nil, !chipTags.isEmpty {
-                filterChipRow
-            }
-
-            // Content
-            ScrollView {
-                VStack(spacing: 4) {
-                    if isLoading {
-                        loadingState
-                    } else if let error = errorMessage {
-                        errorState(error)
-                    } else if entries.isEmpty {
-                        catalogEmptyState
-                    } else if displayedEntries.isEmpty {
-                        emptyState
-                    } else {
-                        ForEach(displayedEntries) { entry in
-                            extensionRow(entry)
+                ScrollView {
+                    VStack(spacing: 4) {
+                        if isLoading {
+                            loadingState
+                        } else if let error = errorMessage {
+                            errorState(error)
+                        } else if entries.isEmpty {
+                            catalogEmptyState
+                        } else if displayedEntries.isEmpty {
+                            noMatchState
+                        } else {
+                            ForEach(displayedEntries) { entry in
+                                extensionRow(entry)
+                            }
                         }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
             }
-
-            Spacer(minLength: 0)
-
-            Divider()
-                .background(Color.caiDivider)
-
-            // Footer
-            HStack(spacing: 12) {
-                KeyboardHint(key: "Esc", label: "Back")
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
         .task { await loadExtensions() }
         .alert("Install Shell Command", isPresented: Binding(
@@ -227,6 +187,44 @@ struct ExtensionBrowserView: View {
         }
     }
 
+    /// Header subtitle. Live, like every sibling screen: it answers "how much
+    /// is there" while browsing and "how much did I just hide" while filtering.
+    private var subtitle: String {
+        if isLoading { return "Loading community extensions" }
+        if errorMessage != nil { return "Community extensions" }
+        if entries.isEmpty { return "Community extensions" }
+
+        let total = entries.count
+        let shown = displayedEntries.count
+        if shown == total {
+            return "\(total) community extensions"
+        }
+        return "\(shown) of \(total) shown"
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+            TextField("Search extensions...", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($isSearchFocused)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.caiSurface.opacity(0.4))
+        .cornerRadius(6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isSearchFocused = true
+            }
+        }
+    }
+
     // MARK: - Filter Chips
 
     private var filterChipRow: some View {
@@ -235,15 +233,19 @@ struct ExtensionBrowserView: View {
             // `.capitalized` would turn the catalog's acronym tags into "Css"
             // and "Ai", and lowercase suits the passive register of a tag.
             ForEach(chipTags, id: \.self) { tag in
-                TagFilterChip(
+                ChipToggle(
                     label: tag,
+                    icon: nil,
                     isOn: selectedTags.contains(tag),
                     tooltip: selectedTags.contains(tag)
                         ? "Stop filtering by \(tag)"
-                        : "Show only \(tag) extensions"
-                ) {
-                    toggleTag(tag)
-                }
+                        : "Show only \(tag) extensions",
+                    action: { toggleTag(tag) },
+                    // A tag is remote data; 110pt clears the longest real one
+                    // ("productivity", 81pt measured) so only hostile lengths
+                    // ever truncate.
+                    maxLabelWidth: 110
+                )
             }
 
             // Clear is an action, not a toggle, so it does not wear a chip:
@@ -287,65 +289,41 @@ struct ExtensionBrowserView: View {
     }
 
     private func errorState(_ message: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "wifi.slash")
-                .font(.system(size: 28))
-                .foregroundColor(.caiTextSecondary.opacity(0.4))
-            Text(message)
-                .font(.system(size: 12))
-                .foregroundColor(.caiTextSecondary)
-                .multilineTextAlignment(.center)
-            Button("Retry") {
-                Task { await loadExtensions() }
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundColor(.caiPrimary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 80)
-        .padding()
+        ManagementEmptyState(
+            icon: "wifi.slash",
+            title: message,
+            description: "The catalog lives on GitHub, so this needs a connection.",
+            ctaLabel: "Retry",
+            ctaIcon: "arrow.clockwise",
+            ctaAction: { Task { await loadExtensions() } }
+        )
     }
 
-    /// The catalog itself came back empty. Distinct from `emptyState`, which
+    /// The catalog itself came back empty. Distinct from `noMatchState`, which
     /// blames a filter: with nothing typed and nothing selected, "no match"
     /// would be a lie about the user's input.
     private var catalogEmptyState: some View {
-        VStack(spacing: 8) {
-            Text("No extensions available")
-                .font(.system(size: 12))
-                .foregroundColor(.caiTextSecondary)
-            Button("Retry") { Task { await loadExtensions() } }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.caiPrimary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 60)
-        .padding()
+        ManagementEmptyState(
+            icon: "puzzlepiece.extension",
+            title: "No extensions available",
+            description: "The community catalog came back empty.",
+            ctaLabel: "Retry",
+            ctaIcon: "arrow.clockwise",
+            ctaAction: { Task { await loadExtensions() } }
+        )
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 8) {
-            Text(selectedTags.isEmpty
-                 ? "No extensions match your search"
-                 : "No extensions match your filters")
-                .font(.system(size: 12))
-                .foregroundColor(.caiTextSecondary)
-
-            // A dead end needs a way out that is right here, not a Clear
-            // control the user has to go find in the row above. Scoped to the
-            // chips: a no-hit search query is its own undo in the focused
-            // field, and wiping what someone just typed is not a favour.
-            if !selectedTags.isEmpty {
-                Button("Clear filters") {
-                    selectedTags.removeAll()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.caiPrimary)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 60)
-        .padding()
+    private var noMatchState: some View {
+        ManagementEmptyState(
+            icon: "magnifyingglass",
+            title: selectedTags.isEmpty ? "Nothing matches that search" : "Nothing matches these filters",
+            description: selectedTags.isEmpty
+                ? "Try a shorter word, or browse by tag."
+                : "Tags narrow the list; clearing them brings the rest back.",
+            ctaLabel: selectedTags.isEmpty ? nil : "Clear filters",
+            ctaIcon: selectedTags.isEmpty ? nil : "xmark",
+            ctaAction: selectedTags.isEmpty ? nil : { selectedTags.removeAll() }
+        )
     }
 
     // MARK: - Extension Row
@@ -374,7 +352,7 @@ struct ExtensionBrowserView: View {
                         .foregroundColor(.caiTextPrimary)
                         .lineLimit(1)
 
-                    tagPill(entry.type.capitalized)
+                    typeChip(entry.type)
                 }
 
                 Text(entry.description)
@@ -563,38 +541,39 @@ struct ExtensionBrowserView: View {
 
     /// Tags + author, the row's third line.
     ///
-    /// Tags are passive labels, not controls: same treatment as the type badge,
-    /// no indigo (Indigo discipline: they describe, they do not act), and a 9pt
-    /// pill could not carry the 44pt hit target a control owes. Filtering by
-    /// tag is the chip row's job.
+    /// Plain text, not pills (2026-08-22 design review): one boxed element per
+    /// row means the box always means "type". Tags describe, they do not act,
+    /// and a 9pt pill could never carry the 44pt hit target a control owes.
+    /// Filtering by tag is the chip row's job.
     ///
     /// Capped at `rowTagLimit` with a `+n` counter so a long tag list cannot
-    /// stretch the row; the full list is in the tooltip.
+    /// crowd the line; the tooltip carries the full list and the author.
     private func metadataLine(_ entry: ExtensionService.ExtensionEntry) -> some View {
         let tags = ExtensionCatalogFilter.normalizedTags(entry.tags)
-        let shown = Array(tags.prefix(ExtensionCatalogFilter.rowTagLimit))
+        let shown = tags.prefix(ExtensionCatalogFilter.rowTagLimit)
         let overflow = tags.count - shown.count
         let author = entry.author
             .strippingControlCharacters(keepingNewlines: false)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        return HStack(spacing: 4) {
-            HStack(spacing: 4) {
-                ForEach(shown, id: \.self) { tag in
-                    tagPill(tag)
-                }
+        var line = shown.joined(separator: " · ")
+        if overflow > 0 {
+            line += line.isEmpty ? "+\(overflow)" : " · +\(overflow)"
+        }
 
-                if overflow > 0 {
-                    Text("+\(overflow)")
-                        .font(.system(size: 9, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundColor(.caiTextSecondary.opacity(0.7))
-                }
+        return HStack(spacing: 6) {
+            if !line.isEmpty {
+                Text(line)
+                    .font(.system(size: 9))
+                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
+
             if !author.isEmpty, author != Self.firstPartyAuthor {
                 Text("by \(author)")
                     .font(.system(size: 9))
-                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    .foregroundColor(.caiTextSecondary.opacity(0.5))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -610,109 +589,29 @@ struct ExtensionBrowserView: View {
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    /// The row's small-label treatment, shared by the type badge and the tags
-    /// so the two cannot drift apart.
+    /// How the action will run: the row's one boxed element.
     ///
-    /// Clamped: every string here (`tags`, `type`) comes from remote catalog
-    /// JSON, so one over-long value would otherwise wrap and stretch the row.
-    private func tagPill(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 9, weight: .medium))
-            .foregroundColor(.caiTextSecondary.opacity(0.7))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: 90, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Color.caiSurface.opacity(0.8))
-            .cornerRadius(4)
-    }
-}
+    /// Glyph plus label, in `DestinationChip`'s vocabulary, and the glyph is
+    /// the same one the actions editor uses for the type (`CaiActionType.icon`)
+    /// so "Shell" looks like Shell everywhere in the app. Sizes to its own
+    /// text: never a fixed width.
+    private func typeChip(_ rawType: String) -> some View {
+        let known = CaiActionType(rawValue: rawType.lowercased())
+        let label = known?.label ?? rawType.capitalized
+        let icon = known?.icon ?? "shippingbox.fill"
 
-// MARK: - Tag Filter Chip
-
-/// Selectable tag chip for the browse row.
-///
-/// Visually identical to `ChipToggle` (Chip.swift) on purpose: same radius,
-/// fill, border and indigo on-state, so the app keeps one chip vocabulary. It
-/// is a local copy only because `ChipToggle` requires an icon and tags have
-/// none; folding the two together is a follow-up.
-///
-/// Deviation on record: 24pt tall, under the 44pt minimum in DESIGN.md. It
-/// matches the existing chips rather than introducing a second chip size on
-/// one surface, and the whole 24pt rectangle is the hit area.
-private struct TagFilterChip: View {
-    let label: String
-    let isOn: Bool
-    let tooltip: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
+        return HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 8, weight: .medium))
+            Text(label.count > 16 ? String(label.prefix(16)) + "…" : label)
+                .font(.system(size: 9, weight: .medium))
                 .lineLimit(1)
-                .truncationMode(.tail)
-                // The label is a catalog tag, i.e. remote data: one absurd tag
-                // must not push the rest of the row off the window. 110pt
-                // clears the longest real tag ("productivity", 81pt) with room
-                // to spare, so only hostile lengths ever truncate.
-                .frame(maxWidth: 110)
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(backgroundFill)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(borderColor, lineWidth: borderWidth)
-                )
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .focused($isFocused)
-        .help(tooltip)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : [.isButton])
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-        // The chip row unmounts on reload and on error, and SwiftUI does not
-        // reliably deliver `onHover(false)` to a view that is going away, so a
-        // pushed cursor would outlive the chip.
-        .onDisappear {
-            if isHovered {
-                NSCursor.pop()
-                isHovered = false
-            }
-        }
-    }
-
-    private var backgroundFill: Color {
-        if isOn { return Color.caiPrimary.opacity(0.12) }
-        if isHovered { return Color.caiSurface.opacity(0.8) }
-        return Color.caiSurface.opacity(0.5)
-    }
-
-    private var borderColor: Color {
-        // Keyboard focus borrows the indigo focus-ring rule from form fields:
-        // a tabbed-to chip has to be visible before the mouse matters.
-        if isOn || isFocused { return Color.caiPrimary.opacity(0.4) }
-        return Color(nsColor: .separatorColor).opacity(0.5)
-    }
-
-    private var borderWidth: CGFloat {
-        isFocused ? 1 : 0.5
+        .foregroundColor(.caiTextSecondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Color.caiSurface.opacity(0.8))
+        .cornerRadius(4)
+        .help("Runs as a \(label.lowercased()) action")
     }
 }

@@ -481,6 +481,11 @@ enum ActionReviewPresentation {
     struct AIEngine: Equatable {
         let name: String
         let isOnDevice: Bool
+        /// True for the two engines that run in-process with no endpoint at
+        /// all (the built-in MLX model, Apple Intelligence). A loopback server
+        /// is still on-device, but it is a named server the user configured, and
+        /// naming it is the recall value.
+        var isInProcess: Bool = false
     }
 
     static func chip(for capability: Capability, engine: AIEngine?) -> CapabilityChip {
@@ -504,7 +509,10 @@ enum ActionReviewPresentation {
         case .opensScheme(let scheme):
             return CapabilityChip(label: "Opens \(scheme)://", identifier: nil)
         case .usesSecret(let name):
-            return CapabilityChip(label: "Uses", identifier: name)
+            // "Uses secret", not bare "Uses": every other chip is
+            // self-explanatory, and someone who has not met Cai's secrets
+            // feature cannot tell that SLACK_WEBHOOK is one.
+            return CapabilityChip(label: "Uses secret", identifier: name)
         case .runsAI:
             guard let engine else {
                 return CapabilityChip(label: "Runs an AI step", identifier: nil)
@@ -512,10 +520,17 @@ enum ActionReviewPresentation {
             // One verb rule: "sends" means the selection leaves the Mac. A
             // cloud model is a network destination and says so in the same
             // words a webhook does.
-            return CapabilityChip(
-                label: engine.isOnDevice ? "Runs on-device AI" : "Sends to \(engine.name)",
-                identifier: nil
-            )
+            let label: String
+            if !engine.isOnDevice {
+                label = "Sends to \(engine.name)"
+            } else if engine.isInProcess {
+                label = "Runs on-device AI"
+            } else {
+                // A local server is on-device but it is still a named thing the
+                // user pointed Cai at, and "on-device AI" alone loses which one.
+                label = "On-device AI via \(engine.name)"
+            }
+            return CapabilityChip(label: label, identifier: nil)
         case .opensMailDraft:
             return CapabilityChip(label: "Opens a Mail draft", identifier: nil)
         case .writesTo(let app):

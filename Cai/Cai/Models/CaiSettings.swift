@@ -776,13 +776,21 @@ class CaiSettings: ObservableObject {
     /// did not is exactly the false reassurance these chips exist to avoid. When
     /// in doubt the chip says "Sends to", which is the safe direction.
     var aiEngine: ActionReviewPresentation.AIEngine {
-        let url = modelURL
-        if url.isEmpty {
-            return .init(name: modelProvider.rawValue, isOnDevice: true)
+        switch modelProvider {
+        case .builtIn, .apple:
+            // In-process, no endpoint at all. The only two that are on-device
+            // by construction rather than by configuration.
+            return .init(name: modelProvider.rawValue, isOnDevice: true, isInProcess: true)
+        default:
+            // Everything else has a configurable endpoint, so honesty comes
+            // from the endpoint and not from the provider's reputation. An
+            // empty one is unconfigured, not local: claiming on-device for a
+            // custom provider with no URL set would be an over-claim in exactly
+            // the direction these chips exist to prevent.
+            let host = URLComponents(string: modelURL)?.host?.lowercased()
+            let isLoopback = host == "127.0.0.1" || host == "localhost" || host == "::1"
+            return .init(name: modelProvider.rawValue, isOnDevice: isLoopback)
         }
-        let host = URLComponents(string: url)?.host?.lowercased()
-        let isLoopback = host == "127.0.0.1" || host == "localhost" || host == "::1"
-        return .init(name: modelProvider.rawValue, isOnDevice: isLoopback)
     }
 
     // MARK: - Built-In Model

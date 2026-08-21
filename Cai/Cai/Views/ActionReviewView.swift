@@ -280,7 +280,10 @@ struct ActionReviewView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule().fill(Color.caiSurface.opacity(0.8)))
-        .help(chip.identifier ?? "")
+        // A tooltip only where there is something to reveal: the full secret
+        // name behind a `.middle` truncation. The row above owns the
+        // accessibility element, so an individual chip never speaks.
+        .modifier(OptionalHelp(text: chip.identifier))
     }
 
     private var canGoBack: Bool { browseIndex > 0 }

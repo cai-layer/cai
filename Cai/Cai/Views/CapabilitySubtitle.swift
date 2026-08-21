@@ -69,7 +69,11 @@ struct CapabilitySubtitle: View {
 
     /// VoiceOver gets the whole set, not the compact three: the elision is a
     /// width constraint, and a screen reader has no width problem.
-    private var spokenLabel: String {
+    ///
+    /// Not private: `ActionRow` combines its children into one accessibility
+    /// element, so it has to fold this string into its own label rather than
+    /// letting this view speak for itself.
+    var spokenLabel: String {
         let labels = ActionReviewPresentation.chips(for: capabilities, engine: engine).map { chip in
             chip.identifier.map { "\(chip.label) \($0)" } ?? chip.label
         }
@@ -79,5 +83,22 @@ struct CapabilitySubtitle: View {
             spoken += ", " + tail
         }
         return spoken
+    }
+}
+
+/// `.help()` only when there is something to say.
+///
+/// SwiftUI has no conditional-modifier form, and `.help("")` still registers a
+/// tooltip that flashes an empty box on hover. Capability chips carry a tooltip
+/// only for a truncated secret name, so most of them need none at all.
+struct OptionalHelp: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text, !text.isEmpty {
+            content.help(text)
+        } else {
+            content
+        }
     }
 }

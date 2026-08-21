@@ -165,6 +165,8 @@ Cai has two chip families and **shape is what tells them apart**. Get this wrong
 | **Borderless capsule**, `caiSurface` fill, `caiTextSecondary` | Cai stating a fact. Not interactive. | capability chips |
 | **Bordered rounded-rect**, radius 5, hairline border, hover wash, pointing-hand cursor | A control. Click does something. | `ChipToggle`, `ChipButton`, `DestinationChip` |
 
+**Compact form (added 2026-08-21).** In a 42/56pt list row at 11pt, the same facts render as **dot-separated plain text**, not capsules — `Sends to hooks.slack.com · Uses secret API_KEY · +2`. Capsule chrome at that size is noise in a row that already carries an icon, a title, a provenance badge and a `…` menu. This is a sanctioned third rendering of the fact family, not a deviation: same copy, same source, same order, same no-indigo rule. `CapabilitySubtitle.swift` owns it.
+
 Rules for the capsule (fact) family:
 
 - **No border, no hover state, no cursor change, no indigo, ever.** Per Indigo discipline these are passive structure; per the Red rule orange stays reserved for the escalation callout, so a fact chip is never itself an alarm.

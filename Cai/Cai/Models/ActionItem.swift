@@ -28,6 +28,12 @@ struct ActionItem: Identifiable {
     /// a toast). Shell shortcuts carry the same flag inline on the
     /// `.shortcutShell` enum case; this field is for the prompt path.
     var runInBackground: Bool = false
+    /// What this action touches, for the row subtitle. Only custom actions
+    /// carry them: built-ins have Cai's own hand-written subtitles, which are
+    /// already plain-language statements of purpose and better than a chip row
+    /// would be. Derived at generation time by `CapabilityDetector`, which is
+    /// also when the action list is built, so it is a live read.
+    var capabilities: [Capability] = []
 }
 
 enum ActionType {

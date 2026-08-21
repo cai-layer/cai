@@ -191,8 +191,8 @@ final class ActionReviewPresentationTests: XCTestCase {
         // Typical / short displays: the reserved chrome floor wins, so the
         // pinned Approve button can never be pushed below the screen even though
         // that means the scroll gets a little less than 80%.
-        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 1500), 1160, accuracy: 0.5)
-        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 800), 460, accuracy: 0.5)
+        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 1500), 1120, accuracy: 0.5)
+        XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 800), 420, accuracy: 0.5)
 
         // Never collapse to a sliver, whatever a stray tiny measurement says.
         XCTAssertEqual(ActionReviewPresentation.bodyMaxHeight(screenHeight: 100), 240, accuracy: 0.5)

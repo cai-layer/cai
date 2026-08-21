@@ -88,8 +88,49 @@ final class HelperHandoffTests: XCTestCase {
 
         let data = try Data(contentsOf: CaiSupportPaths.actionsSnapshot(in: root))
         let snapshot = try ActionCoding.decoder.decode(ActionsSnapshot.self, from: data)
+        let mine = CaiSettings.shared.knownActions
 
-        XCTAssertEqual(snapshot.knownActions, CaiSettings.shared.knownActions)
+        // Everything validation resolves against. Compared field-wise rather
+        // than by whole-value equality because `DestinationSummary` also carries
+        // capability-chip enrichment that deliberately never crosses the wire
+        // (see the next assertion), so the two values are legitimately unequal
+        // while the validator's view of the world is identical.
+        XCTAssertEqual(snapshot.knownActions.shortcuts, mine.shortcuts)
+        XCTAssertEqual(snapshot.knownActions.builtInActionNames, mine.builtInActionNames)
+        XCTAssertEqual(
+            snapshot.knownActions.destinations.map { [$0.name, $0.kind.rawValue] },
+            mine.destinations.map { [$0.name, $0.kind.rawValue] },
+            "The helper resolves chain steps and escalates on these, so they must match."
+        )
+    }
+
+    /// The agent-facing boundary, asserted rather than assumed.
+    ///
+    /// `DestinationSummary` gained `networkTarget` and `builtInRole` for
+    /// capability chips. This file is read by the helper and therefore visible to
+    /// an agent, and a hostname like `hooks.internal.acme.com` is mildly
+    /// identifying while nothing about authoring needs it. So the coded shape
+    /// stays name + kind, and this test is what keeps a future synthesized
+    /// `Codable` from quietly widening it.
+    func testDestinationEnrichmentNeverReachesTheWire() throws {
+        let summary = DestinationSummary(
+            name: "Slack",
+            kind: .webhook,
+            networkTarget: "hooks.internal.acme.com",
+            builtInRole: .notes
+        )
+        let encoded = try ActionCoding.encoder.encode(summary)
+        let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+
+        XCTAssertFalse(json.contains("hooks.internal.acme.com"), "A host leaked to the agent: \(json)")
+        XCTAssertFalse(json.contains("networkTarget"), json)
+        XCTAssertFalse(json.contains("builtInRole"), json)
+
+        let decoded = try ActionCoding.decoder.decode(DestinationSummary.self, from: encoded)
+        XCTAssertEqual(decoded.name, "Slack")
+        XCTAssertEqual(decoded.kind, .webhook)
+        XCTAssertNil(decoded.networkTarget, "The helper draws no chips and must not carry chip data.")
+        XCTAssertNil(decoded.builtInRole)
     }
 
     // MARK: - Symlink

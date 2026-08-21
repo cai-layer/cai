@@ -58,12 +58,18 @@ public enum ChainWalk {
     ///   chain uncounted, and the short route the executor would actually run
     ///   then skips it — an under-report, in the direction that hides risk.
     ///
-    /// `visited` holds action ids, never names. Names are not unique: a proposal
-    /// may be named the same as an installed action, and a name-keyed visited set
-    /// would then skip the chain step that resolves to the OTHER one — a
-    /// proposal could hide a shell action behind a step named after its own
-    /// harmless prompt while `ChainExecutor` resolved that step to the user's
-    /// existing shell action and ran it.
+    /// `visited` holds action ids, never names, and this deliberately does NOT
+    /// mirror the executor: `ChainExecutor.execute` keys its visited set by
+    /// name. Names are not unique — a proposal may be named the same as an
+    /// installed action — so a name-keyed set skips the chain step that resolves
+    /// to the OTHER one, and a proposal could hide a shell action behind a step
+    /// named after its own harmless prompt.
+    ///
+    /// Keying by id therefore reaches a SUPERSET of what the executor runs. That
+    /// is the safe direction for both readers: they describe at least everything
+    /// that can happen, never less. Only the resolution order
+    /// (`resolveChainName`) is in lockstep with the executor, because that is
+    /// what decides WHICH action a step means.
     public static func reachable(from action: ActionSnapshot, known: KnownActions) -> ChainReach {
         var actions: [(action: ActionSnapshot, depth: Int)] = []
         var leaves: [ChainReach.Leaf] = []

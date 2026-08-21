@@ -160,11 +160,29 @@ public enum CapabilityDetector {
     ///   work.
     public static func host(inURLTemplate template: String) -> String? {
         let trimmed = template.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Both parsers must agree, or no host is claimed.
+        //
+        // The chip is read by a human deciding whether to approve, but the thing
+        // that actually opens is `URL(string:)` in `ActionListWindow` and
+        // `ChainExecutor`. `URLComponents` and `URL` are different Foundation
+        // parsers with different lineages (RFC 3986 vs the WHATWG-leaning modern
+        // one), and naming a host from one while the other does the opening is
+        // an unwritten assumption that they never disagree. They agree across
+        // every case tested here and a 240-case sweep of authority-confusion
+        // separators on the current OS — but "agrees on my machine and my OS
+        // version" is not a property, and a divergence would produce the one
+        // output this file must never produce: a confident chip naming a
+        // different host than the one that opens.
+        //
+        // So the assumption is enforced rather than trusted. If they ever
+        // disagree, the reader gets no host chip instead of a wrong one, which
+        // is the degradation this whole function is built around.
         guard let components = URLComponents(string: trimmed),
               let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = components.host?.lowercased(),
-              !host.isEmpty
+              !host.isEmpty,
+              URL(string: trimmed)?.host?.lowercased() == host
         else { return nil }
 
         // Makes the slice below safe by construction rather than by inference:

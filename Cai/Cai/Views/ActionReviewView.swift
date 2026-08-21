@@ -232,6 +232,22 @@ struct ActionReviewView: View {
             promptModel: action.type == .prompt ? settings.modelProvider.rawValue : nil
         )
 
+        // Bounded, but never truncated.
+        //
+        // The chip count is attacker-influenced: one chip per DISTINCT secret
+        // reference, and a value may carry 10_000 characters of
+        // `{{secrets.AAA}}`, `{{secrets.AAB}}`… So the row can be made
+        // arbitrarily tall. Only `scrollBody` was height-capped, and this row
+        // sits in the header, so a hostile proposal could grow the sheet until
+        // the pinned orange callout and the Approve/Reject buttons were pushed
+        // off the bottom of the screen — defeating the co-visibility this sheet
+        // is built around, on the one surface where it matters.
+        //
+        // Capping the number of chips instead would mean eliding a capability on
+        // the approval surface, which is the thing this feature exists not to
+        // do. So the region scrolls: every chip stays reachable, nothing is
+        // dropped, and the band cannot shove the controls off-screen.
+        ScrollView(.vertical) {
         FlowLayout(spacing: 4) {
             ForEach(ActionReviewPresentation.chips(for: capabilities, engine: engine)) { chip in
                 capabilityChip(chip)
@@ -249,6 +265,10 @@ struct ActionReviewView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: ActionReviewPresentation.capabilityRowMaxHeight)
+        .fixedSize(horizontal: false, vertical: true)
+        .scrollBounceBehavior(.basedOnSize)
         // One element, one sentence: the prose line option B retired visually,
         // then what the chips say, then the row's limits.
         .accessibilityElement(children: .ignore)

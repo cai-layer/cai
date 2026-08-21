@@ -602,6 +602,18 @@ enum ActionReviewPresentation {
         }
     }
 
+    /// Height ceiling for the sheet's capability row before it scrolls.
+    ///
+    /// Roughly four lines of chips. Past that the row scrolls rather than
+    /// growing the header, because the chip count is attacker-influenced (one
+    /// per distinct secret reference) and an unbounded header pushes the pinned
+    /// callout and Approve off the screen. Nothing is elided — every chip is
+    /// still reachable — so the "never truncate on the sheet" rule holds.
+    ///
+    /// `reservedChrome` in `bodyMaxHeight` is sized against this, so the two
+    /// move together.
+    static let capabilityRowMaxHeight: CGFloat = 76
+
     /// How many chips a compact row (a list subtitle) shows before eliding.
     static let compactCapabilityLimit = 3
 

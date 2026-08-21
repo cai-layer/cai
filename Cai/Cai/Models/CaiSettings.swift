@@ -575,7 +575,7 @@ class CaiSettings: ObservableObject {
             // `BuiltInDestinations.all` won't appear otherwise.
             let existingIds = Set(decoded.map(\.id))
             let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
-            var working = missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns
+            var working = Self.canonicalizingBuiltIns(missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns)
 
             // One-shot migration: promote Replace Selection to on-by-default and
             // position 0 (Cmd+1). Runs once per user; after that, their order and
@@ -724,6 +724,45 @@ class CaiSettings: ObservableObject {
                 networkTarget: networkTarget,
                 builtInRole: Self.builtInRole(for: destination)
             )
+        }
+    }
+
+    /// Forces any destination carrying a built-in's UUID to carry that
+    /// built-in's actual payload.
+    ///
+    /// `builtInRole` is derived from `id` + `isBuiltIn`, and since capability
+    /// chips began resolving built-ins by role, that role is load-bearing twice
+    /// over: it labels the chip "Writes to Notes" AND it tells
+    /// `ApprovalClassifier` not to escalate the destination as a shell command.
+    /// Trusting a decoded `id` for that means a stored destination with a
+    /// built-in's UUID and a hand-written `tell application …` / `do shell
+    /// script` template would render as a bounded, unescalated "Writes to
+    /// Notes" while running attacker AppleScript.
+    ///
+    /// No supported path can produce that today — `ExtensionParser` forces
+    /// `isBuiltIn: false` and a fresh UUID, duplication does the same, and
+    /// agents cannot author destinations at all — so this is local tampering
+    /// only. It is written now because the exposure is one feature away: any
+    /// settings import, sync or backup-restore that reintroduces
+    /// `[OutputDestination]` from JSON would turn trust-by-id into an
+    /// escalation-suppression bypass. Canonicalizing at load makes the identity
+    /// mean what it claims, so that feature cannot arrive pre-broken.
+    ///
+    /// Only `type` and `isBuiltIn` are restored — the executable half. Order,
+    /// enabled state, `showInActionList` and `next` stay the user's, and the
+    /// name is left alone because chain steps resolve destinations BY name and
+    /// rewriting it could break a working chain.
+    static func canonicalizingBuiltIns(_ destinations: [OutputDestination]) -> [OutputDestination] {
+        let canonical = Dictionary(
+            BuiltInDestinations.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+        )
+        return destinations.map { destination in
+            guard let template = canonical[destination.id] else { return destination }
+            guard destination.type != template.type || !destination.isBuiltIn else { return destination }
+            var restored = destination
+            restored.type = template.type
+            restored.isBuiltIn = true
+            return restored
         }
     }
 

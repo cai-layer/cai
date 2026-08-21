@@ -576,16 +576,23 @@ class CaiSettings: ObservableObject {
             // `showInCai` is synthetic and must never be persisted. A build
             // between this change and the previous one seeded it; drop it on
             // load so it can't show up twice or travel into a downgrade.
-            let decoded = decoded.filter { $0.type != .showInCai }
-            let existingIds = Set(decoded.map(\.id))
+            //
+            // The removal has to count as a change, or the cleaned list is only
+            // ever in memory: nothing else here is "changed" once `showInCai`
+            // left `all`, so the poisoned entry would sit on disk forever and
+            // the downgrade hazard this whole approach removes would still be
+            // live. Found by running the app, not by the unit tests.
+            let cleaned = decoded.filter { $0.type != .showInCai }
+            let strippedSynthetic = cleaned.count != decoded.count
+            let existingIds = Set(cleaned.map(\.id))
             let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
-            var working = missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns
+            var working = missingBuiltIns.isEmpty ? cleaned : cleaned + missingBuiltIns
 
             // One-shot migration: promote Replace Selection to on-by-default and
             // position 0 (Cmd+1). Runs once per user; after that, their order and
             // enabled state is their own. Intentionally overrides explicit opt-out
             // from the brief window where paste-back shipped as off-by-default.
-            var migrationChanged = !missingBuiltIns.isEmpty
+            var migrationChanged = !missingBuiltIns.isEmpty || strippedSynthetic
             if !defaults.bool(forKey: Keys.migratedPasteBackDefaultsV3) {
                 let pasteBackId = BuiltInDestinations.pasteBack.id
                 if let idx = working.firstIndex(where: { $0.id == pasteBackId }) {

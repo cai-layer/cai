@@ -160,6 +160,9 @@ struct ActionListWindow: View {
         // Add matching user shortcuts — any word prefix match on name.
         // Skip shortcuts already surfaced as pinned items in the searchable list.
         let alreadyShown = Set(items.map(\.id))
+        // Hoisted: this runs on every keystroke of the filter, and building
+        // `knownActions` per row would rebuild every snapshot each time.
+        let known = settings.knownActions
         for sc in settings.shortcuts {
             let id = "shortcut_\(sc.id.uuidString)"
             guard !alreadyShown.contains(id) else { continue }
@@ -168,7 +171,7 @@ struct ActionListWindow: View {
                     from: sc,
                     clipboardText: text,
                     shortcut: shortcut,
-                    settings: settings
+                    known: known
                 ))
                 shortcut += 1
             }
@@ -685,7 +688,11 @@ struct ActionListWindow: View {
                     } else {
                         LazyVStack(spacing: 2) {
                             ForEach(Array(visible.enumerated()), id: \.element.id) { index, action in
-                                ActionRow(action: action, isSelected: index == selectionState.selectedIndex)
+                                ActionRow(
+                                    action: action,
+                                    isSelected: index == selectionState.selectedIndex,
+                                    engine: settings.aiEngine
+                                )
                                     .id(action.id)
                                     .onTapGesture {
                                         selectionState.selectedIndex = index

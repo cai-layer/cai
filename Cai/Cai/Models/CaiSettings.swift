@@ -787,8 +787,11 @@ class CaiSettings: ObservableObject {
             // empty one is unconfigured, not local: claiming on-device for a
             // custom provider with no URL set would be an over-claim in exactly
             // the direction these chips exist to prevent.
+            // `host` may arrive bracketed for IPv6 depending on the SDK, so
+            // both spellings count.
             let host = URLComponents(string: modelURL)?.host?.lowercased()
-            let isLoopback = host == "127.0.0.1" || host == "localhost" || host == "::1"
+            let loopback: Set<String> = ["127.0.0.1", "localhost", "::1", "[::1]"]
+            let isLoopback = host.map(loopback.contains) ?? false
             return .init(name: modelProvider.rawValue, isOnDevice: isLoopback)
         }
     }

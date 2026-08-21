@@ -80,6 +80,33 @@ public enum ApprovalClassifier {
                 // with the executable callout rather than passing silently.
                 found.insert(.runsShellCommands)
             case .destination(let destination):
+                // Cai's own built-ins are classified by ROLE, not by kind.
+                //
+                // Email, Save to Notes and Create Reminder are `.applescript`
+                // destinations, and kind alone therefore escalated them as "can
+                // run terminal commands on your Mac". That is both scarier than
+                // the truth — the script is a fixed template Cai ships, not
+                // user or agent input — and, since the capability chips resolve
+                // the same destinations by role, it made the sheet contradict
+                // itself: the callout shouted about terminal commands while the
+                // chip row said a bounded "Writes to Notes". On an approval
+                // surface the two must agree, so the narrower and more accurate
+                // reading wins. Anything Cai does not own still escalates by
+                // kind, below.
+                if let role = destination.builtInRole {
+                    switch role {
+                    case .mailDraft, .notes, .reminders:
+                        // Bounded, visible, local writes through a script Cai
+                        // wrote. Nothing to escalate.
+                        continue
+                    case .replaceSelection:
+                        found.insert(.replacesSelection)
+                    case .clipboard:
+                        continue
+                    }
+                    continue
+                }
+
                 switch destination.kind {
                 case .shell, .applescript:
                     found.insert(.runsShellCommands)

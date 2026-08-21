@@ -3,6 +3,9 @@ import SwiftUI
 struct ActionRow: View {
     let action: ActionItem
     let isSelected: Bool
+    /// Which model engine the AI chip names. Passed in rather than read from
+    /// `CaiSettings.shared`, so the row stays a function of its inputs.
+    let engine: ActionReviewPresentation.AIEngine
 
     var body: some View {
         HStack(spacing: 12) {
@@ -27,10 +30,7 @@ struct ActionRow: View {
                 // hand-written subtitles: "Create a concise summary" is already
                 // a plain statement of purpose and beats a chip row.
                 if !action.capabilities.isEmpty {
-                    CapabilitySubtitle(
-                        capabilities: action.capabilities,
-                        engine: CaiSettings.shared.aiEngine
-                    )
+                    CapabilitySubtitle(capabilities: action.capabilities, engine: engine)
                 } else if let subtitle = action.subtitle {
                     Text(subtitle)
                         .font(.system(size: 11))
@@ -97,8 +97,7 @@ struct ActionRow: View {
         let description: String
         if !action.capabilities.isEmpty {
             description = CapabilitySubtitle(
-                capabilities: action.capabilities,
-                engine: CaiSettings.shared.aiEngine
+                capabilities: action.capabilities, engine: engine
             ).spokenLabel
         } else {
             description = action.subtitle ?? ""

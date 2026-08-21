@@ -12,7 +12,7 @@ import Foundation
 /// A plain value, deliberately. No visitor, no fold closure, no generic over the
 /// accumulator: callers iterate two arrays. The subtleties worth preserving live
 /// in `reachable(from:known:)` and are documented there.
-public struct ChainReach: Equatable, Sendable {
+public struct ChainReach: Sendable {
 
     /// A chain step that is not itself an action, so the walk stops there.
     public enum Leaf: Equatable, Sendable {
@@ -31,12 +31,6 @@ public struct ChainReach: Equatable, Sendable {
     /// two chain steps naming the same destination are two effects, and it is
     /// the reader's business whether that matters to it.
     public let leaves: [Leaf]
-
-    public static func == (lhs: ChainReach, rhs: ChainReach) -> Bool {
-        lhs.leaves == rhs.leaves
-            && lhs.actions.count == rhs.actions.count
-            && zip(lhs.actions, rhs.actions).allSatisfy { $0.action == $1.action && $0.depth == $1.depth }
-    }
 }
 
 public enum ChainWalk {
@@ -124,9 +118,15 @@ extension ChainReach {
     /// walked actions rather than recorded during the walk, so `leaves` stays
     /// strictly "things a step pointed at".
     public var hasInlineLLMStep: Bool {
-        actions.contains { $0.action.next.contains { step in
-            if case .inlineLLM = step { return true }
-            return false
-        } }
+        // Depth-guarded to match the walk: an action sitting at the cap has its
+        // steps un-expanded, and the executor will never run them, so counting
+        // them would chip a model step that cannot happen.
+        actions.contains { entry in
+            entry.depth < ActionSchema.maxChainSteps
+                && entry.action.next.contains { step in
+                    if case .inlineLLM = step { return true }
+                    return false
+                }
+        }
     }
 }

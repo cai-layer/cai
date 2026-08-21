@@ -104,10 +104,13 @@ public enum CapabilityDetector {
             // unbounded chip is the true statement.
             return [.runsAppleScript]
         case .webhook:
-            guard let host = destination.networkTarget else { return [] }
+            // No parseable host is still a send. Returning nothing here left an
+            // empty chip row claiming exhaustiveness beside a callout warning
+            // about a URL send.
+            guard let host = destination.networkTarget else { return [.sendsToUnknownHost] }
             return [.sendsToHost(host)]
         case .deeplink:
-            guard let scheme = destination.networkTarget else { return [] }
+            guard let scheme = destination.networkTarget else { return [.sendsToUnknownHost] }
             return [.opensScheme(scheme)]
         case .pasteBack:
             return [.replacesSelection]
@@ -127,7 +130,10 @@ public enum CapabilityDetector {
     /// callout onto the surfaces that have no callout, like the Settings list,
     /// where the chip is the only claim being made.
     static func urlCapabilities(template: String) -> Set<Capability> {
-        guard let host = host(inURLTemplate: template) else { return [] }
+        // An unparseable or templated authority means the action still opens a
+        // URL — the escalation classifier says so — but Cai cannot name where.
+        // The honest answer is the open-ended chip, never an empty row.
+        guard let host = host(inURLTemplate: template) else { return [.sendsToUnknownHost] }
         return template.contains("%s") ? [.sendsToHost(host)] : [.opensHost(host)]
     }
 
@@ -160,6 +166,11 @@ public enum CapabilityDetector {
               let host = components.host?.lowercased(),
               !host.isEmpty
         else { return nil }
+
+        // Makes the slice below safe by construction rather than by inference:
+        // a non-nil host implies a literal `scheme://` prefix today, but that is
+        // the macOS URL parser's business and not a promise to build on.
+        guard trimmed.dropFirst(scheme.count).hasPrefix("://") else { return nil }
 
         // A substitution inside the authority means the host is unknown. Locate
         // the authority by its end (the first `/`, `?` or `#` after the scheme)

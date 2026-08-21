@@ -38,6 +38,8 @@ final class CapabilityDetectorTests: XCTestCase {
             shortcuts: [],
             destinations: [
                 destination("Slack", .webhook, target: "hooks.slack.com"),
+                // A stored URL that would not parse, so no host is vouched for.
+                destination("Broken Hook", .webhook, target: nil),
                 destination("Obsidian", .deeplink, target: "obsidian"),
                 destination("My Script", .applescript),
                 destination("Deploy", .shell),
@@ -250,6 +252,14 @@ final class CapabilityDetectorTests: XCTestCase {
             action(.prompt, "x", next: [.appleShortcut(name: "S")]),
             action(.prompt, "x", next: [.action(name: "Obsidian")]),
             action(.prompt, "x", next: [.action(name: "Replace Selection")]),
+            // The two inputs that used to break the agreement property, and
+            // whose absence from this table is why it passed anyway.
+            action(.prompt, "x", next: [.action(name: "Save to Notes")]),
+            action(.prompt, "x", next: [.action(name: "Create Reminder")]),
+            action(.prompt, "x", next: [.action(name: "Email")]),
+            action(.url, "https://{{host}}/%s"),
+            action(.url, "ftp://files.example.com/%s"),
+            action(.prompt, "x", next: [.action(name: "Broken Hook")]),
         ]
 
         for subject in actions {
@@ -268,6 +278,7 @@ final class CapabilityDetectorTests: XCTestCase {
                         if case .sendsToHost = $0 { return true }
                         if case .opensHost = $0 { return true }
                         if case .opensScheme = $0 { return true }
+                        if case .sendsToUnknownHost = $0 { return true }
                         return false
                     }
                 case .replacesSelection:
@@ -291,6 +302,77 @@ final class CapabilityDetectorTests: XCTestCase {
                 XCTAssertTrue(covered, "\(reason) has no chip on \(subject.type) \(subject.value)")
             }
         }
+    }
+
+    // MARK: - The chip row and the callout must never contradict
+
+    /// A network send Cai cannot address is still a network send.
+    ///
+    /// These used to return NO capabilities at all, so the row rendered empty
+    /// and `isExhaustive` said true, while the orange callout on the same sheet
+    /// warned about a URL send. An empty row claiming completeness over an
+    /// action that reaches the network is the worst output this feature can
+    /// produce.
+    func testAnUnaddressableSendIsStillReportedAndStillOpenEnded() {
+        let subjects: [ActionSnapshot] = [
+            action(.url, "https://{{host}}/%s"),
+            action(.url, "https://%s.example.com/"),
+            action(.url, "ftp://files.example.com/%s"),
+            action(.prompt, "x", next: [.action(name: "Broken Hook")]),
+        ]
+
+        for subject in subjects {
+            let capabilities = CapabilityDetector.capabilities(for: subject, known: known)
+            XCTAssertTrue(
+                capabilities.contains(.sendsToUnknownHost),
+                "an unaddressable send vanished from the row: \(subject.value) \(subject.next)"
+            )
+            XCTAssertFalse(
+                capabilities.isExhaustive,
+                "claimed a complete list over an address it cannot name: \(subject.value)"
+            )
+        }
+    }
+
+    /// Cai's own built-ins are bounded, and both readers of the walk have to
+    /// agree about that.
+    ///
+    /// Email / Save to Notes / Create Reminder are `.applescript` destinations,
+    /// so classifying by kind alone escalated them as "can run terminal
+    /// commands on your Mac" while the chips said a bounded "Writes to Notes".
+    /// The script is a fixed template Cai ships, so the narrow reading is the
+    /// true one — but the point of the test is that the two surfaces cannot
+    /// disagree, whichever reading wins.
+    func testCaiOwnBuiltInsAreBoundedOnBothSurfaces() {
+        let cases: [(name: String, expected: Capability)] = [
+            ("Save to Notes", .writesTo(app: "Notes")),
+            ("Create Reminder", .writesTo(app: "Reminders")),
+            ("Email", .opensMailDraft),
+        ]
+
+        for c in cases {
+            let subject = action(.prompt, "x", next: [.action(name: c.name)])
+            let capabilities = CapabilityDetector.capabilities(for: subject, known: known)
+            let reasons = ApprovalClassifier.escalationReasons(for: subject, known: known)
+
+            XCTAssertEqual(capabilities, [.runsAI, c.expected], c.name)
+            XCTAssertTrue(capabilities.isExhaustive, "\(c.name) is a fixed Cai-authored script")
+            XCTAssertFalse(
+                reasons.contains(.runsShellCommands),
+                "\(c.name) escalated as a terminal command while its chip claimed a bounded write."
+            )
+        }
+
+        // A user-authored AppleScript destination is NOT Cai's, and still
+        // escalates and still reads open-ended.
+        let userScript = action(.prompt, "x", next: [.action(name: "My Script")])
+        XCTAssertTrue(
+            ApprovalClassifier.escalationReasons(for: userScript, known: known)
+                .contains(.runsShellCommands)
+        )
+        XCTAssertFalse(
+            CapabilityDetector.capabilities(for: userScript, known: known).isExhaustive
+        )
     }
 
     // MARK: - Host extraction, adversarially

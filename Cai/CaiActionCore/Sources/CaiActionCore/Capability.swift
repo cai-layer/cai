@@ -36,6 +36,15 @@ public enum Capability: Equatable, Hashable, Sendable {
     /// A deeplink destination, by scheme. A deeplink has no meaningful host to
     /// vouch for, so the scheme is all that is claimed.
     case opensScheme(String)
+    /// The selection leaves the Mac, but Cai cannot say where to.
+    ///
+    /// A url action whose authority is templated (`https://{{host}}/%s`), a
+    /// non-http scheme, or a webhook whose stored URL would not parse. Without
+    /// this the chip row rendered EMPTY and, worse, exhaustive, while the orange
+    /// callout on the same sheet warned about a URL send — the precise false
+    /// reassurance these chips exist to prevent. Open-ended, because "somewhere
+    /// unknown" is the definition of unbounded.
+    case sendsToUnknownHost
 
     /// A `{{secrets.NAME}}` reference. The name, never the value.
     case usesSecret(name: String)
@@ -61,7 +70,8 @@ public enum Capability: Equatable, Hashable, Sendable {
     /// the desync is unrepresentable.
     public var isOpenEnded: Bool {
         switch self {
-        case .runsShellCommand, .runsAppleScript, .runsAppleShortcut, .runsUninstalled:
+        case .runsShellCommand, .runsAppleScript, .runsAppleShortcut, .runsUninstalled,
+             .sendsToUnknownHost:
             return true
         default:
             return false
@@ -83,15 +93,16 @@ public enum Capability: Equatable, Hashable, Sendable {
         case .runsAppleScript: return 1
         case .runsAppleShortcut: return 2
         case .runsUninstalled: return 3
-        case .sendsToHost: return 4
-        case .opensScheme: return 5
-        case .opensHost: return 6
-        case .usesSecret: return 7
-        case .runsAI: return 8
-        case .opensMailDraft: return 9
-        case .writesTo: return 10
-        case .replacesSelection: return 11
-        case .copiesToClipboard: return 12
+        case .sendsToUnknownHost: return 4
+        case .sendsToHost: return 5
+        case .opensScheme: return 6
+        case .opensHost: return 7
+        case .usesSecret: return 8
+        case .runsAI: return 9
+        case .opensMailDraft: return 10
+        case .writesTo: return 11
+        case .replacesSelection: return 12
+        case .copiesToClipboard: return 13
         }
     }
 

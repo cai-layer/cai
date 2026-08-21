@@ -230,12 +230,15 @@ struct ShortcutsManagementView: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             } else {
+                // Built once for the whole pass and handed down, so the O(n)
+                // snapshot rebuild does not become O(n^2) across n rows.
+                let known = knownActions
                 ForEach(orderedShortcuts) { shortcut in
                     Group {
                         if editingShortcutId == shortcut.id {
                             shortcutForm(isNew: false, shortcutId: shortcut.id)
                         } else {
-                            shortcutRow(shortcut)
+                            shortcutRow(shortcut, known: known)
                         }
                     }
                     .listRowSeparator(.hidden)
@@ -340,7 +343,12 @@ struct ShortcutsManagementView: View {
 
     // MARK: - Shortcut Row
 
-    private func shortcutRow(_ shortcut: CaiShortcut) -> some View {
+    /// One build of `knownActions` per render pass, not one per row. It rebuilds
+    /// every action snapshot and re-parses every webhook URL, and this list
+    /// re-renders on every pin hover.
+    private var knownActions: KnownActions { settings.knownActions }
+
+    private func shortcutRow(_ shortcut: CaiShortcut, known: KnownActions) -> some View {
         let isHovered = hoveredShortcutId == shortcut.id
         // Show the pin glyph when pinned (always) or hovered (progressive disclosure
         // for unpinned rows — same pattern as `ClipboardHistoryView.historyRow`).
@@ -353,7 +361,7 @@ struct ShortcutsManagementView: View {
         // removed after this action was approved, and a stale chip would then
         // describe an action that no longer exists.
         let capabilities = CapabilityDetector.capabilities(
-            for: shortcut.actionSnapshot, known: settings.knownActions
+            for: shortcut.actionSnapshot, known: known
         )
 
         return HStack(spacing: 12) {

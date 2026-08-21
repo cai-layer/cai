@@ -508,6 +508,11 @@ enum ActionReviewPresentation {
             return CapabilityChip(label: "Opens \(host)", identifier: nil)
         case .opensScheme(let scheme):
             return CapabilityChip(label: "Opens \(scheme)://", identifier: nil)
+        case .sendsToUnknownHost:
+            // Deliberately vaguer than every other chip, because the vagueness
+            // is the fact: the address is built at runtime, so Cai will not
+            // name one it cannot verify.
+            return CapabilityChip(label: "Sends somewhere Cai can't name", identifier: nil)
         case .usesSecret(let name):
             // "Uses secret", not bare "Uses": every other chip is
             // self-explanatory, and someone who has not met Cai's secrets
@@ -563,6 +568,11 @@ enum ActionReviewPresentation {
         }
         if capabilities.contains(.runsAppleShortcut) {
             return "plus whatever the Shortcut does"
+        }
+        if capabilities.contains(.sendsToUnknownHost) {
+            // The chip says Cai can't name the address; the tail says why the
+            // reader should look at the payload for it.
+            return "the address is built when it runs — read it above"
         }
         return nil
     }

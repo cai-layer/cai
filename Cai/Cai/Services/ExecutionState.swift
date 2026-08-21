@@ -40,28 +40,21 @@ final class ExecutionState: ObservableObject {
         var step: StepProgress?
     }
 
-    /// What a run produced, when nothing consumed it.
-    ///
-    /// This is the payload the default sink exists to preserve: before it, a
-    /// chain ending on an LLM or shell step computed its final text and threw
-    /// it away after building a toast snippet (finding #18).
-    struct RunResult: Equatable {
-        /// The originating action's name, for the result surface's title.
-        let actionName: String
-        /// The terminal step's output. Never empty — a blank result is no
-        /// result (see `ResultRouting.route`), so it's never reported.
-        let text: String
-    }
-
     /// How a finished run turned out.
     ///
-    /// `.succeeded` carries the run's unconsumed output, or nil when there was
-    /// nothing to keep — either a destination consumed it (the completion toast
-    /// is the confirmation) or the terminal step produced no text. Folding the
-    /// result INTO the outcome rather than beside it keeps one commit path in
-    /// `reduce`, and makes "a failed run has no result" true by construction.
+    /// `.succeeded` carries the run's unconsumed output — the payload the
+    /// default sink exists to preserve, since a chain ending on an LLM or shell
+    /// step used to compute its final text and throw it away after building a
+    /// toast snippet (finding #18). It is nil when there was nothing to keep:
+    /// either a destination consumed the output (the completion toast is the
+    /// confirmation) or the terminal step produced no text. Never empty when
+    /// non-nil — a blank result is no result, see `ResultRouting.route`.
+    ///
+    /// Folding the result INTO the outcome rather than beside it keeps one
+    /// commit path in `reduce`, and makes "a failed run has no result" true by
+    /// construction rather than by discipline.
     enum Outcome: Equatable {
-        case succeeded(RunResult?)
+        case succeeded(String?)
         case failed(String)
     }
 
@@ -79,6 +72,11 @@ final class ExecutionState: ObservableObject {
         /// shows after the spinner stops. Nil until the first run ends; reset
         /// when the next run starts.
         var lastOutcome: Outcome?
+        /// Name of the most recent run, kept AFTER it finishes (unlike
+        /// `action`, which clears). The run surface is usually reached from the
+        /// header pill long after the fact, where "Finished" or "Failed" alone
+        /// doesn't say what of.
+        var lastRunName: String?
         /// Whether the user has seen `lastOutcome`'s result. Drives the header
         /// pill's "collect me" state: a finished run holding an unviewed result
         /// keeps the pill on screen (across ⌥C reopen) instead of vanishing
@@ -89,8 +87,8 @@ final class ExecutionState: ObservableObject {
         var isRunning: Bool { depth > 0 }
 
         /// The finished run's unconsumed output, if it produced any.
-        var lastResult: RunResult? {
-            if case .succeeded(let result) = lastOutcome { return result }
+        var lastResult: String? {
+            if case .succeeded(let text) = lastOutcome { return text }
             return nil
         }
 
@@ -108,7 +106,7 @@ final class ExecutionState: ObservableObject {
         /// The run produced output that no destination consumed. Last write
         /// wins across nesting levels, so a nested chain's terminal output
         /// (the innermost thing that actually ran last) is what the user gets.
-        case produceResult(RunResult)
+        case produceResult(String)
         /// A run ended.
         case finish
         /// The user looked at the finished run's result — clears the pill.
@@ -125,7 +123,9 @@ final class ExecutionState: ObservableObject {
     /// Outcome of the most recent finished run (nil while running / before any).
     var lastOutcome: Outcome? { snapshot.lastOutcome }
     /// The finished run's unconsumed output, if any. What the run surface shows.
-    var lastResult: RunResult? { snapshot.lastResult }
+    var lastResult: String? { snapshot.lastResult }
+    /// Name of the most recent run, surviving its completion.
+    var lastRunName: String? { snapshot.lastRunName }
     /// A finished run's result hasn't been looked at yet — keeps the pill up.
     var hasUnviewedResult: Bool { snapshot.hasUnviewedResult }
 
@@ -142,6 +142,7 @@ final class ExecutionState: ObservableObject {
             // outcome and resets the pending one to success.
             if next.depth == 0 {
                 next.action = RunningAction(name: name, step: nil)
+                next.lastRunName = name
                 next.pendingOutcome = .succeeded(nil)
                 next.lastOutcome = nil
                 // A new run supersedes the previous result: the pill must not
@@ -157,12 +158,12 @@ final class ExecutionState: ObservableObject {
             // discards any result reported before it. A partial payload sitting
             // under a failure banner invites the user to trust half an answer.
             next.pendingOutcome = .failed(message)
-        case .produceResult(let result):
+        case .produceResult(let text):
             // A run already marked failed keeps its failure: a later step's
             // output can't un-fail it. Otherwise the newest report wins, so a
             // nested chain's terminal output beats its caller's.
             if case .succeeded = next.pendingOutcome {
-                next.pendingOutcome = .succeeded(result)
+                next.pendingOutcome = .succeeded(text)
             }
         case .finish:
             next.depth = max(0, next.depth - 1)
@@ -215,8 +216,8 @@ final class ExecutionState: ObservableObject {
     /// Records output that no destination consumed, so the finished run has a
     /// result to show instead of a 60-character toast snippet. Safe to call
     /// before the paired `finish()`; the reducer commits it there.
-    func reportResult(_ result: RunResult) {
-        snapshot = Self.reduce(snapshot, .produceResult(result))
+    func reportResult(_ text: String) {
+        snapshot = Self.reduce(snapshot, .produceResult(text))
     }
 
     /// The user opened the run surface — stop advertising the result.

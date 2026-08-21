@@ -14,25 +14,40 @@ struct RunningPill: View {
     let onTap: () -> Void
 
     var body: some View {
+        HeaderPill(onTap: onTap) {
+            RunningSpinner(reduceMotion: reduceMotion, size: 11)
+            Text("Running")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.caiPrimary)
+        }
+        .help("An action is running — click to view progress")
+        .accessibilityLabel("Action running. Open progress.")
+    }
+}
+
+/// The shell both header pills wear.
+///
+/// Extracted because `RunningPill` and `ResultReadyPill` are one control in two
+/// states — same slot, same tap consequence — and the read only holds while
+/// their shells are pixel-identical. Two copies of the padding/radius/fill was
+/// a drift waiting to happen.
+private struct HeaderPill<Content: View>: View {
+    let onTap: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 5) {
-                RunningSpinner(reduceMotion: reduceMotion, size: 11)
-                Text("Running")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiPrimary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.caiPrimarySubtle)
-            )
-            .contentShape(Rectangle())
+            HStack(spacing: 5) { content() }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.caiPrimarySubtle)
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help("An action is running — click to view progress")
-        .accessibilityLabel("Action running. Open progress.")
     }
 }
 
@@ -49,25 +64,14 @@ struct ResultReadyPill: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.caiPrimary)
-                Text("Result")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiPrimary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.caiPrimarySubtle)
-            )
-            .contentShape(Rectangle())
+        HeaderPill(onTap: onTap) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.caiPrimary)
+            Text("Result")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.caiPrimary)
         }
-        .buttonStyle(.plain)
-        .fixedSize()
         .help("An action finished — click to see the result")
         .accessibilityLabel("Action finished with a result. Open it.")
     }
@@ -115,17 +119,19 @@ struct RunningView: View {
 
     @ObservedObject private var execution = ExecutionState.shared
 
+    /// Every terminal state names the run that produced it: this surface is
+    /// usually reached from the header pill long after the fact, where a bare
+    /// "Finished" or "Failed" doesn't say what of. Status is carried by the
+    /// glyph and body copy instead.
     private var headerTitle: String {
         if execution.isRunning { return "Running" }
+        if let name = execution.lastRunName { return name }
         if case .failed = execution.lastOutcome { return "Failed" }
-        // A recovered result titles itself with the action that produced it —
-        // arriving here from the pill, "Finished" alone doesn't say what of.
-        if let result = execution.lastResult { return result.actionName }
         return "Finished"
     }
 
     /// The finished run's output, when there is any to show.
-    private var recoveredResult: ExecutionState.RunResult? {
+    private var recoveredResult: String? {
         execution.isRunning ? nil : execution.lastResult
     }
 
@@ -151,6 +157,11 @@ struct RunningView: View {
             // capped at the same 240pt content height.
             content
                 .frame(maxWidth: .infinity, maxHeight: 240)
+                // A `.transition` alone is inert here: the switch is driven by
+                // `execution.snapshot` changing, which nothing wraps in
+                // `withAnimation`, so progress → result would jump-cut.
+                // DESIGN lists result reveals at easeOut 0.2s.
+                .animation(.easeOut(duration: 0.2), value: recoveredResult)
 
             Spacer(minLength: 0)
             Divider().background(Color.caiDivider)
@@ -181,7 +192,12 @@ struct RunningView: View {
         if let result = recoveredResult {
             // A real result gets the full scrollable pane, exactly as it would
             // have in ResultView had the action run in the foreground.
-            ResultBody(text: result.text)
+            //
+            // Scope cut, deliberate: no "Send to" destination chips here yet,
+            // unlike ResultView. Wiring them means routing `executeDestination`
+            // into this view, and a recovered result can still be copied with
+            // Enter. Noted as a follow-up rather than left as an accident.
+            ResultBody(text: result)
                 .transition(.opacity)
         } else {
             centeredStatus

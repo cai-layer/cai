@@ -79,11 +79,11 @@ final class ExecutionStateTests: XCTestCase {
     /// ones: which nesting level's result survives, that a failure discards a
     /// result reported before it, and when the pill should still be advertising.
     func testResultCommitRules() {
-        let sink = ExecutionState.RunResult(actionName: "Digest", text: "the answer")
-        let inner = ExecutionState.RunResult(actionName: "Digest", text: "inner answer")
+        let sink = "the answer"
+        let inner = "inner answer"
 
         let cases: [(name: String, events: [ExecutionState.Event],
-                     result: ExecutionState.RunResult?, unviewed: Bool)] = [
+                     result: String?, unviewed: Bool)] = [
             ("no result reported → nothing to collect",
              [.start(name: "A"), .finish], nil, false),
 
@@ -117,6 +117,18 @@ final class ExecutionStateTests: XCTestCase {
             XCTAssertEqual(s.lastResult, c.result, c.name)
             XCTAssertEqual(s.hasUnviewedResult, c.unviewed, c.name)
         }
+    }
+
+    func testRunNameSurvivesCompletionForTheResultSurface() {
+        // The run surface is reached from the pill long after the fact, so it
+        // must still be able to name the run — `action` clears on finish.
+        var s = run([.start(name: "Digest"), .produceResult("text"), .finish])
+        XCTAssertNil(s.action)
+        XCTAssertEqual(s.lastRunName, "Digest")
+
+        // Including when it failed, which is what titles the failure state.
+        s = run([.start(name: "Digest"), .reportFailure("boom"), .finish])
+        XCTAssertEqual(s.lastRunName, "Digest")
     }
 
     func testNewRunClearsPriorOutcome() {

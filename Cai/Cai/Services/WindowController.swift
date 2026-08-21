@@ -126,7 +126,11 @@ class WindowController: NSObject, ObservableObject {
             forName: .caiShowRunResult,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            // A re-post carries the token, so it is never trampolined again —
+            // belt and braces against a `showActionWindow` that somehow leaves
+            // the window not visible, which would otherwise self-post forever.
+            guard notification.userInfo?[Self.runResultRepostKey] == nil else { return }
             MainActor.assumeIsolated { self?.showRunResultWindow() }
         }
     }
@@ -139,13 +143,23 @@ class WindowController: NSObject, ObservableObject {
     /// the window exists, and this observer no-ops on it because the window is
     /// visible by then, so there is no loop.
     private func showRunResultWindow() {
+        // `hideWindow` nils `window` while parking the live hierarchy in
+        // `cachedWindow`, so this guard is not fooled by the resume cache.
         guard !isVisible else { return }
         let emptyDetection = ContentResult(type: .shortText, confidence: 0.0, entities: ContentEntities())
         showActionWindow(text: "", detection: emptyDetection)
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .caiShowRunResult, object: nil)
+            NotificationCenter.default.post(
+                name: .caiShowRunResult,
+                object: nil,
+                userInfo: [Self.runResultRepostKey: true]
+            )
         }
     }
+
+    /// Marks the re-post fired by `showRunResultWindow`, so it drives the view's
+    /// navigation without re-entering this controller's own observer.
+    private static let runResultRepostKey = "caiRunResultRepost"
 
     /// Clears saved window dimensions and animates the current window (if visible)
     /// back to the default Spotlight footprint. Invoked by Settings → General.

@@ -163,7 +163,9 @@ final class ChainExecutor {
         // blink). `name` is the originating action's title when the caller knows
         // it; nested runs keep the outermost name (see `ExecutionState.reduce`).
         // Falls back to the last step's label for standalone chain runs.
-        ExecutionState.shared.start(name: name ?? steps.last?.displayLabel ?? "Running")
+        // One fallback, used for both the running identity and the result title.
+        let runName = name ?? steps.last?.displayLabel ?? "Running"
+        ExecutionState.shared.start(name: runName)
         defer { ExecutionState.shared.finish() }
 
         do {
@@ -181,17 +183,19 @@ final class ChainExecutor {
             let routing = ResultRouting.route(
                 text: finalOutput, terminal: terminal, runInBackground: runInBackground
             )
-            let runName = name ?? steps.last?.displayLabel ?? "Action"
             if routing == .record || routing == .showInPanel {
-                ExecutionState.shared.reportResult(
-                    ExecutionState.RunResult(actionName: runName, text: finalOutput)
-                )
+                ExecutionState.shared.reportResult(finalOutput)
             }
             if routing == .showInPanel {
                 // Foreground run with an explicit "Show in Cai" terminator —
                 // the only path that opens the panel on its own, because it is
                 // the only one where the chain asked for it.
+                //
+                // No toast here: the panel is about to show the full result, and
+                // a 60-character snippet floating over it would announce what
+                // the user is already reading.
                 NotificationCenter.default.post(name: .caiShowRunResult, object: nil)
+                return
             }
 
             // Toast with a sanitized snippet (collapsed whitespace, capped at

@@ -216,9 +216,17 @@ struct ActionListWindow: View {
             // A foreground chain ended in "Show in Cai" — land on the run
             // surface. Only fires for a run that asked for it (never for a
             // `runInBackground` action), so this is not an unbidden pop.
+            //
+            // But a chain takes 10-30s, and the user may have reopened ⌥C and
+            // started doing something in the meantime. Navigating only from the
+            // action list (or the run surface itself) keeps this from yanking a
+            // half-typed Ask AI composer away, and from latching `showRunning`
+            // invisibly under a higher-precedence screen — where the flag would
+            // sit until a later Esc spent a keypress on a no-op transition.
+            // Anything else falls back to the pill, which is exactly what the
+            // pill is for.
             .onReceive(NotificationCenter.default.publisher(for: .caiShowRunResult)) { _ in
-                selectionState.filterText = ""
-                withAnimation(.easeInOut(duration: 0.15)) { showRunning = true }
+                handleShowRunResult()
             }
             .onReceive(NotificationCenter.default.publisher(for: .caiCmdNumber)) { notification in
                 if let number = notification.userInfo?["number"] as? Int {
@@ -487,8 +495,8 @@ struct ActionListWindow: View {
             copyAndDismissWithToast()
         case .running:
             // A recovered result copies on Enter exactly like one in ResultView.
-            guard let recovered = execution.lastResult, !recovered.text.isEmpty else { return }
-            SystemActions.copyToClipboard(recovered.text)
+            guard let recovered = execution.lastResult, !recovered.isEmpty else { return }
+            SystemActions.copyToClipboard(recovered)
             copyAndDismissWithToast()
         case .extensionConfirm:
             confirmInstallExtension()
@@ -927,14 +935,18 @@ struct ActionListWindow: View {
             // pill is the one signal that survives ⌥C reopen.
             if execution.isRunning {
                 RunningPill(reduceMotion: reduceMotion) {
-                    withAnimation(.easeInOut(duration: 0.15)) { showRunning = true }
+                    withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
                 }
             } else if execution.hasUnviewedResult {
                 ResultReadyPill {
-                    withAnimation(.easeInOut(duration: 0.15)) { showRunning = true }
+                    withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
                 }
             }
         }
+        // Fades the Running → Result pill swap. It's the header's most-watched
+        // element, so a hard swap reads as a glitch (DESIGN: easeOut 0.2s).
+        .animation(.easeOut(duration: 0.2), value: execution.isRunning)
+        .animation(.easeOut(duration: 0.2), value: execution.hasUnviewedResult)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .onAppear { fetchCurrentModel() }
@@ -1314,13 +1326,23 @@ struct ActionListWindow: View {
                                 switch outcome {
                                 case .pasted:
                                     // No toast — user sees the replacement happen.
+                                    // Consumed: the text is in their document.
                                     break
                                 case .copiedForManualPaste:
+                                    // Not consumed — it's on the clipboard but
+                                    // nowhere the user can read it, so the sink
+                                    // keeps it too.
+                                    Self.recordUnconsumedResult(trimmed)
                                     NotificationCenter.default.post(
                                         name: .caiShowToast, object: nil,
                                         userInfo: ["message": "Response copied → ⌘V to paste"]
                                     )
                                 case .failed:
+                                    // The paste-back failed, so nothing consumed
+                                    // the output. Without this the LLM's answer
+                                    // is gone and a 1.5s toast is its only
+                                    // trace — finding #18 surviving in one path.
+                                    Self.recordUnconsumedResult(trimmed)
                                     NotificationCenter.default.post(
                                         name: .caiShowToast, object: nil,
                                         userInfo: ["message": "Could not paste. Check Accessibility permission."]
@@ -1383,7 +1405,7 @@ struct ActionListWindow: View {
                 let actionTitle = action.title
                 onDismiss()
                 Task { @MainActor in
-                    ExecutionState.shared.start(name: action.title)
+                    ExecutionState.shared.start(name: actionTitle)
                     defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
@@ -1391,7 +1413,7 @@ struct ActionListWindow: View {
                         // Default sink: the toast snippet is a preview, not the
                         // result. Keep the full text on the run's record so the
                         // header pill can hand it back (finding #18).
-                        Self.recordUnconsumedResult(trimmed, actionName: actionTitle)
+                        Self.recordUnconsumedResult(trimmed)
                         let snippet = String(trimmed.prefix(80))
                         NotificationCenter.default.post(
                             name: .caiShowToast, object: nil,
@@ -1440,9 +1462,12 @@ struct ActionListWindow: View {
             // URL output is empty per the chain design (URL was opened, nothing
             // to propagate). Downstream steps receive "".
             if !chainSlugs.isEmpty {
+                let actionTitle = action.title
+                let runsInBackground = action.runInBackground
                 Task { @MainActor in
                     await ChainExecutor.shared.runChain(
-                        chainSlugs, initialInput: "", sourceBundleId: bundleId
+                        chainSlugs, initialInput: "", sourceBundleId: bundleId,
+                        name: actionTitle, runInBackground: runsInBackground
                     )
                 }
             }
@@ -1460,7 +1485,7 @@ struct ActionListWindow: View {
                 let actionTitle = action.title
                 onDismiss()
                 Task { @MainActor in
-                    ExecutionState.shared.start(name: action.title)
+                    ExecutionState.shared.start(name: actionTitle)
                     defer { ExecutionState.shared.finish() }
                     do {
                         let result = try await Self.runShellCommand(
@@ -1477,8 +1502,7 @@ struct ActionListWindow: View {
                             // Default sink: keep the full stdout, not just the
                             // 80-char toast preview.
                             Self.recordUnconsumedResult(
-                                result.trimmingCharacters(in: .whitespacesAndNewlines),
-                                actionName: actionTitle
+                                result.trimmingCharacters(in: .whitespacesAndNewlines)
                             )
                             let snippet = String(result.prefix(80))
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1547,21 +1571,33 @@ struct ActionListWindow: View {
         }
     }
 
-    /// Routes a background run's output through the default sink.
+    /// Keeps output from a path that has no chain and no destination: a
+    /// background prompt, a background shell, or a paste-back that didn't land.
     ///
-    /// These two call sites (background prompt, background shell) have no chain
-    /// and no destination, so their terminal is always `.producesText` and the
-    /// user set `runInBackground` to get here — the route is always `.record`
-    /// or `.nothing`. Going through `ResultRouting` anyway keeps one decision
-    /// in one place, including "blank output is not a result".
-    private static func recordUnconsumedResult(_ text: String, actionName: String) {
-        let routing = ResultRouting.route(
-            text: text, terminal: .producesText, runInBackground: true
-        )
-        guard routing == .record || routing == .showInPanel else { return }
-        ExecutionState.shared.reportResult(
-            ExecutionState.RunResult(actionName: actionName, text: text)
-        )
+    /// Deliberately not routed through `ResultRouting`: with no destination and
+    /// no chain the terminal is always `.producesText`, so the only decision
+    /// left is the blank check, and dressing that up as a routing call implied
+    /// the flag mattered here when it cannot change the answer. The naming path
+    /// is `ExecutionState.lastRunName`, set when the run started.
+    private static func recordUnconsumedResult(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        ExecutionState.shared.reportResult(text)
+    }
+
+    /// Navigates to the run surface after a foreground chain finished on
+    /// "Show in Cai".
+    ///
+    /// Guarded on the current screen. A chain takes 10-30s and the user may have
+    /// reopened ⌥C and started doing something: navigating out of a half-typed
+    /// Ask AI composer would lose their place, and setting the flag under a
+    /// higher-precedence screen (settings, result, history) would latch it
+    /// invisibly — a later Esc would then spend a keypress on a no-op
+    /// transition. In those cases the header pill carries the result instead,
+    /// which is what the pill is for.
+    private func handleShowRunResult() {
+        guard activeScreen == .actions || activeScreen == .running else { return }
+        selectionState.filterText = ""
+        withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
     }
 
     private func showResultView(
@@ -1996,6 +2032,9 @@ struct ActionListWindow: View {
         // Destinations don't propagate output (per chain design — they're
         // side-effect actions). Chain steps receive "" as initial input.
         let chainSlugs = destination.next
+        // Names the run (and so the result surface) after the destination the
+        // user picked, rather than letting it fall back to the last step's label.
+        let destinationName = destination.name
 
         // A destination whose `next:` chain would start a second concurrent run
         // while one is already going is blocked (v1 one-at-a-time) — it would
@@ -2039,7 +2078,8 @@ struct ActionListWindow: View {
                 if !chainSlugs.isEmpty {
                     Task { @MainActor in
                         await ChainExecutor.shared.runChain(
-                            chainSlugs, initialInput: "", sourceBundleId: bundleId
+                            chainSlugs, initialInput: "", sourceBundleId: bundleId,
+                            name: destinationName, runInBackground: false
                         )
                     }
                 }
@@ -2069,7 +2109,10 @@ struct ActionListWindow: View {
                 }
                 if !chainSlugs.isEmpty {
                     await ChainExecutor.shared.runChain(
-                        chainSlugs, initialInput: "", sourceBundleId: bundleId
+                        chainSlugs, initialInput: "", sourceBundleId: bundleId,
+                        // The user picked this destination just now, so its chain
+                        // is a foreground act: a "Show in Cai" terminator may pop.
+                        name: destinationName, runInBackground: false
                     )
                 }
             } catch {

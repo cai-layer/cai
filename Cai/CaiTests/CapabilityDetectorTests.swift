@@ -508,6 +508,26 @@ final class CapabilityDetectorTests: XCTestCase {
 
             // A substitution after the authority is fine — the host is known.
             ("https://example.com/a/%s?b={{x}}", "example.com"),
+
+            // Inputs where `URLComponents` and `URL(string:)` genuinely disagree
+            // on this OS, found by differential fuzzing. The chip is read by a
+            // human; `ActionListWindow`/`ChainExecutor` open the URL with the
+            // OTHER parser. Every one of these must chip nothing, because
+            // naming a host the opener will not visit is the cardinal sin.
+            //
+            // Unicode slash lookalikes: URLComponents keeps them in the host,
+            // URL folds them into a different registrable domain entirely
+            // (`a.com⁄b.com` → `a.xn--comb-2g7a.com`).
+            ("https://a.com\u{2044}b.com/%s", nil),
+            ("https://a.com\u{2215}b.com/%s", nil),
+            // Punycode: URLComponents DECODES to the Cyrillic homograph, URL
+            // keeps the ASCII form.
+            ("https://xn--80ak6aa92e.com/%s", nil),
+            // Empty authority: URLComponents reports "", URL reports nothing.
+            ("https:///a.com/%s", nil),
+            ("https://///a.com/%s", nil),
+            // Bracketed IPv6 spelling differs between the two.
+            ("https://[::ffff:127.0.0.1]/%s", nil),
         ]
 
         for c in cases {

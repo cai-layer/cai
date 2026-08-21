@@ -167,16 +167,24 @@ public enum CapabilityDetector {
         // `ChainExecutor`. `URLComponents` and `URL` are different Foundation
         // parsers with different lineages (RFC 3986 vs the WHATWG-leaning modern
         // one), and naming a host from one while the other does the opening is
-        // an unwritten assumption that they never disagree. They agree across
-        // every case tested here and a 240-case sweep of authority-confusion
-        // separators on the current OS — but "agrees on my machine and my OS
-        // version" is not a property, and a divergence would produce the one
-        // output this file must never produce: a confident chip naming a
-        // different host than the one that opens.
+        // an unwritten assumption. Differential fuzzing found 14 real
+        // divergences on the current OS — unicode slash lookalikes that URL
+        // folds into another registrable domain (`a.com⁄b.com` →
+        // `a.xn--comb-2g7a.com`), punycode that URLComponents DECODES to a
+        // Cyrillic homograph, empty authorities, bracketed IPv6 — all pinned in
+        // `testHostExtractionRefusesRatherThanGuesses`.
         //
-        // So the assumption is enforced rather than trusted. If they ever
-        // disagree, the reader gets no host chip instead of a wrong one, which
-        // is the degradation this whole function is built around.
+        // A targeted 409-case hunt for the dangerous shape — both parsers
+        // returning DIFFERENT hosts that each pass the ASCII filter below —
+        // found none, so the filter alone was already sufficient here and every
+        // known divergence lands where it already refuses. This check is
+        // therefore belt to that brace, and it is worth keeping for the case
+        // that cannot be tested from a dev machine: the deployment floor is
+        // macOS 14, where `URLComponents` (CFURL) and `URL` (swift-foundation)
+        // have different lineages than they do on current systems.
+        //
+        // The assumption is enforced rather than trusted, so on any OS where
+        // they disagree the reader gets no host chip instead of a wrong one.
         guard let components = URLComponents(string: trimmed),
               let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",

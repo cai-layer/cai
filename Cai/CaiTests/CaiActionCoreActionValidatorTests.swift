@@ -44,6 +44,22 @@ final class ActionValidatorTests: XCTestCase {
                 line: #line
             ),
             RejectionCase(
+                label: "name that is only invisible scalars",
+                change: CoreFixture.createChange(CoreFixture.draft(name: "\u{3164}\u{2800}\u{115F}")),
+                expected: .nameEmpty,
+                line: #line
+            ),
+            RejectionCase(
+                // One grapheme, 300 scalars: the grapheme cap sees a
+                // one-character name and waves it through.
+                label: "name stacking more scalars than the cap onto one grapheme",
+                change: CoreFixture.createChange(CoreFixture.draft(
+                    name: "A" + CoreFixture.repeating("\u{0301}", 300)
+                )),
+                expected: .nameTooManyScalars(max: 240, found: 300),
+                line: #line
+            ),
+            RejectionCase(
                 label: "empty value",
                 change: CoreFixture.createChange(CoreFixture.draft(value: "")),
                 expected: .valueEmpty,
@@ -434,5 +450,140 @@ final class ActionValidatorTests: XCTestCase {
         for sample in samples {
             XCTAssertFalse(sample.reason.contains("—"), "Rejection copy must not use em-dashes: \(sample.reason)")
         }
+    }
+
+    // MARK: - Invisible-character folding
+
+    /// The approval sheet's duplicate warning is only worth anything if two
+    /// names that *render* the same *compare* the same. Everything here
+    /// renders identically to a name the user already has, so each row is a
+    /// name that could impersonate a trusted action from the ⌥C list.
+    ///
+    /// One table rather than a method per scalar: the interesting axis is
+    /// which scalar classes fold and which are left alone, and that reads as
+    /// a list.
+    func testInvisibleScalarsFoldSoLookalikeNamesCollide() throws {
+        struct FoldCase {
+            let label: String
+            let proposed: String
+            let stored: String
+            /// Whether the folded name should trip the duplicate warning
+            /// against `CoreFixture.known` ("Existing action", "Slack").
+            let collides: Bool
+            let line: UInt
+        }
+
+        let cases: [FoldCase] = [
+            FoldCase(
+                label: "braille blank suffix (So, not default-ignorable)",
+                proposed: "Existing action\u{2800}",
+                stored: "Existing action",
+                collides: true,
+                line: #line
+            ),
+            FoldCase(
+                label: "hangul filler suffix (Lo, default-ignorable)",
+                proposed: "Existing action\u{3164}",
+                stored: "Existing action",
+                collides: true,
+                line: #line
+            ),
+            FoldCase(
+                // The one trimming never caught: it only touches the ends.
+                label: "non-breaking space between words",
+                proposed: "Existing\u{00A0}action",
+                stored: "Existing action",
+                collides: true,
+                line: #line
+            ),
+            FoldCase(
+                label: "an ordinary name passes through untouched",
+                proposed: "Weekly digest",
+                stored: "Weekly digest",
+                collides: false,
+                line: #line
+            ),
+            FoldCase(
+                label: "accents and non-Latin scripts survive",
+                proposed: "Résumé 日本語",
+                stored: "Résumé 日本語",
+                collides: false,
+                line: #line
+            ),
+            FoldCase(
+                // Default-ignorable, but dropping it would change how a
+                // legitimate name renders rather than protect anyone.
+                label: "emoji variation selector is kept",
+                proposed: "Mail \u{2709}\u{FE0F}",
+                stored: "Mail \u{2709}\u{FE0F}",
+                collides: false,
+                line: #line
+            ),
+        ]
+
+        for testCase in cases {
+            let validated = try ActionValidator.validate(
+                CoreFixture.createChange(CoreFixture.draft(name: testCase.proposed)),
+                known: CoreFixture.known
+            )
+            XCTAssertEqual(
+                validated.after.name,
+                testCase.stored,
+                testCase.label,
+                line: testCase.line
+            )
+            XCTAssertEqual(
+                validated.warnings.contains(.duplicateName(testCase.stored)),
+                testCase.collides,
+                "duplicate warning for \(testCase.label)",
+                line: testCase.line
+            )
+            // A name that had something folded out of it must say so, and a
+            // clean name must not claim it was touched.
+            XCTAssertEqual(
+                validated.warnings.contains(.invisibleCharactersNormalized(field: .name)),
+                testCase.proposed != testCase.stored,
+                "fold warning for \(testCase.label)",
+                line: testCase.line
+            )
+        }
+    }
+
+    /// Canonical equivalence is already Swift's `==`, so an NFD name is not a
+    /// duplicate-warning bypass and must not be reported as altered.
+    func testDecomposedNameIsStoredComposedWithoutAWarning() throws {
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: "Cafe\u{0301} notes")),
+            known: CoreFixture.known
+        )
+        XCTAssertEqual(validated.after.name.unicodeScalars.count, 10, "Name should be stored composed.")
+        XCTAssertFalse(validated.warnings.contains(.invisibleCharactersNormalized(field: .name)))
+    }
+
+    /// U+2028 / U+2029 are Zl and Zp: not control characters, not
+    /// default-ignorable, not `.whitespaces`. They are removed by the
+    /// control-character strip before the fold sees them, so the stored name
+    /// closes up rather than gaining a space. Pinned because the two stages
+    /// treat them differently and the difference is easy to "fix" wrongly.
+    func testLineSeparatorsAreRemovedBeforeTheFoldAndDoNotImpersonate() throws {
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: "Existing\u{2028}action")),
+            known: CoreFixture.known
+        )
+        XCTAssertEqual(validated.after.name, "Existingaction")
+        XCTAssertTrue(validated.warnings.contains(.controlCharactersRemoved(field: .name)))
+        XCTAssertFalse(
+            validated.warnings.contains(.duplicateName("Existing action")),
+            "The stored name reads differently, so there is nothing to warn about."
+        )
+    }
+
+    func testScalarCapIsInclusive() throws {
+        let atLimit = "A" + CoreFixture.repeating("\u{0301}", 240)
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: atLimit)),
+            known: CoreFixture.known
+        )
+        XCTAssertEqual(validated.after.name.unicodeScalars.count, 240)
     }
 }

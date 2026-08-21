@@ -13,6 +13,7 @@ public enum ActionRejection: Error, Equatable, Sendable {
     case malformedJSON(String)
     case nameEmpty
     case nameTooLong(max: Int, found: Int)
+    case nameTooManyScalars(max: Int, found: Int)
     case valueEmpty
     case valueTooLong(max: Int, found: Int)
     case chainTooLong(max: Int, found: Int)
@@ -40,6 +41,11 @@ public enum ActionRejection: Error, Equatable, Sendable {
             return "The action name is empty."
         case .nameTooLong(let max, let found):
             return "The action name is \(found) characters. The limit is \(max)."
+        case .nameTooManyScalars(let max, let found):
+            // The third sentence earns its place: without it an agent sees a
+            // 20-character name refused for length and cannot self-correct.
+            return "The action name uses \(found) Unicode scalars. The limit is \(max). "
+                + "Remove combining marks or invisible characters."
         case .valueEmpty:
             return "The action value is empty."
         case .valueTooLong(let max, let found):
@@ -120,6 +126,12 @@ public enum ActionWarning: Equatable, Sendable {
     /// Another installed action already answers to this name.
     case duplicateName(String)
     case controlCharactersRemoved(field: ActionField)
+    /// Invisible scalars that survive the control-character strip were folded
+    /// away: braille blanks, Hangul fillers, whitespace lookalikes. A separate
+    /// case because none of them is a control character and a lookalike space
+    /// is replaced rather than removed, so the control-character copy would
+    /// tell the user something untrue about their own name.
+    case invisibleCharactersNormalized(field: ActionField)
     case smartQuotesNormalized(field: ActionField)
     /// Chain steps that don't resolve to anything installed on this Mac; the
     /// action will fail at that step until the user installs them.
@@ -136,6 +148,8 @@ public enum ActionWarning: Equatable, Sendable {
             return "Another action is already named \"\(name)\"."
         case .controlCharactersRemoved(let field):
             return "Hidden control characters were removed from \(field.rawValue)."
+        case .invisibleCharactersNormalized(let field):
+            return "Invisible characters in \(field.rawValue) were removed or replaced with plain spaces."
         case .smartQuotesNormalized(let field):
             return "Curly quotes in \(field.rawValue) were replaced with straight quotes."
         case .unresolvedChainSteps(let names):

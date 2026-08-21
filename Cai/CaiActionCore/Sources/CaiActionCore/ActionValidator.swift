@@ -191,7 +191,10 @@ public enum ActionValidator {
     /// Cai's own voice ("Proposed by ..."). Unsanitized, a name carrying
     /// newlines can add lines of reassuring copy above the payload, and a name
     /// carrying thousands of characters can push the Approve and Reject
-    /// buttons off the bottom of the screen. Same treatment as a name.
+    /// buttons off the bottom of the screen. Stripped and length-capped like a
+    /// name, but deliberately not folded through
+    /// `foldingInvisibleScalars()`: the fold exists so two names that render
+    /// alike compare alike, and no duplicate comparison is made on a label.
     static func sanitized(_ provenance: ActionProvenance) -> ActionProvenance {
         ActionProvenance(
             source: provenance.source,
@@ -219,17 +222,37 @@ public enum ActionValidator {
     static func normalize(_ action: ActionSnapshot, warnings: inout [ActionWarning]) throws -> ActionSnapshot {
         var result = action
 
-        result.name = action.name
+        let stripped = action.name
             .strippingControlCharacters(keepingNewlines: false)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.name != action.name.trimmingCharacters(in: .whitespacesAndNewlines) {
+        if stripped != action.name.trimmingCharacters(in: .whitespacesAndNewlines) {
             warnings.append(.controlCharactersRemoved(field: .name))
         }
+
+        // The name the duplicate check compares must be the name the user
+        // reads. Folded here rather than at comparison time so the stored
+        // name is the folded one too: a comparison-only fold would leave the
+        // invisible scalars in the action list, where the impersonation
+        // actually pays off every time the user opens ⌥C.
+        result.name = stripped.foldingInvisibleScalars()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.name != stripped {
+            warnings.append(.invisibleCharactersNormalized(field: .name))
+        }
+
         guard result.name.count >= ActionSchema.minNameLength else {
             throw ActionRejection.nameEmpty
         }
         guard result.name.count <= ActionSchema.maxNameLength else {
             throw ActionRejection.nameTooLong(max: ActionSchema.maxNameLength, found: result.name.count)
+        }
+        // After the grapheme cap, so a name that is long by both measures
+        // reports the limit a human would recognize first.
+        guard result.name.unicodeScalars.count <= ActionSchema.maxNameScalars else {
+            throw ActionRejection.nameTooManyScalars(
+                max: ActionSchema.maxNameScalars,
+                found: result.name.unicodeScalars.count
+            )
         }
 
         let strippedValue = action.value.strippingControlCharacters(keepingNewlines: true)

@@ -22,6 +22,24 @@ public enum ActionSchema {
     public static let minNameLength = 1
     public static let maxNameLength = 60
 
+    /// Scalar ceiling for a name, alongside the grapheme cap above.
+    /// `String.count` counts graphemes, and one grapheme stacks arbitrarily
+    /// many combining marks: `"A"` plus 5,000 acute accents is one character
+    /// by that measure and 10 KB of scalars, bounded only by
+    /// `maxPendingFileBytes`. The approval sheet renders a name in a
+    /// `lineLimit(1)` row, so the cost lands as CoreText layout on the one
+    /// surface that must stay responsive.
+    ///
+    /// Four times the grapheme cap, counted on the folded, NFC name. Measured
+    /// worst legitimate cases that actually reach this check: a flag is 2
+    /// scalars per grapheme, an emoji plus a skin-tone modifier 2, and
+    /// Devanagari or Thai clusters 2 to 4. ZWJ sequences do not reach it
+    /// intact, because ZWJ is Cf and `strippingControlCharacters` removes it
+    /// from a name first (see weakness 4 in the security register). So 4x
+    /// leaves roughly an order of magnitude of headroom over any real name,
+    /// and the only thing it refuses is deliberate mark stacking.
+    public static let maxNameScalars = 240
+
     /// Action value (prompt text, URL template, or shell command) bounds.
     public static let minValueLength = 1
     public static let maxValueLength = 10_000

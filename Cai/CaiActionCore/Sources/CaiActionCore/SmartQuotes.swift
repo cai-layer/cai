@@ -57,3 +57,61 @@ extension String {
         })
     }
 }
+
+extension String {
+    /// Folds a name down to what the user actually sees, so two names that
+    /// render identically compare identically.
+    ///
+    /// `strippingControlCharacters` already removes Cc and Cf, which covers
+    /// U+200B–200D, U+FEFF and the bidi overrides. Three classes survive it
+    /// and each one lets an authored name impersonate an existing action on
+    /// the approval sheet, and in the ⌥C list forever after:
+    ///
+    /// - **Default-ignorable non-Cf scalars.** U+3164 HANGUL FILLER and the
+    ///   U+115F / U+1160 / U+FFA0 fillers are category Lo, U+17B4 / U+17B5 are
+    ///   Mn. All render as nothing, none are Cf. Matched by the Unicode
+    ///   `Default_Ignorable_Code_Point` property rather than a hand-kept list,
+    ///   so a scalar added in a future Unicode revision is covered without a
+    ///   code change.
+    /// - **Variation selectors are kept.** They are default-ignorable, but
+    ///   U+FE0F is what makes an emoji render as an emoji, so dropping it
+    ///   would change a legitimate name's appearance rather than protect it.
+    /// - **U+2800 BRAILLE PATTERN BLANK.** Category So and *not*
+    ///   default-ignorable, because it legitimately renders as an empty
+    ///   braille cell. In a one-line action name it is simply invisible, so it
+    ///   is the one scalar this needs to name explicitly.
+    /// - **Whitespace lookalikes.** `trimmingCharacters` only touches the
+    ///   ends, so `"Send\u{00A0}Email"` renders pixel-identically to
+    ///   `"Send Email"` and compares unequal. Every whitespace scalar becomes
+    ///   an ASCII space so the mid-string case stops being a bypass.
+    ///   `.whitespacesAndNewlines` rather than `.whitespaces` so this does not
+    ///   depend on the caller having stripped newlines first: U+2028 and
+    ///   U+2029 are Zl and Zp, so they are in neither `.controlCharacters`
+    ///   nor `.whitespaces`. On the name path `strippingControlCharacters`
+    ///   removes them before this runs, but a fold that is only correct
+    ///   because of what its caller did first is a trap for the next reader.
+    ///
+    /// NFC first, so the stored name is byte-stable and a stacked-mark name
+    /// counts its scalars after composition. It is not what closes the
+    /// duplicate hole: Swift's `==` and `caseInsensitiveCompare` already
+    /// compare under canonical equivalence, so `"Cafe\u{0301}"` and `"Café"`
+    /// are already the same string to both. That is also why a pure NFD → NFC
+    /// change raises no warning: the before and after are `==`.
+    ///
+    /// Names only. A chain step naming an invisible-padded action fails to
+    /// resolve and already escalates as `chainsToUnknownAction`, which fails
+    /// loud; a value is bounded by the pending-file byte cap and renders in a
+    /// scrollable block, not a one-line row.
+    public func foldingInvisibleScalars() -> String {
+        let folded = precomposedStringWithCanonicalMapping.unicodeScalars
+            .compactMap { scalar -> Unicode.Scalar? in
+                if scalar == "\u{2800}" { return nil }
+                let properties = scalar.properties
+                if properties.isDefaultIgnorableCodePoint && !properties.isVariationSelector {
+                    return nil
+                }
+                return CharacterSet.whitespacesAndNewlines.contains(scalar) ? " " : scalar
+            }
+        return String(String.UnicodeScalarView(folded))
+    }
+}

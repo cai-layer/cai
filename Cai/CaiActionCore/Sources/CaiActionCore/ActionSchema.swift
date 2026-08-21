@@ -30,15 +30,21 @@ public enum ActionSchema {
     /// `lineLimit(1)` row, so the cost lands as CoreText layout on the one
     /// surface that must stay responsive.
     ///
-    /// Four times the grapheme cap, counted on the folded, NFC name. Measured
-    /// worst legitimate cases that actually reach this check: a flag is 2
-    /// scalars per grapheme, an emoji plus a skin-tone modifier 2, and
-    /// Devanagari or Thai clusters 2 to 4. ZWJ sequences do not reach it
-    /// intact, because ZWJ is Cf and `strippingControlCharacters` removes it
-    /// from a name first (see weakness 4 in the security register). So 4x
-    /// leaves roughly an order of magnitude of headroom over any real name,
-    /// and the only thing it refuses is deliberate mark stacking.
-    public static let maxNameScalars = 240
+    /// Ten times the grapheme cap, counted on the folded, NFC name. Sized so
+    /// that **no** legitimate name can trip it and the cap means exactly one
+    /// thing: deliberate mark stacking. Measured scalars per grapheme, all of
+    /// which now reach this check intact because emoji clusters survive the
+    /// strip whole: 2 for a regional-indicator flag or an emoji plus skin-tone
+    /// modifier, 2 to 4 for Devanagari and Thai clusters, 5 for a family ZWJ
+    /// sequence, 7 for a subdivision flag, and 10 for the worst RGI sequence
+    /// there is (kiss with two skin tones). Ten times the grapheme cap
+    /// therefore covers a full 60-grapheme name of the very worst case.
+    ///
+    /// A tighter multiple would refuse absurd-but-honest names instead, which
+    /// is a worse trade: the attack this exists to stop is ~1 MB of combining
+    /// marks on one grapheme, and 600 scalars is still three orders of
+    /// magnitude below that.
+    public static let maxNameScalars = 600
 
     /// Action value (prompt text, URL template, or shell command) bounds.
     public static let minValueLength = 1

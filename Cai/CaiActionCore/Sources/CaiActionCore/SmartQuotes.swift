@@ -33,7 +33,8 @@ extension String {
     /// Strips control characters (everything in Unicode category Cc plus the
     /// zero-width / bidi formatting characters in Cf) while keeping the
     /// newlines and tabs that legitimately appear inside prompts and shell
-    /// templates.
+    /// templates, and keeping the Cf scalars that are structural inside an
+    /// emoji cluster (see `mappingScalarsPreservingEmoji`).
     ///
     /// This is a legibility defense, not an escaping one: an authored name
     /// carrying `\u{202E}` (right-to-left override) or a bare `\r` renders in
@@ -58,45 +59,84 @@ extension String {
         }
     }
 
-    /// Maps `transform` over every scalar, except inside a grapheme cluster
-    /// that renders as an emoji, which is kept as it is apart from trailing
-    /// invisible padding.
+    /// Maps `transform` over every scalar, with two exceptions that exist so
+    /// what is stored matches what the user sees.
     ///
-    /// ZWJ is Cf, so a flat scalar filter removes it and an action named
+    /// **Emoji clusters are kept as they are.** ZWJ is Cf, so a flat scalar
+    /// filter removes it and an action named
     /// `"\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} Family"` stores as three
     /// separate emoji. A flat *exemption* for ZWJ is not the answer either:
     /// ZWJ is invisible, so `"Sum\u{200D}marize"` would then render exactly
     /// like `"Summarize"` and reopen the impersonation this file exists to
-    /// close.
+    /// close. The discriminator is the grapheme cluster. Swift's grapheme
+    /// breaking already knows the joiner inside a family emoji is structural
+    /// (one `Character`) while the one between two letters is not, so there is
+    /// no emoji table to maintain. A cluster counts as emoji when any scalar
+    /// carries `Emoji_Presentation`, true of pictographs and false of digits
+    /// and letters, so `"1\u{200D}2"` gets no protection.
     ///
-    /// The discriminator is the grapheme cluster. Swift's grapheme breaking
-    /// already knows the ZWJ inside a family emoji is structural (one
-    /// `Character`) while the one in `"Sum\u{200D}marize"` is not, so no emoji
-    /// table is needed and nothing here rots as Unicode adds sequences. A
-    /// cluster counts as emoji when any of its scalars has the Unicode
-    /// `Emoji_Presentation` property, which is true of the pictographs and
-    /// false of digits and letters (so `"1\u{200D}2"` is not protected).
+    /// Trailing joiners are still dropped, because `"\u{1F468}\u{200D}"` is a
+    /// complete cluster to the segmenter yet the joiner is invisible padding.
+    /// The one exception is a subdivision flag (`"\u{1F3F4}"` plus tag
+    /// scalars, terminated by U+E007F): every tag scalar is default-ignorable,
+    /// so trimming would collapse Scotland, Wales and England all the way down
+    /// to a bare black flag, losing the name's identity and making the three
+    /// collide with each other. Requiring both the `"\u{1F3F4}"` base and the
+    /// terminator means a forged `"\u{1F44D}\u{E0041}\u{E007F}"` gets no such
+    /// protection.
     ///
-    /// Trailing joiners are still dropped: `"\u{1F468}\u{200D}"` is a
-    /// complete cluster to the segmenter, but the joiner adds nothing to the
-    /// glyph and would be invisible padding on a name. Variation selectors are
-    /// kept, since `"\u{2709}\u{FE0F}"` legitimately ends with one.
+    /// **Variation selectors are kept only where they change rendering.** They
+    /// are category Mn, not Cf, so `strippingControlCharacters` never removed
+    /// them, and exempting them wholesale from the fold was a spoof of its own:
+    /// `"Summarize\u{FE00}"` stored as a distinct string, rendered exactly like
+    /// `"Summarize"`, and slipped past the duplicate-name warning on any name
+    /// at all, not just one containing an emoji. The rule is positional: a
+    /// variation selector survives only directly after a scalar that is
+    /// emoji-capable but does **not** already default to emoji presentation.
+    /// That keeps the load-bearing selector in `"\u{2709}\u{FE0F}"` and
+    /// `"\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}"`, and drops the redundant one in
+    /// `"\u{1F44D}\u{FE0F}"` (U+1F44D is already Emoji_Presentation, so the
+    /// selector changes nothing a user can see). ASCII is excluded because
+    /// digits, `#` and `*` report `isEmoji` as keycap bases, which would
+    /// otherwise let `"Report 1\u{FE0F}"` impersonate `"Report 1"`.
     func mappingScalarsPreservingEmoji(
         _ transform: (Unicode.Scalar) -> Unicode.Scalar?
     ) -> String {
         var result = String.UnicodeScalarView()
+
+        // `result.last` is the base a variation selector attaches to: a
+        // selector is Extend, so it always lands in the same cluster as its
+        // base, and a leading one has no base and is dropped.
+        func append<S: Sequence>(_ scalars: S, verbatim: Bool) where S.Element == Unicode.Scalar {
+            for scalar in scalars {
+                if scalar.properties.isVariationSelector {
+                    if let base = result.last, base.variationSelectorChangesRendering {
+                        result.append(scalar)
+                    }
+                    continue
+                }
+                if verbatim {
+                    result.append(scalar)
+                } else if let mapped = transform(scalar) {
+                    result.append(mapped)
+                }
+            }
+        }
+
         for character in self {
             guard character.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation }) else {
-                result.append(contentsOf: character.unicodeScalars.compactMap(transform))
+                append(character.unicodeScalars, verbatim: false)
                 continue
             }
             var scalars = Array(character.unicodeScalars)
-            while let last = scalars.last,
-                  last.properties.isDefaultIgnorableCodePoint,
-                  !last.properties.isVariationSelector {
-                scalars.removeLast()
+            if !scalars.isSubdivisionFlagSequence {
+                while let last = scalars.last,
+                      last.properties.isDefaultIgnorableCodePoint,
+                      !last.properties.isVariationSelector {
+                    scalars.removeLast()
+                }
             }
-            result.append(contentsOf: scalars)
+            append(scalars, verbatim: true)
         }
         return String(result)
     }
@@ -149,11 +189,29 @@ extension String {
     public func foldingInvisibleScalars() -> String {
         return precomposedStringWithCanonicalMapping.mappingScalarsPreservingEmoji { scalar in
             if scalar == "\u{2800}" { return nil }
-            let properties = scalar.properties
-            if properties.isDefaultIgnorableCodePoint && !properties.isVariationSelector {
-                return nil
-            }
+            // Variation selectors never reach here: they are decided
+            // positionally in `mappingScalarsPreservingEmoji`, because whether
+            // one is visible depends on the scalar in front of it.
+            if scalar.properties.isDefaultIgnorableCodePoint { return nil }
             return CharacterSet.whitespacesAndNewlines.contains(scalar) ? " " : scalar
         }
+    }
+}
+
+extension Unicode.Scalar {
+    /// Whether a variation selector placed directly after this scalar changes
+    /// what the user sees. True only for a scalar that can take emoji
+    /// presentation but does not already default to it.
+    var variationSelectorChangesRendering: Bool {
+        properties.isEmoji && !properties.isEmojiPresentation && !isASCII
+    }
+}
+
+extension Array where Element == Unicode.Scalar {
+    /// A subdivision flag: `"\u{1F3F4}"` followed by tag scalars and closed by
+    /// U+E007F CANCEL TAG. Both ends are required, so a tag block hung off an
+    /// unrelated emoji is not mistaken for one.
+    var isSubdivisionFlagSequence: Bool {
+        first == "\u{1F3F4}" && last == "\u{E007F}" && count > 2
     }
 }

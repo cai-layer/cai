@@ -54,9 +54,9 @@ final class ActionValidatorTests: XCTestCase {
                 // one-character name and waves it through.
                 label: "name stacking more scalars than the cap onto one grapheme",
                 change: CoreFixture.createChange(CoreFixture.draft(
-                    name: "A" + CoreFixture.repeating("\u{0301}", 300)
+                    name: "A" + CoreFixture.repeating("\u{0301}", 700)
                 )),
-                expected: .nameTooManyScalars(max: 240, found: 300),
+                expected: .nameTooManyScalars(max: 600, found: 700),
                 line: #line
             ),
             RejectionCase(
@@ -285,6 +285,20 @@ final class ActionValidatorTests: XCTestCase {
         XCTAssertTrue(validated.warnings.contains(.controlCharactersRemoved(field: .name)))
         XCTAssertTrue(validated.warnings.contains(.controlCharactersRemoved(field: .value)))
         XCTAssertTrue(validated.warnings.contains(.smartQuotesNormalized(field: .value)))
+    }
+
+    /// `strippingControlCharacters` is shared by name, value and provenance,
+    /// so the emoji-cluster rule has to hold on the value path too.
+    func testEmojiSequencesSurviveInsideAValue() throws {
+        let change = CoreFixture.createChange(CoreFixture.draft(
+            value: "Reply with \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} and \u{2709}\u{FE0F}"
+        ))
+        let validated = try ActionValidator.validate(change, known: CoreFixture.known)
+        XCTAssertEqual(
+            validated.after.value,
+            "Reply with \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} and \u{2709}\u{FE0F}"
+        )
+        XCTAssertFalse(validated.warnings.contains(.controlCharactersRemoved(field: .value)))
     }
 
     func testNewlinesSurviveInsideAValue() throws {
@@ -613,6 +627,33 @@ final class ActionValidatorTests: XCTestCase {
                 stored: "Household \u{1F468}",
                 line: #line
             ),
+            EmojiCase(
+                // Every tag scalar is default-ignorable, so a naive trailing
+                // trim collapses all three UK nations to a bare black flag and
+                // makes them collide with each other.
+                label: "subdivision flag keeps its tag sequence",
+                proposed: "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F} Scotland",
+                stored: "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F} Scotland",
+                line: #line
+            ),
+            EmojiCase(
+                label: "a tag block forged onto an unrelated emoji is not a flag",
+                proposed: "Approve \u{1F44D}\u{E0041}\u{E007F}",
+                stored: "Approve \u{1F44D}",
+                line: #line
+            ),
+            EmojiCase(
+                label: "stray tag scalar after an emoji is dropped",
+                proposed: "Approve \u{1F44D}\u{E0041}",
+                stored: "Approve \u{1F44D}",
+                line: #line
+            ),
+            EmojiCase(
+                label: "combining grapheme joiner after an emoji is dropped",
+                proposed: "Approve \u{1F44D}\u{034F}",
+                stored: "Approve \u{1F44D}",
+                line: #line
+            ),
         ]
 
         for testCase in cases {
@@ -624,6 +665,106 @@ final class ActionValidatorTests: XCTestCase {
                 validated.after.name,
                 testCase.stored,
                 testCase.label,
+                line: testCase.line
+            )
+        }
+    }
+
+    /// The in-app editor does not fold, so an installed name can carry an
+    /// invisible the proposal does not. The collision must still be reported.
+    func testInstalledNameIsFoldedForComparisonToo() throws {
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: "Send Email")),
+            known: KnownActions(
+                shortcuts: [CoreFixture.snapshot(name: "Send\u{00A0}Email\u{2800}")],
+                destinations: [],
+                builtInActionNames: []
+            )
+        )
+        XCTAssertTrue(validated.warnings.contains(.duplicateName("Send Email")))
+    }
+
+    /// Variation selectors are Mn, not Cf, so the control-character strip never
+    /// touched them. Exempting them wholesale from the fold (to protect
+    /// "\u{2709}\u{FE0F}") was a spoof of its own, and worse than the ones the
+    /// fold closes: it worked on ANY name, not just one containing an emoji.
+    /// Each row here renders identically to a name the user already has.
+    func testVariationSelectorsCannotHideInAName() throws {
+        struct SelectorCase {
+            let label: String
+            let proposed: String
+            /// The existing name it must be recognized as a duplicate of.
+            let collidesWith: String
+            let line: UInt
+        }
+
+        let cases: [SelectorCase] = [
+            SelectorCase(
+                label: "VS1 appended to a plain name",
+                proposed: "Existing action\u{FE00}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "VS16 appended to a plain name",
+                proposed: "Existing action\u{FE0F}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "VS1 hidden mid-word",
+                proposed: "Existing\u{FE00} action",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "variation selector supplement",
+                proposed: "Existing action\u{E0100}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "Mongolian free variation selector",
+                proposed: "Existing action\u{180B}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                // Digits report isEmoji as keycap bases, so they must not earn
+                // a selector the way a pictograph does.
+                label: "VS16 on a digit",
+                proposed: "Report 1\u{FE0F}",
+                collidesWith: "Report 1",
+                line: #line
+            ),
+            SelectorCase(
+                // U+1F44D already defaults to emoji presentation, so the
+                // selector changes nothing the user can see.
+                label: "redundant VS16 after an already-emoji pictograph",
+                proposed: "Existing action \u{1F44D}\u{FE0F}",
+                collidesWith: "Existing action \u{1F44D}",
+                line: #line
+            ),
+        ]
+
+        for testCase in cases {
+            let validated = try ActionValidator.validate(
+                CoreFixture.createChange(CoreFixture.draft(name: testCase.proposed)),
+                known: KnownActions(
+                    shortcuts: [CoreFixture.snapshot(name: testCase.collidesWith)],
+                    destinations: [],
+                    builtInActionNames: []
+                )
+            )
+            XCTAssertEqual(
+                validated.after.name,
+                testCase.collidesWith,
+                testCase.label,
+                line: testCase.line
+            )
+            XCTAssertTrue(
+                validated.warnings.contains(.duplicateName(testCase.collidesWith)),
+                "\(testCase.label) must be recognized as a duplicate",
                 line: testCase.line
             )
         }
@@ -648,11 +789,11 @@ final class ActionValidatorTests: XCTestCase {
     }
 
     func testScalarCapIsInclusive() throws {
-        let atLimit = "A" + CoreFixture.repeating("\u{0301}", 240)
+        let atLimit = "A" + CoreFixture.repeating("\u{0301}", 600)
         let validated = try ActionValidator.validate(
             CoreFixture.createChange(CoreFixture.draft(name: atLimit)),
             known: CoreFixture.known
         )
-        XCTAssertEqual(validated.after.name.unicodeScalars.count, 240)
+        XCTAssertEqual(validated.after.name.unicodeScalars.count, 600)
     }
 }

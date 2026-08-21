@@ -338,13 +338,31 @@ public enum ActionValidator {
 
     // MARK: - Warnings
 
+    /// Both sides are folded, not just the proposal. The proposed name arrives
+    /// here already normalized, but an *installed* name never passed through
+    /// this validator: the in-app editor writes what the user typed, so a
+    /// hand-made action really can be called `"Send\u{00A0}Email"`. Comparing
+    /// a folded proposal against a raw installed name would then miss the
+    /// collision and leave two identically rendering rows in the ⌥C list,
+    /// which is the same end state as the spoof, reached from the other side.
     private static func nameWarnings(for action: ActionSnapshot, known: KnownActions) -> [ActionWarning] {
+        let proposed = action.name
         let clash = known.shortcuts.contains {
-            $0.id != action.id && $0.name.caseInsensitiveCompare(action.name) == .orderedSame
+            $0.id != action.id && comparableName($0.name).caseInsensitiveCompare(proposed) == .orderedSame
         } || known.destinations.contains {
-            $0.name.caseInsensitiveCompare(action.name) == .orderedSame
+            comparableName($0.name).caseInsensitiveCompare(proposed) == .orderedSame
         }
-        return clash ? [.duplicateName(action.name)] : []
+        return clash ? [.duplicateName(proposed)] : []
+    }
+
+    /// An installed name reduced to what the user actually sees, so it can be
+    /// compared against an already-normalized proposal. Mirrors the name half
+    /// of `normalize`.
+    static func comparableName(_ name: String) -> String {
+        name
+            .strippingControlCharacters(keepingNewlines: false)
+            .foldingInvisibleScalars()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func chainWarnings(for action: ActionSnapshot, known: KnownActions) -> [ActionWarning] {

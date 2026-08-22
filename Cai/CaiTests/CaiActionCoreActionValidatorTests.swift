@@ -767,6 +767,22 @@ final class ActionValidatorTests: XCTestCase {
                 "\(testCase.label) must be recognized as a duplicate",
                 line: testCase.line
             )
+            // A selector is dropped by the strip, not the fold: the positional
+            // rule lives in `mappingScalarsPreservingEmoji`, which both stages
+            // share, so by the time the fold runs there is nothing left to
+            // change. Pinned because the sheet's disclosure line depends on
+            // which stage did the work, and the earlier version of this test
+            // asserted the collision without noticing the wrong line showed.
+            XCTAssertTrue(
+                validated.warnings.contains(.controlCharactersRemoved(field: .name)),
+                "\(testCase.label) must disclose that something was removed",
+                line: testCase.line
+            )
+            XCTAssertFalse(
+                validated.warnings.contains(.invisibleCharactersNormalized(field: .name)),
+                "\(testCase.label): the fold had nothing left to do",
+                line: testCase.line
+            )
         }
     }
 

@@ -125,6 +125,11 @@ public enum ActionRejection: Error, Equatable, Sendable {
 public enum ActionWarning: Equatable, Sendable {
     /// Another installed action already answers to this name.
     case duplicateName(String)
+    /// Something invisible was removed outright. Named for the Cc and Cf
+    /// scalars that were once all it covered; the strip also drops variation
+    /// selectors that change nothing where they sit, which are category Mn, so
+    /// the copy deliberately says "characters" rather than naming a category
+    /// it would get wrong.
     case controlCharactersRemoved(field: ActionField)
     /// Invisible scalars that survive the control-character strip were folded
     /// away: braille blanks, Hangul fillers, whitespace lookalikes. A separate
@@ -147,7 +152,7 @@ public enum ActionWarning: Equatable, Sendable {
         case .duplicateName(let name):
             return "Another action is already named \"\(name)\"."
         case .controlCharactersRemoved(let field):
-            return "Hidden control characters were removed from \(field.rawValue)."
+            return "Hidden characters were removed from \(field.rawValue)."
         case .invisibleCharactersNormalized(let field):
             return "Invisible characters in \(field.rawValue) were removed or replaced with plain spaces."
         case .smartQuotesNormalized(let field):

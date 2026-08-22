@@ -291,7 +291,16 @@ class ClipboardService {
     /// between them let the ⌥C window / history poll act on a mix of two clipboard
     /// states. Returns the resolved content plus the `changeCount` observed in the
     /// same snapshot, so callers set their poll baseline from the same read.
-    func readClipboardContent() async -> (content: ClipboardContent, changeCount: Int) {
+    ///
+    /// `isConcealed` is true when the same snapshot carried a concealed/transient
+    /// marker type (password managers set these — see `RecentClipsMenuModel`).
+    /// Callers that record into `ClipboardHistory` must skip recording when set,
+    /// so marked secrets never enter history. Read in the SAME lane occupancy as
+    /// the content, so Cai's own reads and writes can't interleave between the
+    /// two. (Another process writing mid-occupancy can still slip between the
+    /// individual pboardd round-trips — a tiny window this shares with the
+    /// content reads themselves.)
+    func readClipboardContent() async -> (content: ClipboardContent, changeCount: Int, isConcealed: Bool) {
         // Capture raw materials in a SINGLE lane occupancy — pasteboard reads only.
         // No OCR, no disk I/O, and no nested PasteboardQueue call (re-entering the
         // serial queue would self-deadlock).
@@ -304,7 +313,14 @@ class ClipboardService {
                 fileURLs: fileURLs,
                 text: pb.string(forType: .string),
                 image: NSImage(pasteboard: pb),
-                changeCount: pb.changeCount
+                changeCount: pb.changeCount,
+                // Union across ALL items, not `pb.types` (which reflects only
+                // the first item): a writer can declare the concealed marker on
+                // a secondary NSPasteboardItem, and missing it would record the
+                // secret. `pb.types` stays in as a legacy-writer fallback.
+                isConcealed: RecentClipsMenuModel.containsSensitiveType(
+                    ((pb.pasteboardItems ?? []).flatMap(\.types) + (pb.types ?? [])).map(\.rawValue)
+                )
             )
         }
 
@@ -312,20 +328,20 @@ class ClipboardService {
         // (OCR; nil → fall through, since Finder puts BOTH a file URL and the path
         // string) > plain text > image data > empty.
         if let ocrText = OCRService.shared.ocrImageFiles(capture.fileURLs) {
-            return (.imageText(ocrText), capture.changeCount)
+            return (.imageText(ocrText), capture.changeCount, capture.isConcealed)
         }
         if let raw = capture.text {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                return (.text(trimmed), capture.changeCount)
+                return (.text(trimmed), capture.changeCount, capture.isConcealed)
             }
         }
         if let image = capture.image, let ocrText = OCRService.shared.ocrImage(image) {
-            return (.imageText(ocrText), capture.changeCount)
+            return (.imageText(ocrText), capture.changeCount, capture.isConcealed)
         }
         let hadImage = capture.image != nil
             || capture.fileURLs.contains { OCRService.imageExtensions.contains($0.pathExtension.lowercased()) }
-        return (.empty(hadImage: hadImage), capture.changeCount)
+        return (.empty(hadImage: hadImage), capture.changeCount, capture.isConcealed)
     }
 
     /// Raw clipboard materials captured in one lane occupancy, resolved off-lane.
@@ -334,5 +350,6 @@ class ClipboardService {
         let text: String?
         let image: NSImage?
         let changeCount: Int
+        let isConcealed: Bool
     }
 }

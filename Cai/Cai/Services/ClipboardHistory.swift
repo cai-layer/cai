@@ -133,16 +133,30 @@ class ClipboardHistory: ObservableObject {
             defer { self.pollInFlight = false }
 
             // One atomic snapshot (file → text → image priority), resolved off-lane.
-            let (content, _) = await ClipboardService.shared.readClipboardContent()
+            let (content, _, isConcealed) = await ClipboardService.shared.readClipboardContent()
+
+            // A history entry we just copied back surfaces here as a change.
+            // Read-and-clear on EVERY tick — including concealed ones — so the
+            // marker's staleness stays bounded to one pasteboard change; if a
+            // concealed copy landed between our write and this tick, holding
+            // the marker would silently swallow the next genuine copy of the
+            // same text.
+            let suppressed = self.suppressNextCopyText
+            self.suppressNextCopyText = nil
+
+            // Concealed/transient copies (password managers mark these — see
+            // RecentClipsMenuModel.sensitiveTypeIdentifiers) never enter
+            // history. Excluded here at capture, not at display, so marked
+            // secrets can't reach any surface built on history (⌘0 list,
+            // status-item menu). Cooperative only: an unmarked secret (pbcopy,
+            // "show password" fields) is indistinguishable from ordinary text.
+            guard !isConcealed else { return }
+
             switch content {
             case .imageText(let ocrText):
                 self.addEntry(ocrText, isImage: true)
             case .text(let text):
-                // A history entry we just copied back surfaces here as a change.
-                // Clear the marker every text tick (bounding staleness) and skip
-                // recording when it matches the self-copy.
-                let suppressed = self.suppressNextCopyText
-                self.suppressNextCopyText = nil
+                // Skip recording when the change is the self-copy we marked.
                 guard text != suppressed else { return }
                 self.addEntry(text)
             case .empty:
@@ -207,7 +221,12 @@ class ClipboardHistory: ObservableObject {
         // Mark the text so the poll suppresses this self-copy instead of
         // re-recording it. Set on main (this is called from the UI) and checked
         // on main in `checkForChanges` — race-free, no cross-thread hop.
-        suppressNextCopyText = entry.text
+        //
+        // Stored TRIMMED because the poll's read-back comes through
+        // `readClipboardContent`, which trims: an entry whose text carries
+        // leading/trailing whitespace (image OCR) would otherwise miss the
+        // suppression and re-record as a near-duplicate.
+        suppressNextCopyText = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
         PasteboardQueue.shared.write {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()

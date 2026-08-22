@@ -25,6 +25,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// it the same way Esc does.
     private var actionReviewResignObserver: NSObjectProtocol?
     private var pendingLLMSetup = false
+    /// History entries backing the status-item menu's Recent Clips section,
+    /// snapshotted at menu build so item tags resolve against a stable array.
+    private var recentClipsMenuEntries: [ClipboardHistory.Entry] = []
     /// Subscription to `BackgroundTaskTracker` — drives the menu bar icon
     /// pulse while a background shell action is running.
     private var taskTrackerSubscription: AnyCancellable?
@@ -232,6 +235,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem(title: title, action: #selector(showActionReview), keyEquivalent: ""))
         }
 
+        // Recent clips — a secondary, mouse-driven path back to existing history
+        // (the primary surface stays ⌘0 in the action panel). Rebuilt on every
+        // open, since this method constructs a fresh NSMenu per right-click, so
+        // the section can never show stale entries. Regular entries only: pinned
+        // items already have ⌘1-9 and aren't "recent". Concealed/transient
+        // copies never reach here — they are excluded at capture in
+        // ClipboardHistory, not filtered at display.
+        let entries = clipboardHistory.regularEntries
+        recentClipsMenuEntries = entries
+        let clipItems = RecentClipsMenuModel.items(from: entries.map {
+            RecentClipsMenuModel.Clip(text: $0.text, isImage: $0.isImage)
+        })
+        if !clipItems.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            let header = NSMenuItem(title: "Recent Clips", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for item in clipItems {
+                let menuItem = NSMenuItem(
+                    title: item.title,
+                    action: #selector(recentClipClicked(_:)),
+                    keyEquivalent: ""
+                )
+                menuItem.target = self
+                menuItem.tag = item.sourceIndex
+                if item.isImage {
+                    menuItem.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Image")
+                }
+                menu.addItem(menuItem)
+            }
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(NSMenuItem(title: "About Cai", action: #selector(showAbout), keyEquivalent: ""))
@@ -240,6 +275,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    /// Re-copies the clicked recent-clip entry to the clipboard. `tag` indexes
+    /// into the snapshot taken when the menu was built, so a poll tick landing
+    /// while the menu is open can't shift which entry the click resolves to.
+    @objc private func recentClipClicked(_ sender: NSMenuItem) {
+        guard recentClipsMenuEntries.indices.contains(sender.tag) else { return }
+        clipboardHistory.copyEntry(recentClipsMenuEntries[sender.tag])
     }
 
     @objc func openSettings() {
@@ -352,18 +395,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // off the lane. A slow daemon (Universal Clipboard, huge item) can't freeze
         // the runloop, and detection sees a single consistent clipboard state
         // rather than a mix from several separate reads.
-        let (content, changeCount) = await clipboardService.readClipboardContent()
+        let (content, changeCount, isConcealed) = await clipboardService.readClipboardContent()
 
         switch content {
         // Image (file OCR or image data). For a Finder copy the file URL wins over
         // the path string; if OCR finds no text, readClipboardContent falls through
         // to the path text, so we never land here with empty OCR.
         case .imageText(let ocrText):
-            showImageOCRResult(ocrText: ocrText, sourceApp: sourceApp, sourceBundleId: sourceBundleId)
+            showImageOCRResult(
+                ocrText: ocrText,
+                sourceApp: sourceApp,
+                sourceBundleId: sourceBundleId,
+                isConcealed: isConcealed
+            )
 
         // Text found.
         case .text(let text):
-            clipboardHistory.recordCurrentClipboard(text, changeCount: changeCount)
+            // Concealed/transient copies (password-manager markers) still open
+            // the panel — the user explicitly pressed ⌥C on them — but are never
+            // retained in history.
+            if !isConcealed {
+                clipboardHistory.recordCurrentClipboard(text, changeCount: changeCount)
+            }
 
             // No clamping here: ClipboardHistory already stores only the first
             // `maxTextLength` (10K) chars for its own UI, and `LLMService.truncateMessages`
@@ -391,8 +444,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Shows the action window with OCR-extracted text from an image.
-    private func showImageOCRResult(ocrText: String, sourceApp: String?, sourceBundleId: String?) {
-        clipboardHistory.recordImageClipboard(ocrText: ocrText)
+    private func showImageOCRResult(ocrText: String, sourceApp: String?, sourceBundleId: String?, isConcealed: Bool) {
+        if !isConcealed {
+            clipboardHistory.recordImageClipboard(ocrText: ocrText)
+        }
 
         let detection = ContentResult(
             type: .image,

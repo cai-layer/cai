@@ -77,7 +77,7 @@ Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) {
 
 **New content type:** add case to `ContentType` (`ContentDetector.swift`) → detection logic in `detect()` (priority order matters) → action generation in `ActionGenerator` → tests in `ContentDetectorTests`.
 
-**New built-in destination:** add `static let` with fixed UUID in `BuiltInDestinations.swift` → append to `BuiltInDestinations.all` → migration in `CaiSettings.init()` (existing users won't get new built-ins otherwise).
+**New built-in destination:** add `static let` with fixed UUID in `BuiltInDestinations.swift` → append to `BuiltInDestinations.all` → migration in `CaiSettings.init()` (existing users won't get new built-ins otherwise) → **map its UUID in `CaiSettings.builtInRole(for:)`** and handle the new `BuiltInDestinationRole` in `CapabilityDetector` + `ActionReviewPresentation`. Skip the role and it falls through to kind-based classification, which escalates a benign built-in as "runs terminal commands" and contradicts its own capability chip. **Exception:** a destination with no config and no toggle should be *synthetic* — kept OUT of `all` and injected at the read points, like `showInCai`. See the gotcha below.
 
 **New setting:** key in `CaiSettings.Keys` → `@Published` with `didSet` persistence → init in `CaiSettings.init()` → UI in `SettingsView.swift`.
 
@@ -94,6 +94,8 @@ Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) {
 - **Filter uses word-prefix matching** (`anyWordHasPrefix()`) — splits title on spaces, `hasPrefix` per word. "note" matches "Save to Notes"; "ote" doesn't.
 - **Always reset `selectionState.filterText`** when navigating away from the action list.
 - **`passThrough` must be set/unset** when entering/leaving TextEditor screens (custom prompt, destination forms).
+- **A new `DestinationType` case is a downgrade hazard** — it adds a presence key, and an *older* binary decoding a store that contains it throws, which nils the whole array through `try?` in `CaiSettings.init` and falls back to `BuiltInDestinations.all`: every custom webhook/AppleScript reads as gone, permanently on the user's next edit. If the destination has no config and no toggle, make it synthetic like `showInCai` (out of `all`, never persisted, injected at chain resolution + autocomplete + the MCP snapshot).
+- **↑/↓ are taken on the run surface's sibling screens; ←/→ page results** — `RunningView` pages kept results with ←/→ (no wraparound). ↑/↓ stay free for scrolling a long result body. New key bindings must add their keyCode to the text-editor passthrough block in `WindowController.handleKeyEvent`, or they get swallowed while typing.
 - **Don't use App Sandbox** — CGEvent posting requires it disabled.
 - **Notes.app expects HTML** — `OutputDestinationService` auto-converts via `plainTextToHTML()` for Notes.
 - **Webhook JSON escaping uses `JSONEncoder`** — not manual string replacement. Strip outer quotes since the template provides them.

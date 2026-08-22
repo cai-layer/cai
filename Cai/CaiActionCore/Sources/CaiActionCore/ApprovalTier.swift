@@ -113,7 +113,9 @@ public enum ApprovalClassifier {
                         continue
                     case .replaceSelection:
                         found.insert(.replacesSelection)
-                    case .clipboard:
+                    case .clipboard, .showInCai:
+                        // One writes the pasteboard, the other only puts text
+                        // on screen. Neither reaches outside Cai.
                         continue
                     }
                     continue
@@ -126,7 +128,7 @@ public enum ApprovalClassifier {
                     found.insert(.sendsSelectionToURL)
                 case .pasteBack:
                     found.insert(.replacesSelection)
-                case .clipboardCopy:
+                case .clipboardCopy, .showInCai:
                     continue
                 }
             case .builtIn:

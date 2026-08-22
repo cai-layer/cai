@@ -81,6 +81,39 @@ struct BuiltInDestinations {
         chainOnly: true
     )
 
+    /// Terminates a chain by putting its output on screen in Cai. A no-op
+    /// destination: `ResultRouting` reads it as "not consumed" and the run
+    /// surface renders the text.
+    ///
+    /// **Synthetic — deliberately NOT in `all`, so it is never written to the
+    /// user's persisted destinations.** Adding a new `DestinationType` case
+    /// means adding a new presence key, and an older binary reading a store
+    /// that contains it throws from `DestinationType.init(from:)`, which nils
+    /// the WHOLE array through `try?` in `CaiSettings.init` and falls back to
+    /// `all` — so every custom webhook and AppleScript reads as gone, and the
+    /// wipe becomes permanent on the user's next destination edit. This app has
+    /// real downgrade events (rotated Sparkle key, a manual-update cohort), so
+    /// that is not hypothetical. A destination with no config, no toggle and no
+    /// user-editable state is code, not data: it is injected at the three read
+    /// points instead (chain resolution, chain autocomplete, the MCP snapshot).
+    ///
+    /// `chainOnly` is kept for intent even though nothing filters it now: a
+    /// "Show in Cai" chip in the result view would be a button that shows you
+    /// what you are already looking at.
+    ///
+    /// Note it does NOT override `runInBackground`: a background action stays
+    /// quiet and records its result even when it ends here.
+    static let showInCai = OutputDestination(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
+        name: "Show in Cai",
+        icon: "macwindow",
+        type: .showInCai,
+        isEnabled: true,
+        isBuiltIn: true,
+        showInActionList: false,
+        chainOnly: true
+    )
+
     /// All built-in destinations, seeded on first launch.
     /// Order matters — it drives Cmd+1, Cmd+2, … shortcuts in the result view.
     static let all: [OutputDestination] = [pasteBack, email, notes, reminders, clipboard]

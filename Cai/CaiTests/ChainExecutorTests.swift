@@ -33,6 +33,26 @@ final class ChainExecutorTests: XCTestCase {
         return { name in map[name].map { .shortcut($0) } }
     }
 
+    /// Resolver over a mixed map of shortcuts and destinations, for the
+    /// terminal-step tests.
+    private func mixedResolver(
+        shortcuts: [String: CaiShortcut] = [:],
+        destinations: [String: OutputDestination] = [:]
+    ) -> ChainExecutor.Resolver {
+        return { name in
+            if let s = shortcuts[name] { return .shortcut(s) }
+            if let d = destinations[name] { return .destination(d) }
+            return nil
+        }
+    }
+
+    private func clipboardDestination(_ name: String, next: [ChainStep] = []) -> OutputDestination {
+        OutputDestination(
+            name: name, icon: "doc.on.clipboard", type: .clipboardCopy,
+            isBuiltIn: true, next: next
+        )
+    }
+
     /// Convenience: wrap action names as `.action(name:)` steps.
     private func actions(_ names: String...) -> [ChainStep] {
         names.map { .action(name: $0) }
@@ -475,5 +495,97 @@ final class ChainExecutorTests: XCTestCase {
         XCTAssertEqual(resolved.name, "Summarize")
         XCTAssertTrue(resolved.next.isEmpty,
             "Built-ins are leaf transforms — they don't have their own `next:` chain")
+    }
+}
+
+// MARK: - Terminal step derivation (the default sink)
+
+/// What the default sink routes on: which step *actually ran last*.
+///
+/// This cannot be read off the top-level step array, because `execute` recurses
+/// depth-first into a resolved action's own `next:` AFTER running it. Reading
+/// `steps.last` would report a nested LLM step's output as consumed by the
+/// destination that preceded it, and drop it — recreating the exact bug the
+/// default sink exists to fix. Hence a test, not just a comment.
+@MainActor
+extension ChainExecutorTests {
+
+    func testTerminalStepIsTheStepThatActuallyRanLast() async throws {
+        let echo = shellShortcut("Echo", value: "printf 'text'")
+        let cat = shellShortcut("Cat", value: "cat")
+
+        // 1. Chain ending on a text-producing step.
+        var executor = ChainExecutor(resolver: resolver(["Echo": echo]))
+        var run = try await executor.executeTerminalForTesting(
+            steps: actions("Echo"), initialInput: "in"
+        )
+        XCTAssertEqual(run.terminal, .producesText)
+
+        // 2. Chain ending on a consuming destination.
+        executor = ChainExecutor(resolver: mixedResolver(
+            shortcuts: ["Echo": echo], destinations: ["Clip": clipboardDestination("Clip")]
+        ))
+        run = try await executor.executeTerminalForTesting(
+            steps: actions("Echo", "Clip"), initialInput: "in"
+        )
+        XCTAssertEqual(run.terminal, .consumingDestination)
+
+        // 3. THE REGRESSION: the top-level list ends on a destination, but that
+        // destination's own `next:` runs a text step afterwards. The output is
+        // the text step's, so the terminal must be `.producesText` — otherwise
+        // the sink calls it consumed and the text is lost.
+        let teeThenText = clipboardDestination("Clip", next: [.action(name: "Cat")])
+        executor = ChainExecutor(resolver: mixedResolver(
+            shortcuts: ["Echo": echo, "Cat": cat], destinations: ["Clip": teeThenText]
+        ))
+        run = try await executor.executeTerminalForTesting(
+            steps: actions("Echo", "Clip"), initialInput: "in"
+        )
+        XCTAssertEqual(run.output, "text")
+        XCTAssertEqual(run.terminal, .producesText,
+                       "a destination's own next: runs after it — that step is the terminal one")
+
+        // 4. "Show in Cai" is a destination that consumes nothing. Synthetic in
+        // production (never persisted — see BuiltInDestinations.showInCai), so
+        // the fixture resolves the canonical value rather than a copy.
+        executor = ChainExecutor(resolver: mixedResolver(
+            shortcuts: ["Echo": echo],
+            destinations: ["Show in Cai": BuiltInDestinations.showInCai]
+        ))
+        run = try await executor.executeTerminalForTesting(
+            steps: actions("Echo", "Show in Cai"), initialInput: "in"
+        )
+        XCTAssertEqual(run.output, "text", "a no-op destination passes the pipe through")
+        XCTAssertEqual(run.terminal, .showInCai)
+    }
+}
+
+// MARK: - The sink, end to end
+
+/// The one integration test: does a real `runChain` actually LAND its output on
+/// the run record?
+///
+/// Every other test here covers a pure function, and both review rounds made the
+/// same point — the pure tables passed green the whole time the wiring was
+/// dropping the payload. This is the assertion that would have failed. It uses a
+/// shell step so no LLM or network is involved.
+@MainActor
+extension ChainExecutorTests {
+
+    func testRunChainLandsOutputOnTheRunRecord() async {
+        let echo = shellShortcut("Echo", value: "printf 'it landed'")
+        let executor = ChainExecutor(resolver: resolver(["Echo": echo]))
+
+        await executor.runChain(
+            actions("Echo"), initialInput: "in", sourceBundleId: nil,
+            name: "Digest Article", runInBackground: true
+        )
+
+        // Newest first, so this run is at the head of the ring.
+        XCTAssertEqual(ExecutionState.shared.recent.first?.text, "it landed",
+                       "the terminal step's output must survive the run")
+        XCTAssertEqual(ExecutionState.shared.recent.first?.actionName, "Digest Article",
+                       "and be titled by the action, not the step label")
+        XCTAssertFalse(ExecutionState.shared.isRunning, "the run must have finished")
     }
 }

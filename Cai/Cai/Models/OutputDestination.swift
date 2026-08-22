@@ -112,6 +112,16 @@ enum DestinationType: Equatable {
     /// `chainOnly` on the surrounding `OutputDestination` so it doesn't
     /// duplicate the "Enter copies" affordance in the result view.
     case clipboardCopy
+    /// Does nothing. Its entire meaning is negative: it marks the chain's
+    /// output as NOT consumed, so the default sink shows it in Cai instead of
+    /// a destination swallowing it. Executing it is deliberately a no-op —
+    /// `ResultRouting` does the work, keyed on this being the terminal step.
+    ///
+    /// It exists because the implicit fallback is silent by design (it records
+    /// the result and lets the pill advertise it, never stealing focus), and a
+    /// chain author — a user or an agent over MCP — sometimes wants to say "put
+    /// this on screen" unambiguously. `runInBackground` still outranks it.
+    case showInCai
 
     var label: String {
         switch self {
@@ -121,6 +131,7 @@ enum DestinationType: Equatable {
         case .shell: return "Shell Command"
         case .pasteBack: return "Replace Selection"
         case .clipboardCopy: return "Copy to Clipboard"
+        case .showInCai: return "Show in Cai"
         }
     }
 
@@ -133,6 +144,7 @@ enum DestinationType: Equatable {
         case .shell: return "shell"
         case .pasteBack: return "pasteBack"
         case .clipboardCopy: return "clipboardCopy"
+        case .showInCai: return "showInCai"
         }
     }
 }
@@ -141,7 +153,7 @@ enum DestinationType: Equatable {
 
 extension DestinationType: Codable {
     private enum CodingKeys: String, CodingKey {
-        case applescript, webhook, deeplink, shell, pasteBack, clipboardCopy
+        case applescript, webhook, deeplink, shell, pasteBack, clipboardCopy, showInCai
         case urlScheme // legacy
     }
 
@@ -172,6 +184,8 @@ extension DestinationType: Codable {
             self = .pasteBack
         } else if container.contains(.clipboardCopy) {
             self = .clipboardCopy
+        } else if container.contains(.showInCai) {
+            self = .showInCai
         } else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: decoder.codingPath,
@@ -201,6 +215,9 @@ extension DestinationType: Codable {
         case .clipboardCopy:
             // Same convention as `pasteBack` — presence is the signal.
             try container.encode(true, forKey: .clipboardCopy)
+        case .showInCai:
+            // Same convention as `pasteBack` — presence is the signal.
+            try container.encode(true, forKey: .showInCai)
         }
     }
 }

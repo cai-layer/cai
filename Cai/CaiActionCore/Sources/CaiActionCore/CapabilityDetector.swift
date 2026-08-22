@@ -89,6 +89,13 @@ public enum CapabilityDetector {
             case .reminders: return [.writesTo(app: "Reminders")]
             case .replaceSelection: return [.replacesSelection]
             case .clipboard: return [.copiesToClipboard]
+            case .showInCai:
+                // No chip: this destination consumes nothing and reaches
+                // nothing outside Cai — it only puts the output on screen in
+                // Cai's own window. Contributing no capability keeps the row
+                // accurate AND complete; inventing one would pad it with a
+                // non-effect.
+                return []
             }
         }
 
@@ -116,6 +123,9 @@ public enum CapabilityDetector {
             return [.replacesSelection]
         case .clipboardCopy:
             return [.copiesToClipboard]
+        case .showInCai:
+            // Same as the role arm above: no reach, so no chip.
+            return []
         }
     }
 

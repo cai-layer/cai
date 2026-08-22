@@ -548,6 +548,11 @@ private struct DropdownRow: View {
                         .font(.system(size: 10).italic())
                         .foregroundColor(.caiTextSecondary.opacity(0.6))
                         .lineLimit(1)
+                } else if let hint = Self.trailingHint(for: item) {
+                    Text(hint)
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                        .lineLimit(1)
                 }
             }
             .padding(.horizontal, 8)
@@ -564,6 +569,21 @@ private struct DropdownRow: View {
                 NSCursor.pop()
             }
         }
+    }
+
+    /// A one-line hint for steps whose behaviour isn't obvious from the name.
+    ///
+    /// "Show in Cai" needs one: it's a destination that sends nothing anywhere,
+    /// and it carries a precedence rule (a `runInBackground` action stays quiet
+    /// and leaves its result on the header pill instead). Without this, that
+    /// rule lives only in a doc comment and a user who picks it inside a
+    /// background action watches nothing happen.
+    fileprivate static func trailingHint(
+        for item: ChainStepsTokenField.DropdownItem
+    ) -> String? {
+        guard case .caiDestination(let name) = item,
+              name == BuiltInDestinations.showInCai.name else { return nil }
+        return "ends the chain on screen"
     }
 
     @ViewBuilder

@@ -85,6 +85,9 @@ public enum BuiltInDestinationRole: String, Codable, Equatable, Sendable {
     case reminders
     case replaceSelection
     case clipboard
+    /// Ends a chain by putting its output on screen in Cai. Consumes nothing
+    /// and reaches nothing outside the app.
+    case showInCai
 }
 
 /// What a destination is, without its configuration.
@@ -111,6 +114,7 @@ public struct DestinationSummary: Codable, Equatable, Sendable {
         case shell
         case pasteBack
         case clipboardCopy
+        case showInCai
     }
 
     public let name: String

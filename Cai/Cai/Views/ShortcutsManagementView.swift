@@ -60,6 +60,8 @@ struct ShortcutsManagementView: View {
     /// propagate without refresh.
     private var availableDestinationNames: [String] {
         settings.outputDestinations.map(\.name)
+            // Synthetic, never persisted — see BuiltInDestinations.showInCai.
+            + [BuiltInDestinations.showInCai.name]
     }
     /// Tracks whether the *previous* known formValue contained `|llm`. Used by
     /// the auto-enable heuristic for "Run in background" so we only fire on

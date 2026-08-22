@@ -131,7 +131,47 @@ class WindowController: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.clearCache()
         }
+        // A foreground chain finished on "Show in Cai". Chains dismiss the panel
+        // at trigger, so there is usually no window left to navigate — bring one
+        // up, then re-post so the freshly mounted view lands on the run surface.
+        NotificationCenter.default.addObserver(
+            forName: .caiShowRunResult,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            // A re-post carries the token, so it is never trampolined again —
+            // belt and braces against a `showActionWindow` that somehow leaves
+            // the window not visible, which would otherwise self-post forever.
+            guard notification.userInfo?[Self.runResultRepostKey] == nil else { return }
+            MainActor.assumeIsolated { self?.showRunResultWindow() }
+        }
     }
+
+    /// Brings the panel up on the finished run's result.
+    ///
+    /// A visible window needs nothing from here: `ActionListWindow` observes the
+    /// same notification and navigates itself. Only the dismissed case has work
+    /// to do, and the re-post is what drives navigation there — it arrives once
+    /// the window exists, and this observer no-ops on it because the window is
+    /// visible by then, so there is no loop.
+    private func showRunResultWindow() {
+        // `hideWindow` nils `window` while parking the live hierarchy in
+        // `cachedWindow`, so this guard is not fooled by the resume cache.
+        guard !isVisible else { return }
+        let emptyDetection = ContentResult(type: .shortText, confidence: 0.0, entities: ContentEntities())
+        showActionWindow(text: "", detection: emptyDetection)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .caiShowRunResult,
+                object: nil,
+                userInfo: [Self.runResultRepostKey: true]
+            )
+        }
+    }
+
+    /// Marks the re-post fired by `showRunResultWindow`, so it drives the view's
+    /// navigation without re-entering this controller's own observer.
+    private static let runResultRepostKey = "caiRunResultRepost"
 
     /// Clears saved window dimensions and animates the current window (if visible)
     /// back to the default Spotlight footprint. Invoked by Settings → General.
@@ -249,6 +289,7 @@ class WindowController: NSObject, ObservableObject {
 
             cached.alphaValue = 0
             NSApp.activate(ignoringOtherApps: true)
+            Self.isPanelVisible = true
             cached.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.08
@@ -356,6 +397,7 @@ class WindowController: NSObject, ObservableObject {
         // Activate our app temporarily so the panel can become key
         panel.alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
+        Self.isPanelVisible = true
         panel.makeKeyAndOrderFront(nil)
 
         // Fade in — 80ms feels instant while still preventing a harsh pop-in
@@ -368,6 +410,16 @@ class WindowController: NSObject, ObservableObject {
 
         print("Action window shown with \(actions.count) actions (height: \(windowHeight))")
     }
+
+    /// Whether the action panel is on screen.
+    ///
+    /// `hideWindow` parks the live SwiftUI hierarchy in `cachedWindow` (that is
+    /// what powers resume), so an ordered-out view keeps observing and keeps
+    /// reacting to state changes. Views that take an action on a state change —
+    /// notably marking a run's result "seen" — must gate on this, or an
+    /// invisible surface silently collects a result the user never saw.
+    /// Mirrors the existing `passThrough` / `submitScreenActive` static flags.
+    static var isPanelVisible: Bool = false
 
     func hideWindow() {
         // Save window position and resized dimensions before dismissing
@@ -399,6 +451,7 @@ class WindowController: NSObject, ObservableObject {
         Self.passThrough = false
         Self.submitScreenActive = false
         Self.acceptsFilterInput = true
+        Self.isPanelVisible = false
         window = nil
         currentText = nil
         actions = []
@@ -587,7 +640,8 @@ class WindowController: NSObject, ObservableObject {
                 }
                 return false  // newline (modified Return, setting off, or another screen)
             }
-            if event.keyCode == 126 || event.keyCode == 125 {
+            if event.keyCode == 126 || event.keyCode == 125
+                || event.keyCode == 123 || event.keyCode == 124 {
                 return false  // arrows move the cursor
             }
         }
@@ -598,6 +652,16 @@ class WindowController: NSObject, ObservableObject {
                 name: .caiArrowUp,
                 object: nil
             )
+            return true
+        }
+
+        // Arrow Left / Right — page the run surface's kept results.
+        if event.keyCode == 123 {
+            NotificationCenter.default.post(name: .caiArrowLeft, object: nil)
+            return true
+        }
+        if event.keyCode == 124 {
+            NotificationCenter.default.post(name: .caiArrowRight, object: nil)
             return true
         }
 

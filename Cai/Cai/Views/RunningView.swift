@@ -14,25 +14,82 @@ struct RunningPill: View {
     let onTap: () -> Void
 
     var body: some View {
+        HeaderPill(onTap: onTap) {
+            RunningSpinner(reduceMotion: reduceMotion, size: 11)
+            Text("Running")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.caiPrimary)
+        }
+        .help("An action is running — click to view progress")
+        .accessibilityLabel("Action running. Open progress.")
+    }
+}
+
+/// The shell both header pills wear.
+///
+/// Extracted because `RunningPill` and `ResultReadyPill` are one control in two
+/// states — same slot, same tap consequence — and the read only holds while
+/// their shells are pixel-identical. Two copies of the padding/radius/fill was
+/// a drift waiting to happen.
+private struct HeaderPill<Content: View>: View {
+    let onTap: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 5) {
-                RunningSpinner(reduceMotion: reduceMotion, size: 11)
-                Text("Running")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiPrimary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.caiPrimarySubtle)
-            )
-            .contentShape(Rectangle())
+            HStack(spacing: 5) { content() }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.caiPrimarySubtle)
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help("An action is running — click to view progress")
-        .accessibilityLabel("Action running. Open progress.")
+    }
+}
+
+/// The "Result" pill that replaces `RunningPill` once a run finishes holding
+/// output nothing consumed. It is the default sink's discoverability backbone:
+/// the toast is gone in 1.5s, but this survives ⌥C reopen until the user looks
+/// (or the next run starts), so a result is never merely announced.
+///
+/// Same indigo treatment as `RunningPill` — it is the same affordance in a
+/// later state, and it acts, so indigo is earned. Deliberately NOT `caiSuccess`
+/// green: that would invent a second chromatic interactive vocabulary for what
+/// is one control.
+struct ResultReadyPill: View {
+    /// How many finished results the user hasn't collected. Zero means results
+    /// are still available but all seen, which is a quieter state — not an
+    /// absent one, because the pill is the only door back to them.
+    let unviewed: Int
+    let onTap: () -> Void
+
+    /// `tray.fill`, not a checkmark. A checkmark means "done, nothing needed",
+    /// which is the opposite of what this pill asks for — and the 24pt
+    /// `checkmark.circle.fill` on the surface already means "finished, nothing
+    /// kept", so one glyph would carry two contradictory meanings.
+    private var label: String { unviewed > 1 ? "\(unviewed) Results" : "Result" }
+
+    var body: some View {
+        HeaderPill(onTap: onTap) {
+            Image(systemName: "tray.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.caiPrimary)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.caiPrimary)
+                .monospacedDigit()
+        }
+        // Collected results stay reachable but stop competing for attention.
+        .opacity(unviewed > 0 ? 1 : 0.55)
+        .help(unviewed > 1 ? "\(unviewed) actions finished — click to see the results"
+                           : "Click to see the result")
+        .accessibilityLabel(unviewed > 1
+            ? "\(unviewed) finished results. Open them."
+            : "Finished result. Open it.")
     }
 }
 
@@ -58,33 +115,93 @@ private struct RunningSpinner: View {
     }
 }
 
-/// Live progress view for the running action, opened from the header pill.
-/// Reads `ExecutionState` so it updates as the chain advances, and reflects
-/// completion when the run ends (the pill disappears at the same moment). The
-/// final result surfacing into a full result view is the separate History /
-/// "Show in Cai" work; this view is the progress signal.
+/// The run surface: progress while an action runs, its result when it finishes,
+/// its error when it fails. Opened from the header pill (or automatically when a
+/// foreground chain terminates in "Show in Cai").
+///
+/// Reads `ExecutionState`, so it updates live as the chain advances and then
+/// switches to the terminal state in place — one screen for one run's lifecycle,
+/// rather than a jump cut to a second view.
+///
+/// The result branch is the default sink's payoff (finding #18). Before it, a
+/// chain ending on an LLM or shell step showed "This action has finished. See
+/// the notification for the result." while the text itself had already been
+/// discarded — the notification was a 60-character snippet and there was nothing
+/// else to see. It now renders the actual output through the same `ResultBody`
+/// that `ResultView` uses, with the same Enter-to-copy affordance.
 struct RunningView: View {
     let reduceMotion: Bool
+    /// Which kept result is on screen (0 = newest). Owned by the parent so the
+    /// existing arrow-key plumbing can move through the ring.
+    @Binding var resultIndex: Int
     let onBack: () -> Void
 
     @ObservedObject private var execution = ExecutionState.shared
 
+    /// Every terminal state names the run that produced it: this surface is
+    /// usually reached from the header pill long after the fact, where a bare
+    /// "Finished" or "Failed" doesn't say what of. Status is carried by the
+    /// glyph and body copy instead.
     private var headerTitle: String {
         if execution.isRunning { return "Running" }
-        if case .failed = execution.lastOutcome { return "Failed" }
-        return "Finished"
+        // A kept result names the run that produced IT, which is not
+        // necessarily the most recent run once the ring holds several.
+        if let record { return record.actionName }
+        // No kept result: a failure, or a run whose output was consumed. Named
+        // by the run itself; "Failed"/"Finished" alone doesn't say what of.
+        return execution.lastRunName ?? "Finished"
+    }
+
+    /// Whether the last run failed, and so has a message worth reading.
+    private var hasFailure: Bool {
+        if case .failed = execution.lastOutcome { return true }
+        return false
+    }
+
+    /// The kept result currently on screen, if any.
+    ///
+    /// Index -1 is the failure slot. Without it, a failed run whose ring still
+    /// held earlier successes showed the newest SUCCESS and made the failure
+    /// message unreachable — visible only in a 1.5s toast.
+    private var record: ExecutionState.RunRecord? {
+        guard !execution.isRunning else { return nil }
+        let recent = execution.recent
+        guard !recent.isEmpty else { return nil }
+        let i = ExecutionState.clampResultIndex(
+            resultIndex, recentCount: recent.count, hasFailure: hasFailure
+        )
+        guard i >= 0 else { return nil }   // showing the failure
+        return recent[i]
+    }
+
+    /// Total pageable entries, including the failure slot.
+    private var pageCount: Int {
+        execution.recent.count + (hasFailure ? 1 : 0)
+    }
+
+    /// 1-based position of what's on screen, for the footer caption.
+    private var pagePosition: Int {
+        let i = ExecutionState.clampResultIndex(
+            resultIndex, recentCount: execution.recent.count, hasFailure: hasFailure
+        )
+        return hasFailure ? i + 2 : i + 1
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header — mirrors the other sub-screens (icon · title).
             HStack(spacing: 10) {
-                Image(systemName: "bolt.horizontal.circle")
+                Image(systemName: record == nil ? "bolt.horizontal.circle" : "sparkles")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.caiPrimary)
                 Text(headerTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.caiTextPrimary)
+                    // A 60-char action name would otherwise wrap and grow the
+                    // 38pt header row (DESIGN row heights).
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(headerTitle)
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -97,21 +214,85 @@ struct RunningView: View {
             // capped at the same 240pt content height.
             content
                 .frame(maxWidth: .infinity, maxHeight: 240)
+                // A `.transition` alone is inert here: the switch is driven by
+                // `execution.snapshot` changing, which nothing wraps in
+                // `withAnimation`, so progress → result would jump-cut.
+                // DESIGN lists result reveals at easeOut 0.2s.
+                .animation(.easeOut(duration: 0.2), value: record?.id)
+                .animation(.easeOut(duration: 0.2), value: resultIndex)
 
             Spacer(minLength: 0)
             Divider().background(Color.caiDivider)
 
-            HStack {
+            HStack(spacing: 10) {
                 KeyboardHint(key: "Esc", label: "Back")
                 Spacer()
+                // One unit: the keys and the position bound together, at the
+                // 10pt footer-hint weight (DESIGN typography) so the pager
+                // never out-shouts Esc and Return. Rounded + monospaced
+                // numerals so it doesn't jitter as it changes.
+                if pageCount > 1 {
+                    KeyboardHint(
+                        key: "\u{2190}\u{2192}",
+                        label: "\(pagePosition) of \(pageCount)"
+                    )
+                    .monospacedDigit()
+                }
+                // Same affordance ResultView offers on a result, because it is
+                // the same result.
+                if record != nil {
+                    KeyboardHint(key: "\u{21B5}", label: "Copy")
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
+        // Looking at a result is what "collecting" it means, so the pill stops
+        // advertising THAT record.
+        //
+        // Gated on the panel actually being on screen: `hideWindow` parks this
+        // hierarchy alive in `cachedWindow` (that is what powers resume), so an
+        // ordered-out run surface keeps observing and would otherwise mark a
+        // result seen that nobody saw — silently clearing the only thing
+        // advertising it.
+        .onAppear { markVisibleRecordViewed() }
+        .onChange(of: execution.snapshot) { _, _ in markVisibleRecordViewed() }
+        .onChange(of: resultIndex) { _, _ in markVisibleRecordViewed() }
+    }
+
+    private func markVisibleRecordViewed() {
+        guard WindowController.isPanelVisible, let record, !record.viewed else { return }
+        execution.markResultViewed(record.id)
     }
 
     @ViewBuilder
     private var content: some View {
+        if let record {
+            // A real result gets the full scrollable pane, exactly as it would
+            // have in ResultView had the action run in the foreground.
+            //
+            // Scope cut, deliberate: no "Send to" destination chips here yet,
+            // unlike ResultView. Wiring them means routing `executeDestination`
+            // into this view, and a recovered result can still be copied with
+            // Enter. Noted as a follow-up rather than left as an accident.
+            ResultBody(text: record.text)
+                // Fresh identity per record, so paging actually crossfades AND
+                // the ScrollView starts at the top instead of inheriting the
+                // previous record's scroll offset.
+                .id(record.id)
+                .transition(.opacity)
+                .accessibilityLabel(
+                    pageCount > 1
+                        ? "Result \(pagePosition) of \(pageCount), from \(record.actionName)"
+                        : "Result from \(record.actionName)"
+                )
+        } else {
+            centeredStatus
+        }
+    }
+
+    @ViewBuilder
+    private var centeredStatus: some View {
         VStack {
             Spacer()
             VStack(spacing: 12) {
@@ -173,18 +354,18 @@ struct RunningView: View {
                         .padding(.horizontal, 32)
                         .textSelection(.enabled)
                 } else {
-                    // Succeeded — safe to show the success check now that the
-                    // outcome is known. The result itself lands in the toast.
+                    // Succeeded with nothing to show: either a destination
+                    // consumed the output (the completion toast confirmed it) or
+                    // the terminal step produced no text at all. Deliberately no
+                    // "see the notification for the result" — a run that kept a
+                    // result takes the branch above and shows it, so pointing at
+                    // a toast here would be pointing at nothing.
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 24))
                         .foregroundColor(.caiSuccess)
                     Text("This action has finished.")
                         .font(.system(size: 12))
                         .foregroundColor(.caiTextSecondary)
-                        .multilineTextAlignment(.center)
-                    Text("See the notification for the result.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary.opacity(0.6))
                         .multilineTextAlignment(.center)
                 }
             }
@@ -193,5 +374,26 @@ struct RunningView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The ←/→ observers for the run surface's result pager.
+///
+/// A `ViewModifier` rather than two more `.onReceive` calls on the action
+/// window's body: that chain is long enough that adding to it tips the Swift
+/// type-checker into "unable to type-check this expression in reasonable time".
+/// Wrapping them gives them their own inference context.
+struct RunResultPagingKeys: ViewModifier {
+    /// Called with -1 for ←, +1 for →.
+    let onPage: (Int) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .caiArrowLeft)) { _ in
+                onPage(-1)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiArrowRight)) { _ in
+                onPage(1)
+            }
     }
 }

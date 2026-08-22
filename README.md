@@ -7,7 +7,7 @@
 <h3 align="center">Act on anything. Locally. </h3>
 
 <p align="center">
-  Select any text or image. Run custom AI actions, chain them into pipelines, and route results anywhere. Zero app switching.
+  Fire-and-forget actions, built by your agent. Run them anywhere with ⌥C.
 </p>
 
 <p align="center">
@@ -31,9 +31,25 @@
 
 ## What
 
-Select any text or image anywhere, press **⌥C**, and run AI prompts, shell scripts, and connectors like GitHub and Linear. Chain them into pipelines that fire on a single keystroke. **Without the app switching.** One hotkey, no config, everything runs locally.
+Select any text or image anywhere, press **⌥C**, and run AI prompts, shell scripts, and connectors like GitHub and Linear. Build the actions yourself, or let Claude Code, Cursor, or Codex write them for you: you approve once, then they run from ⌥C forever, locally, with no agent and no tokens involved. Chain them into pipelines that fire on a single keystroke. **Without the app switching.**
 
 No cloud. No telemetry. No accounts.
+
+## Let your coding agent build your actions
+
+Cai is an [MCP](https://modelcontextprotocol.io) server, so Claude Code, Cursor, Codex, or any MCP-capable agent can author your actions for you. Describe what you want in the agent you already use and it proposes an action. Cai holds the proposal until you approve it, and from then on the action runs from ⌥C on its own, with no agent in the loop. Shell and prompt actions run locally by default.
+
+In Cai, open **Settings → Connections → Agents** and copy the command for your agent. For Claude Code:
+
+```bash
+claude mcp add --scope user cai -- ~/Library/Application\ Support/Cai/bin/cai-mcp
+```
+
+Your agent gets four tools: `list_actions`, `get_action`, `create_action`, `update_action`. There is no tool that runs an action, deletes one, or approves a proposal, so the most a confused or hostile agent can achieve is a proposal you read and refuse. Cai shows you the whole action before anything is saved, with capability chips computed from the action itself, and flags the parts that deserve a second look: running a shell command, putting your selection into a URL, or pasting over your selection without showing you first. Secrets referenced as `{{secrets.NAME}}` stay in the macOS Keychain; the agent only ever sees the name.
+
+The bridge is a small helper that your agent launches itself and talks to over stdin and stdout. There is no port and no listener, so nothing else on your Mac or your network can reach it.
+
+→ [Agent-authored actions guide](https://getcai.app/docs/usage/agent-actions/)
 
 ## How It Works
 
@@ -55,20 +71,6 @@ No cloud. No telemetry. No accounts.
 
 → [Read the full How It Works guide](https://getcai.app/docs/usage/how-it-works/)
 
-## Let your coding agent build your actions
-
-Cai speaks [MCP](https://modelcontextprotocol.io), so Claude Code, Cursor, or Codex can author your actions for you. Describe what you want in the agent you already use and it proposes an action. Cai holds the proposal until you approve it, and from then on the action runs from ⌥C on its own, with no agent in the loop. Shell and prompt actions run locally by default.
-
-In Cai, open **Settings → MCP → Server** and copy the line for your agent. For Claude Code:
-
-```bash
-claude mcp add --scope user cai -- ~/Library/Application\ Support/Cai/bin/cai-mcp
-```
-
-Your agent gets four tools: `list_actions`, `get_action`, `create_action`, `update_action`. There is no tool that runs an action, deletes one, or approves a proposal, so the most a confused or hostile agent can achieve is a proposal you read and refuse. Cai shows you the whole action before anything is saved, and flags the parts that deserve a second look: running a shell command, putting your selection into a URL, or pasting over your selection without showing you first.
-
-The bridge is a small helper that your agent launches itself and talks to over stdin and stdout. There is no port and no listener, so nothing else on your Mac or your network can reach it.
-
 ## Features
 
 - **Smart content detection** — recognizes what you copied (text, image, URL, JSON, meeting, address) and shows the right actions
@@ -76,6 +78,7 @@ The bridge is a small helper that your agent launches itself and talks to over s
 - **GitHub & Linear** — create issues from any selected text with AI-generated title, body, and duplicate detection
 - **Custom actions** — save reusable AI prompts, URL templates, and shell commands as one-click actions
 - **Agent-authored actions** — let Claude Code, Cursor, or Codex write your actions over MCP, approve them once in Cai, run them from ⌥C forever ([see above](#let-your-coding-agent-build-your-actions))
+- **Named secrets** — API tokens live in the macOS Keychain, referenced in shell actions as `{{secrets.NAME}}`, never visible to the model or the agent
 - **[Action chains](https://getcai.app/docs/usage/action-chains/)** — pipe selection through AI prompts, scripts, and destinations (Slack, GitHub, Apple Shortcuts) in one keystroke. Save the chain once, run it forever.
 - **Image to Text** — on-device OCR via Apple Vision framework
 - **Bring your own LLM** — works with [LM Studio](https://lmstudio.ai/), [Ollama](https://ollama.com/), any OpenAI-compatible server, or any model from [HuggingFace mlx-community](https://huggingface.co/mlx-community)
@@ -133,17 +136,12 @@ In Xcode: select the **Cai** scheme and **My Mac** as destination, then **Produc
 
 Full documentation is at [getcai.app/docs](https://getcai.app/docs/):
 
-- **[How It Works](https://getcai.app/docs/usage/how-it-works/)** — content detection, smart actions, follow-ups
-- **[Keyboard Shortcuts](https://getcai.app/docs/usage/keyboard-shortcuts/)** — every key and what it does
-- **[LLM Setup](https://getcai.app/docs/getting-started/llm-setup/)** — Apple Intelligence, MLX, LM Studio, Ollama, cloud providers
-- **[Choosing a Model](https://getcai.app/docs/getting-started/llm-setup/#choosing-a-model)** — model picker guide and quantization explainer
-- **[Ask AI](https://getcai.app/docs/usage/custom-actions/)** — free-form prompts on selected text
+- **[How It Works](https://getcai.app/docs/usage/how-it-works/)** — content detection, smart actions, Ask AI, follow-ups
+- **[Agent-Authored Actions](https://getcai.app/docs/usage/agent-actions/)** — connect Claude Code, Cursor, or Codex; approve; run forever
 - **[Custom Actions](https://getcai.app/docs/usage/saved-actions/)** — save prompts, URLs, and shell commands
-- **[Action Chains](https://getcai.app/docs/usage/action-chains/)** — chain custom actions, destinations, and Apple Shortcuts into one-keystroke pipelines
-- **[Custom Destinations](https://getcai.app/docs/usage/destinations/)** — webhooks, AppleScript, deeplinks, shell
-- **[Connectors](https://getcai.app/docs/usage/connectors/)** — GitHub and Linear integration
-- **[Context Snippets](https://getcai.app/docs/usage/context-snippets/)** — per-app context for smarter actions
-- **[Community Extensions](https://getcai.app/docs/usage/extensions/)** — install and create shared actions
+- **[Action Chains](https://getcai.app/docs/usage/action-chains/)** — one-keystroke, multi-step pipelines
+- **[Secrets](https://getcai.app/docs/usage/secrets/)** — Keychain-backed tokens for shell actions
+- **[LLM Setup](https://getcai.app/docs/getting-started/llm-setup/)** — Apple Intelligence, MLX, LM Studio, Ollama, cloud providers
 - **[Troubleshooting](https://getcai.app/docs/troubleshooting/common-issues/)** — common issues and fixes
 
 ## Requirements
@@ -158,7 +156,7 @@ Full documentation is at [getcai.app/docs](https://getcai.app/docs/):
 - **SwiftUI + AppKit** — native macOS, no Electron
 - **[MLX-Swift](https://github.com/ml-explore/mlx-swift)** — in-process LLM inference on Apple Silicon, no subprocess or server
 - **No App Sandbox** — global hotkey requires CGEvent posting outside the sandbox
-- **[MCP](https://modelcontextprotocol.io/) via ~200-line JSON-RPC client** (Beta) — GitHub and Linear connectors with zero external MCP dependencies
+- **[MCP](https://modelcontextprotocol.io/) both ways, zero external dependencies** — a ~200-line JSON-RPC client for the GitHub and Linear connectors, and a bundled stdio server (`cai-mcp`) that agents talk to for authoring actions
 
 ---
 

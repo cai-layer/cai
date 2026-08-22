@@ -573,15 +573,28 @@ class CaiSettings: ObservableObject {
             // Seed any built-in destinations added after the user's first launch.
             // Existing users loaded `decoded` from UserDefaults, so new entries in
             // `BuiltInDestinations.all` won't appear otherwise.
-            let existingIds = Set(decoded.map(\.id))
+            // `showInCai` is synthetic and must never be persisted. A build
+            // between this change and the previous one seeded it; drop it on
+            // load so it can't show up twice or travel into a downgrade.
+            //
+            // The removal has to count as a change, or the cleaned list is only
+            // ever in memory: nothing else here is "changed" once `showInCai`
+            // left `all`, so the poisoned entry would sit on disk forever and
+            // the downgrade hazard this whole approach removes would still be
+            // live. Found by running the app, not by the unit tests.
+            let cleaned = decoded.filter { $0.type != .showInCai }
+            let strippedSynthetic = cleaned.count != decoded.count
+            let existingIds = Set(cleaned.map(\.id))
             let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
-            var working = Self.canonicalizingBuiltIns(missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns)
+            var working = Self.canonicalizingBuiltIns(
+                missingBuiltIns.isEmpty ? cleaned : cleaned + missingBuiltIns
+            )
 
             // One-shot migration: promote Replace Selection to on-by-default and
             // position 0 (Cmd+1). Runs once per user; after that, their order and
             // enabled state is their own. Intentionally overrides explicit opt-out
             // from the brief window where paste-back shipped as off-by-default.
-            var migrationChanged = !missingBuiltIns.isEmpty
+            var migrationChanged = !missingBuiltIns.isEmpty || strippedSynthetic
             if !defaults.bool(forKey: Keys.migratedPasteBackDefaultsV3) {
                 let pasteBackId = BuiltInDestinations.pasteBack.id
                 if let idx = working.firstIndex(where: { $0.id == pasteBackId }) {
@@ -676,7 +689,9 @@ class CaiSettings: ObservableObject {
         // with no chain steps costs nothing.
         ChainResolution.unresolvedChainStepNames(
             in: next,
-            knownNames: Set(shortcuts.map(\.name)).union(outputDestinations.map(\.name))
+            knownNames: Set(shortcuts.map(\.name))
+                .union(outputDestinations.map(\.name))
+                .union([BuiltInDestinations.showInCai.name])
         )
     }
 
@@ -703,7 +718,9 @@ class CaiSettings: ObservableObject {
     /// and a role, and `DestinationSummary` keeps both out of its Codable shape
     /// so neither reaches `actions-snapshot.json` or an agent.
     private var destinationSummaries: [DestinationSummary] {
-        outputDestinations.map { destination in
+        // The synthetic "Show in Cai" is appended so agents can see it as a
+        // chain terminator even though it never lives in `outputDestinations`.
+        (outputDestinations + [BuiltInDestinations.showInCai]).map { destination in
             let kind: DestinationSummary.Kind
             var networkTarget: String?
             switch destination.type {
@@ -717,6 +734,7 @@ class CaiSettings: ObservableObject {
             case .shell: kind = .shell
             case .pasteBack: kind = .pasteBack
             case .clipboardCopy: kind = .clipboardCopy
+            case .showInCai: kind = .showInCai
             }
             return DestinationSummary(
                 name: destination.name,
@@ -777,6 +795,7 @@ class CaiSettings: ObservableObject {
         case BuiltInDestinations.reminders.id: return .reminders
         case BuiltInDestinations.pasteBack.id: return .replaceSelection
         case BuiltInDestinations.clipboard.id: return .clipboard
+        case BuiltInDestinations.showInCai.id: return .showInCai
         default: return nil
         }
     }

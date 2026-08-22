@@ -37,6 +37,12 @@ actor OutputDestinationService {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
+        case .showInCai:
+            // Deliberately nothing. This destination's whole job is to NOT
+            // consume the pipe, so the default sink surfaces it — the routing
+            // decision lives in `ResultRouting.route`, keyed on this being the
+            // terminal step. A side-effect here would be the bug.
+            break
         }
     }
 

@@ -7,6 +7,12 @@ extension NSNotification.Name {
     static let caiCmdEnterPressed = NSNotification.Name("CaiCmdEnterPressed")
     static let caiArrowUp = NSNotification.Name("CaiArrowUp")
     static let caiArrowDown = NSNotification.Name("CaiArrowDown")
+    /// ←/→ page through the run surface's kept results. Deliberately NOT ↑/↓:
+    /// those mean "move the selection in a visible list" everywhere else in the
+    /// app, and the run surface shows no list — plus spending them here would
+    /// forfeit the obvious future use, scrolling a long result body.
+    static let caiArrowLeft = NSNotification.Name("CaiArrowLeft")
+    static let caiArrowRight = NSNotification.Name("CaiArrowRight")
     static let caiCmdNumber = NSNotification.Name("CaiCmdNumber")
     static let caiTabPressed = NSNotification.Name("CaiTabPressed")
     static let caiCmdNPressed = NSNotification.Name("CaiCmdNPressed")
@@ -17,6 +23,11 @@ extension NSNotification.Name {
     static let caiExecuteAction = NSNotification.Name("CaiExecuteAction")
     static let caiShowClipboardHistory = NSNotification.Name("CaiShowClipboardHistory")
     static let caiShowToast = NSNotification.Name("CaiShowToast")
+    /// A finished run's output wants the panel NOW — posted only when a
+    /// foreground chain terminates in the "Show in Cai" destination. Brings up
+    /// the panel (or navigates the open one) on the run surface. Never posted
+    /// for a `runInBackground` action; see `ResultRouting.route`.
+    static let caiShowRunResult = NSNotification.Name("CaiShowRunResult")
     /// Posted by `CaiSettings` whenever a property that affects action generation
     /// changes (shortcuts, hidden built-ins, output destinations, translation language).
     /// Observed by `WindowController` (clears the resume cache) and by

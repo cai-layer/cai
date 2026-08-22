@@ -52,6 +52,8 @@ struct DestinationsManagementView: View {
         settings.outputDestinations
             .filter { $0.id != excludeId }
             .map(\.name)
+            // Synthetic, never persisted — see BuiltInDestinations.showInCai.
+            + [BuiltInDestinations.showInCai.name]
     }
 
     // AppleScript
@@ -200,6 +202,18 @@ struct DestinationsManagementView: View {
             builtInRow(dest)
                 .padding(.horizontal, 12)
         }
+
+        // "Show in Cai" is synthetic (never persisted — see
+        // BuiltInDestinations.showInCai), so it has no row above and no toggle
+        // to own. It still needs one readable home: without it, both its
+        // existence and its precedence rule live only in a code comment and a
+        // 10pt autocomplete hint, and a user who puts it in a background action
+        // watches nothing happen with no way to find out why.
+        //
+        // The Automation-permission footnote that used to sit here is gone on
+        // purpose (master): System Access now covers it.
+        showInCaiReferenceRow
+            .padding(.horizontal, 12)
     }
 
     /// Custom destinations — pinned-first ordering, click-anywhere row,
@@ -354,6 +368,47 @@ struct DestinationsManagementView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.caiSurface.opacity(0.3))
         )
+    }
+
+    /// Reference row for the synthetic "Show in Cai" destination. Same shell as
+    /// `builtInRow` minus the toggle — it is always available and has nothing to
+    /// configure, so a switch would be a lie. The icon stays `caiPrimary`
+    /// (always on) and the subtitle carries the background-precedence rule,
+    /// which is the part that would otherwise surprise someone.
+    @ViewBuilder
+    private var showInCaiReferenceRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: BuiltInDestinations.showInCai.icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.caiPrimary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(BuiltInDestinations.showInCai.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.caiTextPrimary)
+
+                Text("Ends a chain by showing its result in Cai. Background actions record it on the header pill instead.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            // Where the toggle would sit — states "always on" without pretending
+            // to be interactive.
+            Text("Always on")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.caiSurface.opacity(0.3))
+        )
+        .accessibilityElement(children: .combine)
     }
 
     /// Short, action-verb subtitle for a built-in destination — fills the
@@ -1109,6 +1164,10 @@ struct DestinationsManagementView: View {
             // rendered. Reaching here is a code-path bug.
             assertionFailure("clipboardCopy is a built-in destination and cannot be edited")
             return
+        case .showInCai:
+            // Same contract as clipboardCopy: built-in, chain-only, no fields.
+            assertionFailure("showInCai is a built-in destination and cannot be edited")
+            return
         }
     }
 
@@ -1250,6 +1309,9 @@ struct DestinationsManagementView: View {
         case .clipboardCopy:
             // clipboardCopy is built-in only and chain-scoped; not
             // shareable as an extension.
+            return
+        case .showInCai:
+            // showInCai is built-in only and has no config to share.
             return
         }
 

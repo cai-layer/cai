@@ -375,6 +375,7 @@ enum ActionReviewPresentation {
         case .reminders: return "Reminders"
         case .replaceSelection: return "Replace Selection"
         case .clipboard: return "Copy to Clipboard"
+        case .showInCai: return "Show in Cai"
         }
     }
 
@@ -386,6 +387,7 @@ enum ActionReviewPresentation {
         case .shell: return "Shell"
         case .pasteBack: return "Replace Selection"
         case .clipboardCopy: return "Copy to Clipboard"
+        case .showInCai: return "Show in Cai"
         }
     }
 
@@ -462,6 +464,7 @@ enum ActionReviewPresentation {
         case .shell: return "runs a shell command"
         case .pasteBack: return "replaces your selection"
         case .clipboardCopy: return "copies to the clipboard"
+        case .showInCai: return "shows the result in Cai"
         }
     }
 

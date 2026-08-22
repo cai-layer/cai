@@ -30,7 +30,7 @@ Cai/Cai/
 ├── AppDelegate.swift         # Menu bar, hotkey, popover, lifecycle
 ├── Models/                   # ActionItem, CaiSettings, CaiShortcut, OutputDestination, BuiltInDestinations, MCPModels
 ├── Services/                 # Window/Clipboard/ContentDetector, LLMService + MLXInference, OutputDestinationService, MCP*, KeychainHelper, ClipboardHistory, OCRService, ExtensionParser/Service, HotKeyManager, PermissionsManager (Accessibility) + NativeAccessManager/TCCRemediation (on-demand TCC grants), UpdateChecker, CrashReportingService, PendingChangeStore/Watcher + ActionHistoryLog (agent proposals)
-└── Views/                    # ActionListWindow (router), ActionRow, ResultView, CustomPromptView, SettingsView, ShortcutsManagementView, DestinationsManagementView, ExtensionBrowserView, MCPFormView, MCPManagementView ("Connections": Agents / Tools / System Access tabs), NativeAccessSettingsView (macOS grants), ConnectorsSettingsView, ConnectAgentContent + AgentConnection (connect-agent payloads), ModelSetupView, OnboardingPermissionView, ToastWindow, ShortcutRecorderView, ActionReviewView (approval sheet), CapabilitySubtitle (capability chips in list rows), CaiColors, CaiLogo, KeyboardHint, AboutView, VisualEffectBackground
+└── Views/                    # ActionListWindow (router), ActionRow, ResultView, CustomPromptView, SettingsView, ShortcutsManagementView, DestinationsManagementView, ExtensionBrowserView, MCPFormView, MCPManagementView ("Connections": Agents / Tools / System Access tabs), NativeAccessSettingsView (macOS grants), ConnectorsSettingsView, ConnectAgentContent + AgentConnection (connect-agent payloads), ModelSetupView, OnboardingPermissionView, ShortcutRecorderView, ActionReviewView (approval sheet), CapabilitySubtitle (capability chips in list rows), CaiColors, CaiLogo, KeyboardHint, AboutView, VisualEffectBackground
 
 Cai/CaiActionCore/            # SPM package: authored-action schema, validator, approval tiers, chain walk + capability detection. Shared with the cai-mcp helper; every function pure and table-tested.
 Cai/CaiMCPHelper/             # cai-mcp: the stdio MCP server agents talk to. main.swift (handshake), Tools.swift (the four tools), ToolDispatch, CaiBridge. Embedded in Contents/Helpers, symlinked into ~/Library/Application Support/Cai/bin.
@@ -61,9 +61,15 @@ xcodebuild -scheme Cai -configuration Debug test
 
 `Cai/CaiTests/` — `ContentDetectorTests` covers 40+ cases across all content types. Other suites cover `ActionGenerator`, `OutputDestinationService`, MCP parsing/transport, `ChainExecutor`, `TemplateEngine`.
 
-### Test economy (added 2026-08-17)
+### Test economy — P0/P1 only (added 2026-08-17, tightened 2026-08-22)
 
-Add a test only when it guards **critical or non-obvious** logic: a bug that would ship silently, a tricky invariant (nest-safe counters, clamping, a state machine), or a decision that varies by input. Do NOT add tests for trivial getters, one-line mappings, or nice-to-have coverage. Prefer **one table-driven test over many one-assert methods** (a `[(input, expected)]` table, not ten near-identical `func test…`). Every test compiles and runs on every `xcodebuild test` and CI run; a suite 3x bigger than it needs to be slows the whole team's build for no added safety. When in doubt, leave it out. If a test only restates what an adjacent test already proves, delete it.
+**Every test must guard a P0 or P1 risk. Nothing else gets written, and nothing else gets kept.** Full policy (applies to every repo in the workspace): [`../AGENTS.md`](../AGENTS.md) → Working style → Test economy.
+
+- **P0** — a wrong answer misleads the user or corrupts data on a surface that matters: security and approval surfaces, trust boundaries, anything deciding what the user believes happened. Exemplar: `ToastQueueTests.testOutcomeDecidesTheAppearance` — a failure wearing a success checkmark is a lie the user acts on.
+- **P1** — a silent-bug risk or tricky invariant: nest-safe counters, clamping and caps, state machines, ordering and dedup, a decision that varies by input. Exemplar: `ToastQueueTests.testOnlyConsecutiveRepeatsCollapse`.
+- **Not P0/P1 → don't write it; delete it if it exists.** Trivial getters, default-value literals, struct field passthrough, one-line mappings, and anything restating an adjacent test.
+- Prefer **one table-driven test over many one-assert methods**; fold related assertions into table columns. Label the tier in the `MARK:` or doc comment and name the shipping-bug it locks down.
+- Pruning an existing suite is its own explicit task — never a drive-by in an unrelated diff.
 
 ### Testability discipline
 

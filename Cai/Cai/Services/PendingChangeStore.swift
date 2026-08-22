@@ -275,27 +275,13 @@ final class PendingChangeStore: ObservableObject {
         // queue was full, so telling the user it was invalid blames their
         // agent for producing garbage it did not produce.
         if quarantinedThisPass - overflowed > 0 {
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: [
-                    "message": "Received an invalid action proposal. It was set aside and won't run.",
-                    "icon": ToastQueue.Icon.warning.rawValue,
-                ]
-            )
+            ToastQueue.post("Received an invalid action proposal. It was set aside and won't run.", outcome: .problem)
         }
         if overflowed > 0 {
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: [
-                    // Not "until you review some": an overflowed proposal is
-                    // quarantined and never comes back. Reviewing frees room
-                    // for the next one, not for this one.
-                    "message": "Too many proposals waiting. The newest were set aside and the agent was told.",
-                    "icon": ToastQueue.Icon.warning.rawValue,
-                ]
-            )
+            // Not "until you review some": an overflowed proposal is
+            // quarantined and never comes back. Reviewing frees room
+            // for the next one, not for this one.
+            ToastQueue.post("Too many proposals waiting. The newest were set aside and the agent was told.", outcome: .problem)
         }
 
         guard accepted != pending else { return }
@@ -314,16 +300,12 @@ final class PendingChangeStore: ObservableObject {
         // `ToastQueue` gives each its full time on screen rather than letting
         // the second cut off the first.
         if let arrival = arrivals.first {
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: [
-                    "message": ActionReviewPresentation.arrivalToast(
-                        client: arrival.provenance.client,
-                        isUpdate: arrival.validated.isUpdate
-                    ),
-                    "icon": ToastQueue.Icon.cai.rawValue,
-                ]
+            ToastQueue.post(
+                ActionReviewPresentation.arrivalToast(
+                    client: arrival.provenance.client,
+                    isUpdate: arrival.validated.isUpdate
+                ),
+                outcome: .arrival
             )
         }
     }
@@ -539,14 +521,7 @@ final class PendingChangeStore: ObservableObject {
         quarantinedThisPass = 0
         quarantine(proposal.fileURL, reason: reason, change: proposal.validated)
         if quarantinedThisPass > 0 {
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: [
-                    "message": ActionReviewPresentation.refusedToast,
-                    "icon": ToastQueue.Icon.warning.rawValue,
-                ]
-            )
+            ToastQueue.post(ActionReviewPresentation.refusedToast, outcome: .problem)
         }
         pending.removeAll { $0.id == proposal.id }
         notifyQueueChanged()

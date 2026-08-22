@@ -383,14 +383,11 @@ final class NativeAccessManager: ObservableObject {
         Task {
             await request(domain)
             let granted = state(for: domain) == .authorized
-            NotificationCenter.default.post(
-                name: .caiShowToast, object: nil,
-                userInfo: [
-                    "message": granted
-                        ? "\(domain.title) access granted — run the action again."
-                        : "\(domain.title) access wasn't granted.",
-                    "icon": granted ? ToastQueue.Icon.success.rawValue : ToastQueue.Icon.warning.rawValue
-                ]
+            ToastQueue.post(
+                granted
+                    ? "\(domain.title) access granted — run the action again."
+                    : "\(domain.title) access wasn't granted.",
+                outcome: granted ? .success : .problem
             )
         }
     }

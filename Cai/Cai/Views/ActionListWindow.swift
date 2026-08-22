@@ -517,10 +517,7 @@ struct ActionListWindow: View {
             SystemActions.copyToClipboard(recent[i].text)
             if let next = ExecutionState.nextUnviewedIndex(after: i, in: recent) {
                 runResultIndex = next
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": "Copied to Clipboard"]
-                )
+                ToastQueue.post("Copied to Clipboard", outcome: .success)
             } else {
                 copyAndDismissWithToast()
             }
@@ -538,11 +535,7 @@ struct ActionListWindow: View {
         // Dismiss first — orderOut removes the main window from the display
         // hierarchy so the toast's NSHostingView doesn't conflict with it.
         onDismiss()
-        NotificationCenter.default.post(
-            name: .caiShowToast,
-            object: nil,
-            userInfo: ["message": "Copied to Clipboard"]
-        )
+        ToastQueue.post("Copied to Clipboard", outcome: .success)
     }
 
     private func handleFilterCharacter(_ char: String) {
@@ -1128,10 +1121,7 @@ struct ActionListWindow: View {
                 await MainActor.run {
                     settings.builtInModelId = previousId
                 }
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": "Failed to switch model"]
-                )
+                ToastQueue.post("Failed to switch model", outcome: .problem)
             }
             await MainActor.run {
                 isSwitchingModel = false
@@ -1306,13 +1296,7 @@ struct ActionListWindow: View {
         // concurrently and corrupts the shared "Step N of M".
         if ExecutionState.startDecision(isRunning: ExecutionState.shared.isRunning) == .busy,
            startsTrackedRun(action.type) || !action.next.isEmpty {
-            NotificationCenter.default.post(
-                name: .caiShowToast, object: nil,
-                userInfo: [
-                    "message": "An action is already running",
-                    "icon": ToastQueue.Icon.warning.rawValue
-                ]
-            )
+            ToastQueue.post("An action is already running", outcome: .problem)
             return
         }
 
@@ -1351,10 +1335,7 @@ struct ActionListWindow: View {
                     ? action.title.prefix(38) + "…"
                     : Substring(action.title)
                 onDismiss()
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": "Generating: \(displayName)"]
-                )
+                ToastQueue.post("Generating: \(displayName)", outcome: .progress)
                 Task { @MainActor in
                     // Track the generation so the pill shows and the busy guard
                     // blocks a second action — without this, a slow auto-replace
@@ -1387,20 +1368,14 @@ struct ActionListWindow: View {
                             // Not consumed — it's on the clipboard but nowhere
                             // the user can read it, so the sink keeps it too.
                             Self.recordUnconsumedResult(trimmed, for: runId)
-                            NotificationCenter.default.post(
-                                name: .caiShowToast, object: nil,
-                                userInfo: ["message": "Response copied → ⌘V to paste"]
-                            )
+                            ToastQueue.post("Response copied → ⌘V to paste", outcome: .success)
                         case .failed:
                             // The paste-back failed, so nothing consumed the
                             // output. Without this the LLM's answer is gone and a
                             // 1.5s toast is its only trace — finding #18
                             // surviving in one path.
                             Self.recordUnconsumedResult(trimmed, for: runId)
-                            NotificationCenter.default.post(
-                                name: .caiShowToast, object: nil,
-                                userInfo: ["message": "Could not paste. Check Accessibility permission."]
-                            )
+                            ToastQueue.post("Could not paste. Check Accessibility permission.", outcome: .problem)
                         }
                         if !chainSlugs.isEmpty {
                             await ChainExecutor.shared.runChain(
@@ -1411,10 +1386,7 @@ struct ActionListWindow: View {
                     } catch {
                         ExecutionState.shared.reportFailure(error.localizedDescription)
                         await MainActor.run {
-                            NotificationCenter.default.post(
-                                name: .caiShowToast, object: nil,
-                                userInfo: ["message": "Error: \(error.localizedDescription)"]
-                            )
+                            ToastQueue.post("Error: \(error.localizedDescription)", outcome: .problem)
                         }
                     }
                 }
@@ -1441,10 +1413,7 @@ struct ActionListWindow: View {
                         )
                     } catch {
                         ExecutionState.shared.reportFailure(error.localizedDescription)
-                        NotificationCenter.default.post(
-                            name: .caiShowToast, object: nil,
-                            userInfo: ["message": "Failed: \(error.localizedDescription)"]
-                        )
+                        ToastQueue.post("Failed: \(error.localizedDescription)", outcome: .problem)
                     }
                 }
                 return
@@ -1467,16 +1436,10 @@ struct ActionListWindow: View {
                         // header pill can hand it back (finding #18).
                         Self.recordUnconsumedResult(trimmed, for: runId)
                         let snippet = String(trimmed.prefix(80))
-                        NotificationCenter.default.post(
-                            name: .caiShowToast, object: nil,
-                            userInfo: ["message": snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet]
-                        )
+                        ToastQueue.post(snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet, outcome: .success, isActionResult: true)
                     } catch {
                         ExecutionState.shared.reportFailure(error.localizedDescription)
-                        NotificationCenter.default.post(
-                            name: .caiShowToast, object: nil,
-                            userInfo: ["message": "Failed: \(error.localizedDescription)"]
-                        )
+                        ToastQueue.post("Failed: \(error.localizedDescription)", outcome: .problem)
                     }
                 }
                 return
@@ -1559,17 +1522,11 @@ struct ActionListWindow: View {
                             )
                             let snippet = String(result.prefix(80))
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
-                            NotificationCenter.default.post(
-                                name: .caiShowToast, object: nil,
-                                userInfo: ["message": snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet]
-                            )
+                            ToastQueue.post(snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet, outcome: .success, isActionResult: true)
                         }
                     } catch {
                         ExecutionState.shared.reportFailure(error.localizedDescription)
-                        NotificationCenter.default.post(
-                            name: .caiShowToast, object: nil,
-                            userInfo: ["message": "Failed: \(error.localizedDescription)"]
-                        )
+                        ToastQueue.post("Failed: \(error.localizedDescription)", outcome: .problem)
                     }
                 }
                 return
@@ -2049,21 +2006,15 @@ struct ActionListWindow: View {
                 settings.shortcuts[index].value = shortcut.value
                 settings.shortcuts[index].next = shortcut.next
                 onDismiss()
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": ExtensionParser.installToastMessage(
-                        name: shortcut.name, chain: shortcut.next,
-                        settings: settings, verb: "Updated")]
-                )
+                ToastQueue.post(ExtensionParser.installToastMessage(
+                    name: shortcut.name, chain: shortcut.next,
+                    settings: settings, verb: "Updated"), outcome: .success)
             } else {
                 settings.shortcuts.append(shortcut)
                 onDismiss()
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": ExtensionParser.installToastMessage(
-                        name: shortcut.name, chain: shortcut.next,
-                        settings: settings)]
-                )
+                ToastQueue.post(ExtensionParser.installToastMessage(
+                    name: shortcut.name, chain: shortcut.next,
+                    settings: settings), outcome: .success)
             }
 
         case .destination(let destination, _, _):
@@ -2075,21 +2026,15 @@ struct ActionListWindow: View {
                 settings.outputDestinations[index].setupFields = destination.setupFields
                 settings.outputDestinations[index].next = destination.next
                 onDismiss()
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": ExtensionParser.installToastMessage(
-                        name: destination.name, chain: destination.next,
-                        settings: settings, verb: "Updated")]
-                )
+                ToastQueue.post(ExtensionParser.installToastMessage(
+                    name: destination.name, chain: destination.next,
+                    settings: settings, verb: "Updated"), outcome: .success)
             } else {
                 settings.outputDestinations.append(destination)
                 onDismiss()
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": ExtensionParser.installToastMessage(
-                        name: destination.name, chain: destination.next,
-                        settings: settings)]
-                )
+                ToastQueue.post(ExtensionParser.installToastMessage(
+                    name: destination.name, chain: destination.next,
+                    settings: settings), outcome: .success)
             }
         }
     }
@@ -2110,13 +2055,7 @@ struct ActionListWindow: View {
         // side-effect and stays allowed.
         if !chainSlugs.isEmpty,
            ExecutionState.startDecision(isRunning: ExecutionState.shared.isRunning) == .busy {
-            NotificationCenter.default.post(
-                name: .caiShowToast, object: nil,
-                userInfo: [
-                    "message": "An action is already running",
-                    "icon": ToastQueue.Icon.warning.rawValue
-                ]
-            )
+            ToastQueue.post("An action is already running", outcome: .problem)
             return
         }
 
@@ -2133,15 +2072,9 @@ struct ActionListWindow: View {
                     // No toast — user sees the replacement happen.
                     break
                 case .copiedForManualPaste:
-                    NotificationCenter.default.post(
-                        name: .caiShowToast, object: nil,
-                        userInfo: ["message": "Response copied → ⌘V to paste"]
-                    )
+                    ToastQueue.post("Response copied → ⌘V to paste", outcome: .success)
                 case .failed:
-                    NotificationCenter.default.post(
-                        name: .caiShowToast, object: nil,
-                        userInfo: ["message": "Could not paste. Check Accessibility permission."]
-                    )
+                    ToastQueue.post("Could not paste. Check Accessibility permission.", outcome: .problem)
                 }
                 if !chainSlugs.isEmpty {
                     Task { @MainActor in
@@ -2167,11 +2100,7 @@ struct ActionListWindow: View {
                     // display hierarchy so the toast's NSHostingView doesn't conflict.
                     onDismiss()
                     if chainSlugs.isEmpty {
-                        NotificationCenter.default.post(
-                            name: .caiShowToast,
-                            object: nil,
-                            userInfo: ["message": "Sent to \(destination.name)"]
-                        )
+                        ToastQueue.post("Sent to \(destination.name)", outcome: .success)
                     }
                     // Chained: ChainExecutor posts the terminal toast.
                 }
@@ -2185,11 +2114,7 @@ struct ActionListWindow: View {
                 }
             } catch {
                 await MainActor.run {
-                    NotificationCenter.default.post(
-                        name: .caiShowToast,
-                        object: nil,
-                        userInfo: ["message": "Failed: \(error.localizedDescription)"]
-                    )
+                    ToastQueue.post("Failed: \(error.localizedDescription)", outcome: .problem)
                 }
             }
         }

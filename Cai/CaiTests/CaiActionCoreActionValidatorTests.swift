@@ -44,6 +44,22 @@ final class ActionValidatorTests: XCTestCase {
                 line: #line
             ),
             RejectionCase(
+                label: "name that is only invisible scalars",
+                change: CoreFixture.createChange(CoreFixture.draft(name: "\u{3164}\u{2800}\u{115F}")),
+                expected: .nameEmpty,
+                line: #line
+            ),
+            RejectionCase(
+                // One grapheme, 300 scalars: the grapheme cap sees a
+                // one-character name and waves it through.
+                label: "name stacking more scalars than the cap onto one grapheme",
+                change: CoreFixture.createChange(CoreFixture.draft(
+                    name: "A" + CoreFixture.repeating("\u{0301}", 700)
+                )),
+                expected: .nameTooManyScalars(max: 600, found: 700),
+                line: #line
+            ),
+            RejectionCase(
                 label: "empty value",
                 change: CoreFixture.createChange(CoreFixture.draft(value: "")),
                 expected: .valueEmpty,
@@ -271,6 +287,20 @@ final class ActionValidatorTests: XCTestCase {
         XCTAssertTrue(validated.warnings.contains(.smartQuotesNormalized(field: .value)))
     }
 
+    /// `strippingControlCharacters` is shared by name, value and provenance,
+    /// so the emoji-cluster rule has to hold on the value path too.
+    func testEmojiSequencesSurviveInsideAValue() throws {
+        let change = CoreFixture.createChange(CoreFixture.draft(
+            value: "Reply with \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} and \u{2709}\u{FE0F}"
+        ))
+        let validated = try ActionValidator.validate(change, known: CoreFixture.known)
+        XCTAssertEqual(
+            validated.after.value,
+            "Reply with \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} and \u{2709}\u{FE0F}"
+        )
+        XCTAssertFalse(validated.warnings.contains(.controlCharactersRemoved(field: .value)))
+    }
+
     func testNewlinesSurviveInsideAValue() throws {
         let change = CoreFixture.createChange(CoreFixture.draft(value: "line one\nline two\n\tindented"))
         let validated = try ActionValidator.validate(change, known: CoreFixture.known)
@@ -434,5 +464,352 @@ final class ActionValidatorTests: XCTestCase {
         for sample in samples {
             XCTAssertFalse(sample.reason.contains("—"), "Rejection copy must not use em-dashes: \(sample.reason)")
         }
+    }
+
+    // MARK: - Invisible-character folding
+
+    /// The approval sheet's duplicate warning is only worth anything if two
+    /// names that *render* the same *compare* the same. Everything here
+    /// renders identically to a name the user already has, so each row is a
+    /// name that could impersonate a trusted action from the ⌥C list.
+    ///
+    /// One table rather than a method per scalar: the interesting axis is
+    /// which scalar classes fold and which are left alone, and that reads as
+    /// a list.
+    func testInvisibleScalarsFoldSoLookalikeNamesCollide() throws {
+        struct FoldCase {
+            let label: String
+            let proposed: String
+            let stored: String
+            /// Whether the folded name should trip the duplicate warning
+            /// against `CoreFixture.known` ("Existing action", "Slack").
+            let collides: Bool
+            let line: UInt
+        }
+
+        let cases: [FoldCase] = [
+            FoldCase(
+                label: "braille blank suffix (So, not default-ignorable)",
+                proposed: "Existing action\u{2800}",
+                stored: "Existing action",
+                collides: true,
+                line: #line
+            ),
+            FoldCase(
+                label: "hangul filler suffix (Lo, default-ignorable)",
+                proposed: "Existing action\u{3164}",
+                stored: "Existing action",
+                collides: true,
+                line: #line
+            ),
+            FoldCase(
+                // The one trimming never caught: it only touches the ends.
+                label: "non-breaking space between words",
+                proposed: "Existing\u{00A0}action",
+                stored: "Existing action",
+                collides: true,
+                line: #line
+            ),
+            FoldCase(
+                label: "an ordinary name passes through untouched",
+                proposed: "Weekly digest",
+                stored: "Weekly digest",
+                collides: false,
+                line: #line
+            ),
+            FoldCase(
+                label: "accents and non-Latin scripts survive",
+                proposed: "Résumé 日本語",
+                stored: "Résumé 日本語",
+                collides: false,
+                line: #line
+            ),
+            FoldCase(
+                // Default-ignorable, but dropping it would change how a
+                // legitimate name renders rather than protect anyone.
+                label: "emoji variation selector is kept",
+                proposed: "Mail \u{2709}\u{FE0F}",
+                stored: "Mail \u{2709}\u{FE0F}",
+                collides: false,
+                line: #line
+            ),
+        ]
+
+        for testCase in cases {
+            let validated = try ActionValidator.validate(
+                CoreFixture.createChange(CoreFixture.draft(name: testCase.proposed)),
+                known: CoreFixture.known
+            )
+            XCTAssertEqual(
+                validated.after.name,
+                testCase.stored,
+                testCase.label,
+                line: testCase.line
+            )
+            XCTAssertEqual(
+                validated.warnings.contains(.duplicateName(testCase.stored)),
+                testCase.collides,
+                "duplicate warning for \(testCase.label)",
+                line: testCase.line
+            )
+            // A name that had something folded out of it must say so, and a
+            // clean name must not claim it was touched.
+            XCTAssertEqual(
+                validated.warnings.contains(.invisibleCharactersNormalized(field: .name)),
+                testCase.proposed != testCase.stored,
+                "fold warning for \(testCase.label)",
+                line: testCase.line
+            )
+        }
+    }
+
+    /// Canonical equivalence is already Swift's `==`, so an NFD name is not a
+    /// duplicate-warning bypass and must not be reported as altered.
+    func testDecomposedNameIsStoredComposedWithoutAWarning() throws {
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: "Cafe\u{0301} notes")),
+            known: CoreFixture.known
+        )
+        XCTAssertEqual(validated.after.name.unicodeScalars.count, 10, "Name should be stored composed.")
+        XCTAssertFalse(validated.warnings.contains(.invisibleCharactersNormalized(field: .name)))
+    }
+
+    /// ZWJ is Cf, so a flat strip broke every emoji sequence in a name. The
+    /// exemption cannot be "keep ZWJ", because ZWJ is invisible and that
+    /// reopens the impersonation the fold closes. The grapheme cluster is the
+    /// discriminator, so both halves belong in one table.
+    func testEmojiSequencesSurviveButInvisibleJoinersDoNot() throws {
+        struct EmojiCase {
+            let label: String
+            let proposed: String
+            let stored: String
+            let line: UInt
+        }
+
+        let cases: [EmojiCase] = [
+            EmojiCase(
+                label: "family ZWJ sequence stays one glyph",
+                proposed: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} Household",
+                stored: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466} Household",
+                line: #line
+            ),
+            EmojiCase(
+                label: "emoji plus skin-tone modifier",
+                proposed: "\u{1F44D}\u{1F3FD} Approve",
+                stored: "\u{1F44D}\u{1F3FD} Approve",
+                line: #line
+            ),
+            EmojiCase(
+                // Variation selector mid-sequence, the case a naive
+                // "strip default-ignorables" rule mangles.
+                label: "rainbow flag keeps its variation selector and joiner",
+                proposed: "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308} Pride",
+                stored: "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308} Pride",
+                line: #line
+            ),
+            EmojiCase(
+                label: "joiner between letters is still removed",
+                proposed: "Sum\u{200D}marize",
+                stored: "Summarize",
+                line: #line
+            ),
+            EmojiCase(
+                // Digits are Emoji but not Emoji_Presentation, so they get no
+                // protection and cannot smuggle a joiner.
+                label: "joiner between digits is still removed",
+                proposed: "Report 1\u{200D}2",
+                stored: "Report 12",
+                line: #line
+            ),
+            EmojiCase(
+                label: "trailing joiner after an emoji is invisible padding",
+                proposed: "Household \u{1F468}\u{200D}",
+                stored: "Household \u{1F468}",
+                line: #line
+            ),
+            EmojiCase(
+                // Every tag scalar is default-ignorable, so a naive trailing
+                // trim collapses all three UK nations to a bare black flag and
+                // makes them collide with each other.
+                label: "subdivision flag keeps its tag sequence",
+                proposed: "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F} Scotland",
+                stored: "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F} Scotland",
+                line: #line
+            ),
+            EmojiCase(
+                label: "a tag block forged onto an unrelated emoji is not a flag",
+                proposed: "Approve \u{1F44D}\u{E0041}\u{E007F}",
+                stored: "Approve \u{1F44D}",
+                line: #line
+            ),
+            EmojiCase(
+                label: "stray tag scalar after an emoji is dropped",
+                proposed: "Approve \u{1F44D}\u{E0041}",
+                stored: "Approve \u{1F44D}",
+                line: #line
+            ),
+            EmojiCase(
+                label: "combining grapheme joiner after an emoji is dropped",
+                proposed: "Approve \u{1F44D}\u{034F}",
+                stored: "Approve \u{1F44D}",
+                line: #line
+            ),
+        ]
+
+        for testCase in cases {
+            let validated = try ActionValidator.validate(
+                CoreFixture.createChange(CoreFixture.draft(name: testCase.proposed)),
+                known: CoreFixture.known
+            )
+            XCTAssertEqual(
+                validated.after.name,
+                testCase.stored,
+                testCase.label,
+                line: testCase.line
+            )
+        }
+    }
+
+    /// The in-app editor does not fold, so an installed name can carry an
+    /// invisible the proposal does not. The collision must still be reported.
+    func testInstalledNameIsFoldedForComparisonToo() throws {
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: "Send Email")),
+            known: KnownActions(
+                shortcuts: [CoreFixture.snapshot(name: "Send\u{00A0}Email\u{2800}")],
+                destinations: [],
+                builtInActionNames: []
+            )
+        )
+        XCTAssertTrue(validated.warnings.contains(.duplicateName("Send Email")))
+    }
+
+    /// Variation selectors are Mn, not Cf, so the control-character strip never
+    /// touched them. Exempting them wholesale from the fold (to protect
+    /// "\u{2709}\u{FE0F}") was a spoof of its own, and worse than the ones the
+    /// fold closes: it worked on ANY name, not just one containing an emoji.
+    /// Each row here renders identically to a name the user already has.
+    func testVariationSelectorsCannotHideInAName() throws {
+        struct SelectorCase {
+            let label: String
+            let proposed: String
+            /// The existing name it must be recognized as a duplicate of.
+            let collidesWith: String
+            let line: UInt
+        }
+
+        let cases: [SelectorCase] = [
+            SelectorCase(
+                label: "VS1 appended to a plain name",
+                proposed: "Existing action\u{FE00}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "VS16 appended to a plain name",
+                proposed: "Existing action\u{FE0F}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "VS1 hidden mid-word",
+                proposed: "Existing\u{FE00} action",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "variation selector supplement",
+                proposed: "Existing action\u{E0100}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                label: "Mongolian free variation selector",
+                proposed: "Existing action\u{180B}",
+                collidesWith: "Existing action",
+                line: #line
+            ),
+            SelectorCase(
+                // Digits report isEmoji as keycap bases, so they must not earn
+                // a selector the way a pictograph does.
+                label: "VS16 on a digit",
+                proposed: "Report 1\u{FE0F}",
+                collidesWith: "Report 1",
+                line: #line
+            ),
+            SelectorCase(
+                // U+1F44D already defaults to emoji presentation, so the
+                // selector changes nothing the user can see.
+                label: "redundant VS16 after an already-emoji pictograph",
+                proposed: "Existing action \u{1F44D}\u{FE0F}",
+                collidesWith: "Existing action \u{1F44D}",
+                line: #line
+            ),
+        ]
+
+        for testCase in cases {
+            let validated = try ActionValidator.validate(
+                CoreFixture.createChange(CoreFixture.draft(name: testCase.proposed)),
+                known: KnownActions(
+                    shortcuts: [CoreFixture.snapshot(name: testCase.collidesWith)],
+                    destinations: [],
+                    builtInActionNames: []
+                )
+            )
+            XCTAssertEqual(
+                validated.after.name,
+                testCase.collidesWith,
+                testCase.label,
+                line: testCase.line
+            )
+            XCTAssertTrue(
+                validated.warnings.contains(.duplicateName(testCase.collidesWith)),
+                "\(testCase.label) must be recognized as a duplicate",
+                line: testCase.line
+            )
+            // A selector is dropped by the strip, not the fold: the positional
+            // rule lives in `mappingScalarsPreservingEmoji`, which both stages
+            // share, so by the time the fold runs there is nothing left to
+            // change. Pinned because the sheet's disclosure line depends on
+            // which stage did the work, and the earlier version of this test
+            // asserted the collision without noticing the wrong line showed.
+            XCTAssertTrue(
+                validated.warnings.contains(.controlCharactersRemoved(field: .name)),
+                "\(testCase.label) must disclose that something was removed",
+                line: testCase.line
+            )
+            XCTAssertFalse(
+                validated.warnings.contains(.invisibleCharactersNormalized(field: .name)),
+                "\(testCase.label): the fold had nothing left to do",
+                line: testCase.line
+            )
+        }
+    }
+
+    /// U+2028 / U+2029 are Zl and Zp: not control characters, not
+    /// default-ignorable, not `.whitespaces`. They are removed by the
+    /// control-character strip before the fold sees them, so the stored name
+    /// closes up rather than gaining a space. Pinned because the two stages
+    /// treat them differently and the difference is easy to "fix" wrongly.
+    func testLineSeparatorsAreRemovedBeforeTheFoldAndDoNotImpersonate() throws {
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: "Existing\u{2028}action")),
+            known: CoreFixture.known
+        )
+        XCTAssertEqual(validated.after.name, "Existingaction")
+        XCTAssertTrue(validated.warnings.contains(.controlCharactersRemoved(field: .name)))
+        XCTAssertFalse(
+            validated.warnings.contains(.duplicateName("Existing action")),
+            "The stored name reads differently, so there is nothing to warn about."
+        )
+    }
+
+    func testScalarCapIsInclusive() throws {
+        let atLimit = "A" + CoreFixture.repeating("\u{0301}", 600)
+        let validated = try ActionValidator.validate(
+            CoreFixture.createChange(CoreFixture.draft(name: atLimit)),
+            known: CoreFixture.known
+        )
+        XCTAssertEqual(validated.after.name.unicodeScalars.count, 600)
     }
 }

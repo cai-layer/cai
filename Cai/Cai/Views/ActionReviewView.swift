@@ -724,11 +724,7 @@ struct ActionReviewView: View {
 
         switch store.approve(proposal, acknowledged: acknowledgedReasons) {
         case .approved:
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: ["message": ActionReviewPresentation.approvedToast(isUpdate: isUpdate)]
-            )
+            ToastQueue.post(ActionReviewPresentation.approvedToast(isUpdate: isUpdate), outcome: .success)
             closeIfQueueEmpty()
 
         case .refused:
@@ -752,14 +748,7 @@ struct ActionReviewView: View {
             // new bytes; without a toast the click reads as a dud and the
             // user's next click approves content they never re-read.
             acknowledged = false
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: [
-                    "message": ActionReviewPresentation.reloadedToast,
-                    "icon": ToastQueue.Icon.warning.rawValue,
-                ]
-            )
+            ToastQueue.post(ActionReviewPresentation.reloadedToast, outcome: .problem)
         }
     }
 

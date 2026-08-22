@@ -211,27 +211,19 @@ final class ChainExecutor {
             let message = snippet.isEmpty
                 ? "Done — \(lastStepLabel)"
                 : snippet
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                // `isActionResult` marks this as the action's OWN OUTPUT, not a
-                // Cai status message. The toast chokepoint runs TCC-denial
-                // detection over prose, so without this flag a result that
-                // merely mentions a denial (summarising an error log, say) gets
-                // suppressed and replaced by a spurious permission prompt — the
-                // user's result silently lost. See WindowController.
-                userInfo: ["message": message, "isActionResult": true]
-            )
+            // `isActionResult` marks this as the action's OWN OUTPUT, not a
+            // Cai status message. The toast chokepoint runs TCC-denial
+            // detection over prose, so without this flag a result that
+            // merely mentions a denial (summarising an error log, say) gets
+            // suppressed and replaced by a spurious permission prompt — the
+            // user's result silently lost. See WindowController.
+            ToastQueue.post(message, outcome: .success, isActionResult: true)
         } catch {
             // Mark the run failed so the progress view shows the error (the
             // `defer`red `finish()` commits it). The toast remains the signal
             // when the panel was dismissed.
             ExecutionState.shared.reportFailure(error.localizedDescription)
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: ["message": "Chain failed: \(error.localizedDescription)"]
-            )
+            ToastQueue.post("Chain failed: \(error.localizedDescription)", outcome: .problem)
         }
     }
 

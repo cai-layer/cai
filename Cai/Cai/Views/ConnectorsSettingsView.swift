@@ -414,11 +414,7 @@ struct ConnectorsSettingsView: View {
             await MCPClientService.shared.disconnect(configId: configId)
         }
 
-        NotificationCenter.default.post(
-            name: .caiShowToast,
-            object: nil,
-            userInfo: ["message": "Key saved. Reconnecting..."]
-        )
+        ToastQueue.post("Key saved. Reconnecting...", outcome: .success)
     }
 
     private func testConnection(_ config: MCPServerConfig) {

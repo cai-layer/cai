@@ -107,12 +107,31 @@ class WindowController: NSObject, ObservableObject {
                 if handledByGrantOffer { return }
             }
 
-            let icon = (notification.userInfo?["icon"] as? String).flatMap(ToastQueue.Icon.init(rawValue:)) ?? .success
-            if let duration = notification.userInfo?["duration"] as? TimeInterval {
-                self?.showToast(message: message, duration: duration, icon: icon)
+            // The glyph and the dwell both come from `ToastQueue.presentation`,
+            // so they cannot disagree about how serious a message is.
+            //
+            // Every in-app poster goes through `ToastQueue.post`, where the
+            // outcome is a required argument — omitting it is a compile error,
+            // not a checkmark on a failure. This decoding stays defensive only
+            // because the channel is a NotificationCenter name that anything
+            // could post to: an ABSENT key means success (that was the historic
+            // behaviour, and it is what an untouched caller would mean), while a
+            // key that is present but does not parse degrades to `.problem` and
+            // trips an assertion in Debug. Collapsing those two would let a
+            // malformed value restore the exact bug this path exists to prevent.
+            let rawOutcome = notification.userInfo?["outcome"] as? String
+            let outcome: ToastQueue.Outcome
+            if let rawOutcome {
+                assert(
+                    ToastQueue.Outcome(rawValue: rawOutcome) != nil,
+                    "Unknown toast outcome \"\(rawOutcome)\" — showing a warning instead of a checkmark."
+                )
+                outcome = ToastQueue.Outcome(rawValue: rawOutcome) ?? .problem
             } else {
-                self?.showToast(message: message, icon: icon)
+                outcome = .success
             }
+            let presentation = ToastQueue.presentation(for: outcome, message: message)
+            self?.showToast(message: message, duration: presentation.duration, icon: presentation.icon)
         }
         NotificationCenter.default.addObserver(
             forName: .caiResetWindowSize,
@@ -252,10 +271,7 @@ class WindowController: NSObject, ObservableObject {
         // as a decontextualized floating pill at app startup.
         if let pendingError = ContextSnippetsManager.shared.consumePendingLoadError() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": pendingError]
-                )
+                ToastQueue.post(pendingError, outcome: .problem)
             }
         }
 
@@ -786,9 +802,15 @@ class WindowController: NSObject, ObservableObject {
     /// Queues a pill-shaped toast. Each message gets its full `duration` on
     /// screen (1.5s by default) before the next one appears, so two events a
     /// moment apart produce two readable toasts rather than one flicker.
-    /// Callers can override per-message via the `duration` arg or the
-    /// notification userInfo `"duration"` key.
-    func showToast(message: String, duration: TimeInterval = 1.5, icon: ToastQueue.Icon = .success) {
+    ///
+    /// Both arguments are required and there is deliberately no default: a
+    /// `duration: 1.5, icon: .success` default here would be a second door onto
+    /// the bug this whole path exists to prevent, letting a caller ship a
+    /// checkmark on a failure without naming an outcome. `duration` and `icon`
+    /// come as a pair from `ToastQueue.presentation(for:message:)`, so they
+    /// cannot disagree about how serious a message is. Post through
+    /// `ToastQueue.post` rather than calling this directly.
+    private func showToast(message: String, duration: TimeInterval, icon: ToastQueue.Icon) {
         toastQueue.enqueue(
             ToastQueue.Request(message: message, duration: duration, icon: icon),
             showing: showingToastMessage
@@ -829,12 +851,23 @@ class WindowController: NSObject, ObservableObject {
 
         let glyph: NSImage
         if let symbolName = icon.symbolName {
-            glyph = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) ?? NSImage()
+            glyph = NSImage(
+                systemSymbolName: symbolName,
+                accessibilityDescription: icon.accessibilityLabel
+            ) ?? NSImage()
         } else {
             glyph = Self.caiMarkImage()
+            glyph.accessibilityDescription = icon.accessibilityLabel
         }
         let imageView = NSImageView(image: glyph)
-        imageView.contentTintColor = NSColor.white.withAlphaComponent(0.9)
+        // Per DESIGN.md, Cai has no red: a warning is `caiError` (system
+        // orange). Read through the token rather than restating its RGB, so a
+        // retune of the palette reaches the pill too. Only the glyph is tinted
+        // — the message stays white, since semantic colour for one fact
+        // belongs in exactly one place.
+        imageView.contentTintColor = icon == .warning
+            ? NSColor(Color.caiError)
+            : NSColor.white.withAlphaComponent(0.9)
         imageView.translatesAutoresizingMaskIntoConstraints = false
 
         let label = NSTextField(labelWithString: message)
@@ -883,6 +916,30 @@ class WindowController: NSObject, ObservableObject {
         self.toastWindow = panel
         panel.alphaValue = 0
         panel.orderFront(nil)
+
+        // The pill is a non-activating borderless panel that never takes focus,
+        // so VoiceOver would never reach it on its own — announce it instead.
+        // The glyph carries the outcome visually, so speak its label too, or a
+        // failure and a success read as the same sentence. High priority for
+        // anything that is not a plain success, since those are the ones the
+        // user has to act on.
+        //
+        // Post on the APPLICATION, not on the pill's own panel: VoiceOver drops
+        // `announcementRequested` posted against an individual element, and this
+        // panel never becomes key or main. `NSApp.mainWindow` is the usual
+        // target but is wrong here too — Cai is a menu-bar app and a toast most
+        // often fires just after the panel was dismissed, so there is no main
+        // window to speak from. Verify with VoiceOver on when QA'ing this.
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: "\(icon.accessibilityLabel). \(message)",
+                .priority: icon == .success
+                    ? NSAccessibilityPriorityLevel.medium.rawValue
+                    : NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2

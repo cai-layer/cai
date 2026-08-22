@@ -1074,11 +1074,7 @@ struct ShortcutsManagementView: View {
             NSWorkspace.shared.open(url)
         }
 
-        NotificationCenter.default.post(
-            name: .caiShowToast,
-            object: nil,
-            userInfo: ["message": "Extension YAML copied"]
-        )
+        ToastQueue.post("Extension YAML copied", outcome: .success)
     }
 }
 

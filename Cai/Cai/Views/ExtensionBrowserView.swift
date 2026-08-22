@@ -474,10 +474,7 @@ struct ExtensionBrowserView: View {
             }
         } catch {
             await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .caiShowToast, object: nil,
-                    userInfo: ["message": error.localizedDescription]
-                )
+                ToastQueue.post(error.localizedDescription, outcome: .problem)
             }
         }
     }
@@ -517,11 +514,8 @@ struct ExtensionBrowserView: View {
         // persistent badge on the row is the durable indicator; this toast
         // is a one-shot heads-up at install time. Same toast format as the
         // clipboard install path in `ActionListWindow.confirmInstallExtension`.
-        NotificationCenter.default.post(
-            name: .caiShowToast, object: nil,
-            userInfo: ["message": ExtensionParser.installToastMessage(
-                name: name, chain: importedChain, settings: settings)]
-        )
+        ToastQueue.post(ExtensionParser.installToastMessage(
+            name: name, chain: importedChain, settings: settings), outcome: .success)
     }
 
     // MARK: - Uninstall

@@ -725,10 +725,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 } catch {
                     print("⚠️ Failed to load built-in MLX model: \(error.localizedDescription)")
                     await MainActor.run {
-                        NotificationCenter.default.post(
-                            name: .caiShowToast, object: nil,
-                            userInfo: ["message": "Failed to load AI model. Check Settings."]
-                        )
+                        ToastQueue.post("Failed to load AI model. Check Settings.", outcome: .problem)
                     }
                 }
                 return
@@ -755,10 +752,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     } catch {
                         print("⚠️ Failed to load MLX model after auto-detect: \(error.localizedDescription)")
                         await MainActor.run {
-                            NotificationCenter.default.post(
-                                name: .caiShowToast, object: nil,
-                                userInfo: ["message": "Failed to load AI model. Check Settings."]
-                            )
+                            ToastQueue.post("Failed to load AI model. Check Settings.", outcome: .problem)
                         }
                     }
                 }

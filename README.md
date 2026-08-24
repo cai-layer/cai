@@ -162,4 +162,4 @@ Full documentation is at [getcai.app/docs](https://getcai.app/docs/):
 
 ## License
 
-[MIT](LICENSE)
+[Apache 2.0](LICENSE)

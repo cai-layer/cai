@@ -88,7 +88,7 @@ struct ResultView: View {
                     }
                     Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: showFollowUpInput ? 160 : 240)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = error {
                 VStack {
                     Spacer()
@@ -125,10 +125,10 @@ struct ResultView: View {
                     // swallows it into a static element VoiceOver can't trigger.
                     Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: showFollowUpInput ? 160 : 240)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ResultBody(text: result)
-                    .frame(maxHeight: showFollowUpInput ? 160 : 240)
+                    .frame(maxHeight: .infinity)
             }
 
             Spacer(minLength: 0)

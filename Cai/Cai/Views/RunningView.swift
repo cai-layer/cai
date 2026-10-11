@@ -211,9 +211,9 @@ struct RunningView: View {
 
             // Content — mirrors ResultView's loading/error layout so the panel's
             // states read as one system: a centered stack between two Spacers,
-            // capped at the same 240pt content height.
+            // filling whatever height the window has, so a resized window shows more.
             content
-                .frame(maxWidth: .infinity, maxHeight: 240)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // A `.transition` alone is inert here: the switch is driven by
                 // `execution.snapshot` changing, which nothing wraps in
                 // `withAnimation`, so progress → result would jump-cut.

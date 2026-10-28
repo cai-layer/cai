@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import HotKey
 
 class HotKeyManager {
@@ -44,6 +44,38 @@ class HotKeyManager {
         hotKey = nil
         print("🔕 Global hotkey unregistered")
     }
+
+    // MARK: - Pre-panel digit slots
+
+    /// Transient ⌥0–9 hotkeys, live only between the main hotkey firing and the
+    /// panel's key monitor coming up (the ⌘C capture can take up to 500 ms).
+    /// Without them a fast ⌥C ⌥2 types "™" into the source app, over the very
+    /// selection the user meant to act on. The first digit is buffered for replay.
+    private var slotHotKeys: [HotKey] = []
+    private var bufferedSlot: Int?
+
+    func armSlotKeys(modifiers: NSEvent.ModifierFlags) {
+        disarmSlotKeys()
+        for (slot, key) in Self.digitKeys.enumerated() {
+            // If another app already owns the combo, that app may keep it; the
+            // digit then just isn't replayed, and ⌘digit in the panel still works.
+            let hotKey = HotKey(key: key, modifiers: modifiers)
+            hotKey.keyDownHandler = { [weak self] in
+                if self?.bufferedSlot == nil { self?.bufferedSlot = slot }
+            }
+            slotHotKeys.append(hotKey)
+        }
+    }
+
+    /// Unregisters the transient digit hotkeys and returns the buffered slot, if any.
+    @discardableResult
+    func disarmSlotKeys() -> Int? {
+        slotHotKeys.removeAll()  // HotKey unregisters in deinit
+        defer { bufferedSlot = nil }
+        return bufferedSlot
+    }
+
+    private static let digitKeys: [Key] = [.zero, .one, .two, .three, .four, .five, .six, .seven, .eight, .nine]
 
     func isRegistered() -> Bool {
         return hotKey != nil

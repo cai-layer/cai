@@ -1,15 +1,13 @@
 import Foundation
 
-/// Pure logic behind the status-item menu's "Recent Clips" section: which
-/// history entries become menu items, what their titles look like, and the
+/// Pure logic behind the status-item menu's clip sections (Pinned, Recent and
+/// the search filter): which history entries become menu items, what their
+/// titles look like, and the
 /// concealed/transient pasteboard-type check the capture path uses to keep
 /// secrets out of history in the first place.
 ///
 /// Nonisolated and AppKit-free so the whole mapping is table-testable.
 enum RecentClipsMenuModel {
-    /// The menu shows at most this many recent entries.
-    static let maxItems = 5
-
     /// Single-line preview length for a menu item title. Deliberately short:
     /// the menu's width follows its longest title, and a shorter preview also
     /// exposes fewer characters of anything sensitive that slipped past the
@@ -50,6 +48,7 @@ enum RecentClipsMenuModel {
         let text: String
         let isImage: Bool
         var pasteboardTypes: [String] = []
+        var sourceBundleId: String? = nil
     }
 
     struct Item: Equatable {
@@ -59,22 +58,61 @@ enum RecentClipsMenuModel {
         let title: String
         /// True → render the `photo` SF Symbol (NOT `doc.text.image`).
         let isImage: Bool
+        /// Drives the real app icon on text rows; nil → no icon. Image rows
+        /// always show the photo glyph instead.
+        var sourceBundleId: String? = nil
+    }
+
+    /// The menu's clip sections. `sourceIndex` on each item indexes into the
+    /// list that section came from (pinned or recent). The overflow lists feed
+    /// the "N more" submenus and are always empty while searching.
+    struct Layout: Equatable {
+        var pinned: [Item] = []
+        var morePinned: [Item] = []
+        var recent: [Item] = []
+        var moreRecent: [Item] = []
+    }
+
+    /// Rows shown per section before the rest go into a "N more" submenu.
+    static let visiblePerSection = 5
+    /// Total rows shown while searching (pinned matches first), no submenus.
+    static let maxSearchResults = 10
+
+    /// Splits pinned and recent history into the menu's sections. An empty
+    /// query shows the first `visiblePerSection` of each with the rest as
+    /// overflow; a query filters both lists by case-insensitive substring on
+    /// the full text (same rule as the ⌘0 list) into at most
+    /// `maxSearchResults` rows.
+    static func layout(pinned: [Clip], recent: [Clip], query: String) -> Layout {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let matches: (Clip) -> Bool = { needle.isEmpty || $0.text.lowercased().contains(needle) }
+        let pinnedItems = mapped(pinned, where: matches)
+        let recentItems = mapped(recent, where: matches)
+
+        guard needle.isEmpty else {
+            let shownPinned = Array(pinnedItems.prefix(maxSearchResults))
+            let shownRecent = Array(recentItems.prefix(maxSearchResults - shownPinned.count))
+            return Layout(pinned: shownPinned, recent: shownRecent)
+        }
+        return Layout(
+            pinned: Array(pinnedItems.prefix(visiblePerSection)),
+            morePinned: Array(pinnedItems.dropFirst(visiblePerSection)),
+            recent: Array(recentItems.prefix(visiblePerSection)),
+            moreRecent: Array(recentItems.dropFirst(visiblePerSection))
+        )
     }
 
     /// Maps history entries (most recent first) to menu-item models: drops
-    /// sensitive-marked clips, truncates text to a single `maxTitleLength`
-    /// line, caps at `maxItems`. Image/OCR entries title with their OCR text
-    /// like any other row (the photo glyph marks the origin) — history stores
-    /// only the OCR text, so that is exactly what a click re-copies, and a
-    /// static label would leave several image rows indistinguishable.
-    static func items(from clips: [Clip]) -> [Item] {
-        var result: [Item] = []
-        for (index, clip) in clips.enumerated() {
-            guard !containsSensitiveType(clip.pasteboardTypes) else { continue }
-            result.append(Item(sourceIndex: index, title: previewTitle(clip.text), isImage: clip.isImage))
-            if result.count == maxItems { break }
+    /// sensitive-marked clips and truncates text to a single `maxTitleLength`
+    /// line. Image/OCR entries title with their OCR text like any other row
+    /// (the photo glyph marks the origin): history stores only the OCR text,
+    /// so that is exactly what a click re-copies, and a static label would
+    /// leave several image rows indistinguishable.
+    private static func mapped(_ clips: [Clip], where include: (Clip) -> Bool) -> [Item] {
+        clips.enumerated().compactMap { index, clip in
+            guard !containsSensitiveType(clip.pasteboardTypes), include(clip) else { return nil }
+            return Item(sourceIndex: index, title: previewTitle(clip.text), isImage: clip.isImage, sourceBundleId: clip.sourceBundleId)
         }
-        return result
     }
 
     /// Collapses the text to one line and truncates with an ellipsis.

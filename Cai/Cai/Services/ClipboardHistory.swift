@@ -22,6 +22,9 @@ class ClipboardHistory: ObservableObject {
         let timestamp: Date
         let isPinned: Bool
         let isImage: Bool
+        /// App the copy came from, best effort (see `checkForChanges`). Drives
+        /// the icon in the status-item menu; nil when unknown.
+        let sourceBundleId: String?
 
         /// Truncated preview for UI display, single-line with "..." if needed
         var preview: String {
@@ -35,12 +38,13 @@ class ClipboardHistory: ObservableObject {
             return singleLine
         }
 
-        init(text: String, timestamp: Date, isPinned: Bool = false, isImage: Bool = false) {
-            self.id = UUID()
+        init(id: UUID = UUID(), text: String, timestamp: Date, isPinned: Bool = false, isImage: Bool = false, sourceBundleId: String? = nil) {
+            self.id = id
             self.text = text
             self.timestamp = timestamp
             self.isPinned = isPinned
             self.isImage = isImage
+            self.sourceBundleId = sourceBundleId
         }
     }
 
@@ -49,15 +53,17 @@ class ClipboardHistory: ObservableObject {
         let text: String
         let timestamp: Date
         let isImage: Bool
+        let sourceBundleId: String?
 
         enum CodingKeys: String, CodingKey {
-            case text, timestamp, isImage
+            case text, timestamp, isImage, sourceBundleId
         }
 
-        init(text: String, timestamp: Date, isImage: Bool = false) {
+        init(text: String, timestamp: Date, isImage: Bool = false, sourceBundleId: String? = nil) {
             self.text = text
             self.timestamp = timestamp
             self.isImage = isImage
+            self.sourceBundleId = sourceBundleId
         }
 
         init(from decoder: Decoder) throws {
@@ -65,6 +71,7 @@ class ClipboardHistory: ObservableObject {
             text = try container.decode(String.self, forKey: .text)
             timestamp = try container.decode(Date.self, forKey: .timestamp)
             isImage = try container.decodeIfPresent(Bool.self, forKey: .isImage) ?? false
+            sourceBundleId = try container.decodeIfPresent(String.self, forKey: .sourceBundleId)
         }
     }
 
@@ -91,6 +98,15 @@ class ClipboardHistory: ObservableObject {
     /// checked on the main thread, so it can't race the poll.
     private var suppressNextCopyText: String?
 
+    /// Frontmost app now and the one before it, updated from
+    /// `didActivateApplicationNotification` on the main thread.
+    private var frontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    private var previousFrontmostBundleId: String?
+    /// Pasteboard `changeCount` at the latest app switch since the last poll
+    /// tick, nil if there was none. Tells a copy made before the switch from
+    /// one made after it (see `sourceBundleId`). Cleared on every tick.
+    private var changeCountAtSwitch: Int?
+
     // MARK: - Pin Persistence
 
     private static var pinnedFilePath: URL {
@@ -101,6 +117,27 @@ class ClipboardHistory: ObservableObject {
         lastChangeCount = NSPasteboard.general.changeCount
         loadPinnedEntries()
         startPolling()
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            self.previousFrontmostBundleId = self.frontmostBundleId
+            self.frontmostBundleId = app?.bundleIdentifier
+            // Same cheap, cached probe the poll tick makes; no content read.
+            self.changeCountAtSwitch = NSPasteboard.general.changeCount
+        }
+    }
+
+    /// Which app a polled copy came from. macOS does not say who wrote the
+    /// pasteboard, so this is the frontmost app, unless the pasteboard had
+    /// already changed when the user last switched apps since the previous
+    /// tick: then the copy happened before the switch (⌘C, then ⌘Tab) and
+    /// belongs to the app they left. Cai itself maps to nil, as copies made
+    /// from Cai's own history are not "from" Cai.
+    static func sourceBundleId(frontmost: String?, previous: String?, copiedBeforeSwitch: Bool, ownBundleId: String?) -> String? {
+        let guess = copiedBeforeSwitch ? previous : frontmost
+        return guess == ownBundleId ? nil : guess
     }
 
     // MARK: - Polling
@@ -124,8 +161,17 @@ class ClipboardHistory: ObservableObject {
     /// concurrent readers crashed in `__NSFastEnumerationMutationHandler`).
     private func checkForChanges() {
         let currentCount = NSPasteboard.general.changeCount
+        let countAtSwitch = changeCountAtSwitch
+        changeCountAtSwitch = nil
 
         guard currentCount != lastChangeCount, !pollInFlight else { return }
+        // Decide now, on the tick that saw the change, not after the async read.
+        let source = Self.sourceBundleId(
+            frontmost: frontmostBundleId,
+            previous: previousFrontmostBundleId,
+            copiedBeforeSwitch: countAtSwitch.map { $0 != lastChangeCount } ?? false,
+            ownBundleId: Bundle.main.bundleIdentifier
+        )
         lastChangeCount = currentCount
         pollInFlight = true
 
@@ -154,11 +200,11 @@ class ClipboardHistory: ObservableObject {
 
             switch content {
             case .imageText(let ocrText):
-                self.addEntry(ocrText, isImage: true)
+                self.addEntry(ocrText, isImage: true, sourceBundleId: source)
             case .text(let text):
                 // Skip recording when the change is the self-copy we marked.
                 guard text != suppressed else { return }
-                self.addEntry(text)
+                self.addEntry(text, sourceBundleId: source)
             case .empty:
                 break
             }
@@ -169,24 +215,25 @@ class ClipboardHistory: ObservableObject {
     /// `ClipboardService.readClipboardContent`). Takes the text AND the
     /// `changeCount` from the same snapshot, so the poll baseline matches the
     /// recorded content and the next poll tick won't re-record it.
-    func recordCurrentClipboard(_ text: String, changeCount: Int) {
+    /// `sourceBundleId` is the app captured at hotkey time, which is exact.
+    func recordCurrentClipboard(_ text: String, changeCount: Int, sourceBundleId: String?) {
         lastChangeCount = changeCount
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        addEntry(trimmed)
+        addEntry(trimmed, sourceBundleId: sourceBundleId)
     }
 
     /// Record an OCR-extracted text entry from a clipboard image.
-    func recordImageClipboard(ocrText: String) {
+    func recordImageClipboard(ocrText: String, sourceBundleId: String?) {
         let pasteboard = NSPasteboard.general
         lastChangeCount = pasteboard.changeCount
         guard !ocrText.isEmpty else { return }
-        addEntry(ocrText, isImage: true)
+        addEntry(ocrText, isImage: true, sourceBundleId: sourceBundleId)
     }
 
     // MARK: - Entry Management
 
-    private func addEntry(_ text: String, isImage: Bool = false) {
+    private func addEntry(_ text: String, isImage: Bool = false, sourceBundleId: String? = nil) {
         // Clamp text to maxTextLength to prevent memory bloat from huge clipboard content
         let clampedText = text.count > Self.maxTextLength
             ? String(text.prefix(Self.maxTextLength))
@@ -204,7 +251,7 @@ class ClipboardHistory: ObservableObject {
             self.regularEntries.removeAll { $0.text == clampedText }
 
             // Insert at the beginning (most recent first)
-            let entry = Entry(text: clampedText, timestamp: Date(), isImage: isImage)
+            let entry = Entry(text: clampedText, timestamp: Date(), isImage: isImage, sourceBundleId: sourceBundleId)
             self.regularEntries.insert(entry, at: 0)
 
             // Trim to max entries
@@ -227,11 +274,25 @@ class ClipboardHistory: ObservableObject {
         // leading/trailing whitespace (image OCR) would otherwise miss the
         // suppression and re-record as a near-duplicate.
         suppressNextCopyText = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The suppressed poll never reaches `addEntry`, so move the entry to
+        // the top here: picking a clip from history counts as copying it again.
+        regularEntries = Self.promoting(entry.id, in: regularEntries, at: Date())
         PasteboardQueue.shared.write {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(entry.text, forType: .string)
         }
+    }
+
+    /// Moves the entry with `id` to the front with a fresh timestamp. No-op
+    /// when `id` is absent, which is the case for pinned entries: they keep
+    /// their own order.
+    static func promoting(_ id: UUID, in entries: [Entry], at now: Date) -> [Entry] {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return entries }
+        var result = entries
+        let entry = result.remove(at: index)
+        result.insert(Entry(id: entry.id, text: entry.text, timestamp: now, isImage: entry.isImage, sourceBundleId: entry.sourceBundleId), at: 0)
+        return result
     }
 
     // MARK: - Pinning
@@ -245,7 +306,7 @@ class ClipboardHistory: ObservableObject {
         regularEntries.removeAll { $0.text == entry.text }
 
         // Add to pinned at the top
-        let pinned = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: true, isImage: entry.isImage)
+        let pinned = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: true, isImage: entry.isImage, sourceBundleId: entry.sourceBundleId)
         pinnedEntries.insert(pinned, at: 0)
         savePinnedEntries()
     }
@@ -259,7 +320,7 @@ class ClipboardHistory: ObservableObject {
         savePinnedEntries()
 
         // Add back to regular entries at top
-        let regular = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: false, isImage: entry.isImage)
+        let regular = Entry(text: entry.text, timestamp: entry.timestamp, isPinned: false, isImage: entry.isImage, sourceBundleId: entry.sourceBundleId)
         regularEntries.insert(regular, at: 0)
 
         // Trim regular if needed
@@ -276,12 +337,12 @@ class ClipboardHistory: ObservableObject {
             return
         }
         pinnedEntries = decoded.map {
-            Entry(text: $0.text, timestamp: $0.timestamp, isPinned: true, isImage: $0.isImage)
+            Entry(text: $0.text, timestamp: $0.timestamp, isPinned: true, isImage: $0.isImage, sourceBundleId: $0.sourceBundleId)
         }
     }
 
     private func savePinnedEntries() {
-        let codable = pinnedEntries.map { PinnedEntry(text: $0.text, timestamp: $0.timestamp, isImage: $0.isImage) }
+        let codable = pinnedEntries.map { PinnedEntry(text: $0.text, timestamp: $0.timestamp, isImage: $0.isImage, sourceBundleId: $0.sourceBundleId) }
         guard let data = try? JSONEncoder().encode(codable) else { return }
         try? FileManager.default.createDirectory(
             at: MLXInference.supportDirectory,

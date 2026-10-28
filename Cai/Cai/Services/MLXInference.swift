@@ -235,7 +235,7 @@ actor MLXInference {
         )
 
         return AsyncThrowingStream { continuation in
-            Task {
+            let generation = Task {
                 do {
                     let session = ChatSession(
                         container,
@@ -259,6 +259,11 @@ actor MLXInference {
                     continuation.finish(throwing: error)
                 }
             }
+            // A consumer that stops listening (ResultView dismissed mid-answer)
+            // must stop the engine too. Without this the generation ran to the
+            // end with `isGenerating` still set, and the next action got `.busy`.
+            // Same wiring as upstream `ChatSession.streamResponse`.
+            continuation.onTermination = { _ in generation.cancel() }
         }
     }
 

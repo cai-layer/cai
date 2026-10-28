@@ -162,6 +162,24 @@ final class ExecutionStateTests: XCTestCase {
         XCTAssertEqual(S.clampResultIndex(0, recentCount: 0, hasFailure: true), -1)
     }
 
+    // MARK: - Nested start returns the live run id (P1)
+
+    /// Locks down: a chain running inside an already-running action reported
+    /// its output against a freshly minted id that `reduce` never stored, so
+    /// the staleness guard dropped it and the chain's result never reached the
+    /// pill. Exercised on the singleton because the bug was in `start()`'s
+    /// return value, which no `reduce` row can reach.
+    @MainActor
+    func testNestedStartReturnsTheLiveRunId() {
+        let state = ExecutionState.shared
+        let outer = state.start(name: "outer")
+        let inner = state.start(name: "inner chain")
+        state.finish()
+        state.finish()
+
+        XCTAssertEqual(inner, outer, "a nested report must carry the outer run's id")
+    }
+
     func testNewRunClearsPriorOutcome() {
         // A stale failure must not linger into the next run's progress view.
         var s = run([start("A", runA), .reportFailure("old"), .finish])

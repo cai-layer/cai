@@ -302,12 +302,17 @@ final class ExecutionState: ObservableObject {
     /// Begins a run and returns its id. Callers hold the id and pass it back to
     /// `reportResult`, so a report that resolves after the run ended is dropped
     /// rather than landing on the next one.
+    ///
+    /// A nested start returns the OUTER run's id, because that is the run its
+    /// report belongs to. Returning the freshly minted id here made every
+    /// chain that runs inside an already-running action report against an id
+    /// `reduce` never stored, so the staleness guard dropped its output.
     @discardableResult
     func start(name: String) -> UUID {
         let id = UUID()
         snapshot = Self.reduce(snapshot, .start(name: name, id: id))
         BackgroundTaskTracker.shared.start()
-        return id
+        return snapshot.runId ?? id
     }
 
     func advance(index: Int, total: Int, label: String) {

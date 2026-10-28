@@ -747,6 +747,101 @@ final class PendingChangeStoreTests: XCTestCase {
 
         XCTAssertEqual(store.pending.count, 1)
     }
+
+    // MARK: - Revisions (P1)
+
+    /// A revision keeps the file URL, so the arrival filter is silent on it
+    /// and the card's text changes under a user who may be reading it. On a
+    /// standard-tier proposal there is no acknowledgment tick to reset, so
+    /// without this toast their next click approves content they never
+    /// consciously re-read.
+    func testRevisedAnnouncement() throws {
+        let known = KnownActions(shortcuts: shortcuts.map(\.actionSnapshot))
+        let first = createChange(name: "First")
+        let revised = createChange(name: "Second", id: first.id)
+        let other = createChange(name: "Unrelated")
+
+        func proposal(_ change: PendingChange) throws -> PendingProposal {
+            PendingProposal(
+                changeId: change.id,
+                fileURL: URL(fileURLWithPath: "/tmp/\(change.id.uuidString).json"),
+                arrivedAt: Date(timeIntervalSince1970: 0),
+                createdAt: change.createdAt,
+                change: change,
+                validated: try ActionValidator.validate(change, known: known)
+            )
+        }
+
+        let a = try proposal(first)
+        let b = try proposal(revised)
+        let c = try proposal(other)
+
+        let rows: [(label: String, previous: [PendingProposal], current: [PendingProposal],
+                    expected: PendingChangeStore.QueueAnnouncement?)] = [
+            ("nothing changed", [a], [a], nil),
+            ("a genuinely new proposal", [], [a], .arrival(client: "Claude Code", isUpdate: false)),
+            ("the same file, new bytes", [a], [b], .revised(client: "Claude Code")),
+            ("a decision leaving the queue says nothing", [a, c], [c], nil),
+            ("an arrival outranks a revision in the same scan", [a], [b, c],
+             .arrival(client: "Claude Code", isUpdate: false)),
+        ]
+        for row in rows {
+            XCTAssertEqual(
+                PendingChangeStore.announcement(previous: row.previous, current: row.current),
+                row.expected, row.label
+            )
+        }
+    }
+
+    /// A revision can cross the user's decision: the helper reads the file,
+    /// the user declines, the helper writes its revision. Without this the
+    /// declined card comes back looking new, and `list_actions` reports one id
+    /// as both waiting and declined.
+    func testARevisionArrivingAfterTheDecisionDoesNotResurrectTheCard() throws {
+        let change = createChange(name: "Declined then revised")
+        try write(change)
+        store.refresh()
+        store.reject(store.pending[0])
+        XCTAssertTrue(store.pending.isEmpty)
+
+        // The helper's revision lands after the decline was filed.
+        try write(createChange(name: "Revised anyway", id: change.id))
+        store.refresh()
+
+        XCTAssertTrue(store.pending.isEmpty, "The user's decision stands.")
+        XCTAssertTrue(
+            quarantinedFiles.contains("\(change.id.uuidString).rejection.json"),
+            "The decline record must survive, or the agent reads its revision as approved."
+        )
+        let sidecar = CaiSupportPaths.quarantine(in: root)
+            .appendingPathComponent("\(change.id.uuidString).rejection.json")
+        let record = try ActionCoding.decoder.decode(
+            QuarantineRecord.self, from: Data(contentsOf: sidecar)
+        )
+        XCTAssertEqual(record.outcome, .declined, "Still the user's answer, not a fresh refusal.")
+    }
+
+    /// A revision rewrites the file, which bumps its mtime. Without pinning,
+    /// the card the user is reading jumps to the back of the queue and a
+    /// different one takes its place mid-read.
+    func testARevisionKeepsItsPlaceInTheQueue() throws {
+        let first = try write(createChange(name: "First"))
+        let second = try write(createChange(name: "Second"))
+        try setModified(first, Date(timeIntervalSince1970: 100))
+        try setModified(second, Date(timeIntervalSince1970: 200))
+        store.refresh()
+        XCTAssertEqual(store.pending.map(\.validated.after.name), ["First", "Second"])
+
+        let firstId = store.pending[0].changeId
+        try write(createChange(name: "First, revised", id: firstId))
+        try setModified(first, Date(timeIntervalSince1970: 300))
+        store.refresh()
+
+        XCTAssertEqual(
+            store.pending.map(\.validated.after.name), ["First, revised", "Second"],
+            "The revised card holds its position."
+        )
+    }
 }
 
 /// The Debug-vs-Release gate on the shared Application Support directory.

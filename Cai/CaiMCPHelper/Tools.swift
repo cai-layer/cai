@@ -31,6 +31,10 @@ enum Tools {
             to find out: proposals appear as "waiting for approval", "rejected by Cai" with the \
             reason, or declined by the user. An approved proposal leaves the proposals list and \
             shows up as a real action, so gone plus listed means yes.
+
+            A proposal of yours that is still waiting can be changed: pass its id to \
+            update_action and it replaces that card. Never re-propose to make a change, or the \
+            user ends up approving two versions of the same thing.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -49,13 +53,16 @@ enum Tools {
             Required before any update_action that replaces `value`. list_actions shortens values \
             to one line, so editing from that view means sending a rewrite of text you have only \
             seen a fragment of, and the fragment is what the user would watch you delete.
+
+            The id can also be one of your own proposals that is still waiting for approval. The \
+            answer says so, and shows the draft you proposed rather than an installed action.
             """,
         inputSchema: .object([
             "type": .string("object"),
             "properties": .object([
                 "id": .object([
                     "type": .string("string"),
-                    "description": .string("The action's id, as given by list_actions."),
+                    "description": .string("The action's id, or the id of a proposal of yours still waiting for approval. Both come from list_actions."),
                 ])
             ]),
             "required": .array([.string("id")]),
@@ -99,6 +106,10 @@ enum Tools {
 
             Keep names short and specific, under 60 characters, because the user types a few \
             letters of the name to find the action.
+
+            If the user asks you to change something you have already proposed and they have not \
+            approved yet, use update_action with that proposal's id. Proposing again leaves them \
+            two cards for one request.
             """,
         inputSchema: .object([
             "type": .string("object"),
@@ -193,15 +204,25 @@ enum Tools {
     static let updateAction = Tool(
         name: "update_action",
         description: """
-            Propose a change to an existing Cai action. Send only the fields you are changing. \
-            The user sees the change as a diff and approves it before it takes effect.
+            Propose a change to an existing Cai action, or change a proposal of yours that is \
+            still waiting for approval. Send only the fields you are changing. The user sees the \
+            change as a diff and approves it before it takes effect.
 
-            Get the id from list_actions, and read the action with get_action right before \
-            proposing: your changes replace whole fields over the action's current state. An \
-            edit the user makes before you propose is not detected; your rewrite proposes \
-            replacing it and only the approval diff shows that. An edit made after you propose \
-            is refused at decision time with what changed; read again and re-propose. Nothing \
-            applies until the user approves the diff.
+            `id` accepts either: an installed action, or a proposal you sent that the user has \
+            not decided on yet. If it is a waiting proposal, this replaces that card instead of \
+            adding a second one, so the user still sees one proposal for one request. That is \
+            the right way to act on "actually, make it X". Never propose again.
+
+            When you revise a waiting change to an installed action, your `changes` replace the \
+            change you proposed before, in full. Send everything you still want changed, not \
+            only the part you are amending.
+
+            Get the id from list_actions, and read with get_action right before proposing: your \
+            changes replace whole fields over the current state. An edit the user makes before \
+            you propose is not detected; your rewrite proposes replacing it and only the \
+            approval diff shows that. An edit made after you propose is refused at decision time \
+            with what changed; read again and re-propose. Nothing applies until the user \
+            approves the diff.
 
             Changeable fields: name, type, value, autoReplaceSelection, runInBackground, pinned, next.
             """,
@@ -211,7 +232,7 @@ enum Tools {
             "properties": .object([
                 "id": .object([
                     "type": .string("string"),
-                    "description": .string("Action id from list_actions."),
+                    "description": .string("Id of an installed action, or of a proposal of yours still waiting for approval. Both come from list_actions."),
                 ]),
                 "changes": .object([
                     "type": .string("object"),

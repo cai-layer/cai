@@ -1,0 +1,25 @@
+name: Bug report
+description: Something in Cai is broken.
+type: Bug
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Steps, what you expected, and what happened instead. Screenshots or a screen recording help.
+      placeholder: |
+        1. Select text in Safari
+        2. Press Option+C and pick "Summarize"
+        Expected: a summary
+        Actual: an empty panel
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: "Cai: menu bar icon → About Cai. macOS: Apple menu → About This Mac. Model: the built-in one, or the provider you set up."
+      value: |
+        - Cai version:
+        - macOS version:
+        - Model or provider:

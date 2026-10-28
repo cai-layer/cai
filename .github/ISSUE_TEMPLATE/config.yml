@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question
+    url: https://github.com/cai-layer/cai/discussions/categories/q-a
+    about: Ask how to do something in Cai.
+  - name: Security issue
+    url: https://github.com/cai-layer/cai/security/advisories/new
+    about: Report it privately, not in a public issue.

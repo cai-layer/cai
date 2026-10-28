@@ -1,0 +1,11 @@
+name: Feature request
+description: Suggest something Cai should do.
+type: Feature
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: What are you trying to do?
+      description: The task or annoyance first, then how you do it today and what would help.
+    validations:
+      required: true

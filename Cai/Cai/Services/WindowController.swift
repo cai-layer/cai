@@ -468,6 +468,7 @@ class WindowController: NSObject, ObservableObject {
         Self.submitScreenActive = false
         Self.acceptsFilterInput = true
         Self.isPanelVisible = false
+        Self.pendingDigitSlot = nil
         window = nil
         currentText = nil
         actions = []
@@ -720,14 +721,19 @@ class WindowController: NSObject, ObservableObject {
             let keyNumber = Self.keyCodeToNumber(event.keyCode)
             if let number = keyNumber, number >= 1 && number <= 9 {
                 if !event.isARepeat {
-                    postDigitSlot(number)
+                    NotificationCenter.default.post(
+                        name: .caiCmdNumber,
+                        object: nil,
+                        userInfo: ["number": number]
+                    )
                 }
                 return true
             }
         }
 
-        // Hotkey-modifier + digit (⌥1–9, ⌥0 by default): same as the ⌘ digits,
-        // so ⌥C then ⌥2 runs pinned action #2 without letting go of ⌥.
+        // Hotkey-modifier + digit (⌥1–9, ⌥0 by default): on the action list,
+        // same as the ⌘ digits, so ⌥C then ⌥2 runs pinned action #2 without
+        // letting go of ⌥. The action list ignores it on every other screen.
         if let slot = Self.hotKeyDigitSlot(
             keyCode: event.keyCode,
             modifiers: event.modifierFlags,
@@ -735,7 +741,7 @@ class WindowController: NSObject, ObservableObject {
             passThrough: Self.passThrough,
             isRepeat: event.isARepeat
         ) {
-            postDigitSlot(slot)
+            Self.requestDigitSlot(slot)
             return true
         }
 
@@ -767,19 +773,24 @@ class WindowController: NSObject, ObservableObject {
         return false
     }
 
-    /// Routes a digit slot exactly like the ⌘ digits: 0 opens clipboard history,
-    /// 1–9 go to the active screen's `handleCmdNumber`. Also called by
+    /// A digit slot waiting for the action list to take it. `ActionListWindow`
+    /// consumes it on `.caiHotKeyDigitSlot` or on appear, whichever comes first,
+    /// so a replay right after a fresh show isn't lost to SwiftUI subscription
+    /// timing. Cleared on hide so it can never fire on a later open.
+    static var pendingDigitSlot: Int?
+
+    /// Hands a hotkey-modifier digit to the action list. Also called by
     /// `AppDelegate` to replay a digit pressed before the panel was listening.
-    func postDigitSlot(_ slot: Int) {
-        if slot == 0 {
-            NotificationCenter.default.post(name: .caiShowClipboardHistory, object: nil)
-        } else {
-            NotificationCenter.default.post(
-                name: .caiCmdNumber,
-                object: nil,
-                userInfo: ["number": slot]
-            )
-        }
+    static func requestDigitSlot(_ slot: Int) {
+        pendingDigitSlot = slot
+        NotificationCenter.default.post(name: .caiHotKeyDigitSlot, object: nil)
+    }
+
+    /// Drops the resume cache so the next show starts fresh on the action list.
+    /// Used when a digit slot is already pending: resuming a cached result
+    /// screen would leave the digit nothing to run.
+    func discardResumeCache() {
+        clearCache()
     }
 
     /// The modifiers that turn a digit into a slot key: the main hotkey's ⌥/⌃,

@@ -854,14 +854,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardService.copySelectedText { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+                // A digit already pressed means "run a slot": open fresh on the
+                // action list instead of resuming a cached result screen.
+                if self.hotKeyManager.hasBufferedSlot {
+                    self.windowController.discardResumeCache()
+                }
                 await self.openWithClipboard(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
-                let pendingSlot = self.hotKeyManager.disarmSlotKeys()
-                if let slot = pendingSlot, self.windowController.isVisible {
-                    // Next runloop turn: the SwiftUI .onReceive subscriptions
-                    // attach as the freshly shown panel's view appears.
-                    DispatchQueue.main.async {
-                        self.windowController.postDigitSlot(slot)
-                    }
+                if let slot = self.hotKeyManager.disarmSlotKeys(), self.windowController.isVisible {
+                    WindowController.requestDigitSlot(slot)
                 }
             }
         }

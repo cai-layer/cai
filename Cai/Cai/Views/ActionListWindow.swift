@@ -199,6 +199,7 @@ struct ActionListWindow: View {
             .onChange(of: showFollowUpInput) { updateFilterInputFlag() }
             .onAppear {
                 updateFilterInputFlag()
+                consumePendingDigitSlot()
                 if showSettingsOnAppear {
                     showSettings = true
                 }
@@ -219,6 +220,9 @@ struct ActionListWindow: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .caiShowClipboardHistory)) { _ in
                 handleShowHistory()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiHotKeyDigitSlot)) { _ in
+                consumePendingDigitSlot()
             }
             // A foreground chain ended in "Show in Cai" — land on the run
             // surface. Only fires for a run that asked for it (never for a
@@ -420,6 +424,21 @@ struct ActionListWindow: View {
         historySelectionState.filterText = ""
         withAnimation(.easeInOut(duration: 0.15)) {
             showHistory = true
+        }
+    }
+
+    /// Runs a hotkey-modifier digit slot (⌥1–9, ⌥0 → history), on the action
+    /// list only. Elsewhere the digit is dropped: on the result screen digit 1
+    /// is Replace Selection, so a chord meant for a pinned action must never
+    /// paste over the user's text.
+    private func consumePendingDigitSlot() {
+        guard let slot = WindowController.pendingDigitSlot else { return }
+        WindowController.pendingDigitSlot = nil
+        guard activeScreen == .actions else { return }
+        if slot == 0 {
+            handleShowHistory()
+        } else {
+            handleCmdNumber(slot)
         }
     }
 

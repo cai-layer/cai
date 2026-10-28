@@ -54,6 +54,8 @@ class HotKeyManager {
     private var slotHotKeys: [HotKey] = []
     private var bufferedSlot: Int?
 
+    var hasBufferedSlot: Bool { bufferedSlot != nil }
+
     func armSlotKeys(modifiers: NSEvent.ModifierFlags) {
         disarmSlotKeys()
         for (slot, key) in Self.digitKeys.enumerated() {

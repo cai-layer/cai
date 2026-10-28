@@ -101,6 +101,9 @@ struct ClipboardHistoryView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
+        // Drop cached icons on close, so the next open looks them up fresh
+        // (onAppear would run after the first render had used the old ones).
+        .onDisappear { AppIcon.refresh() }
         // Clamp selection when entries change (pin/unpin/new entry)
         .onChange(of: history.pinnedEntries.count) { clampSelection() }
         .onChange(of: history.regularEntries.count) { clampSelection() }
@@ -202,6 +205,10 @@ struct ClipboardHistoryView: View {
                         Image(systemName: entry.isPinned ? "pin.fill" : "pin")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(entry.isPinned ? .caiPrimary : .caiTextSecondary.opacity(0.5))
+                    } else if !entry.isImage, let appIcon = AppIcon.image(forBundleId: entry.sourceBundleId, size: 20) {
+                        // The source app's real icon stands in for the generic text
+                        // glyph; image clips keep the photo glyph.
+                        Image(nsImage: appIcon)
                     } else {
                         Image(systemName: entry.isImage ? "photo" : "doc.on.clipboard")
                             .font(.system(size: 12, weight: .medium))

@@ -6,6 +6,7 @@ import XCTest
 /// secret) rendering in the menu bar for anyone looking at the screen — plus
 /// the silent-bug tier (P1) of the same table: wrong truncation, raw OCR text
 /// leaking where the image label belongs, or the 5-item cap not holding.
+/// `testSectionsOverflowAndSearch` (P1) covers the section split.
 final class RecentClipsMenuModelTests: XCTestCase {
 
     func testHistoryToMenuItemMapping() {
@@ -58,10 +59,36 @@ final class RecentClipsMenuModelTests: XCTestCase {
 
         for testCase in cases {
             XCTAssertEqual(
-                RecentClipsMenuModel.items(from: testCase.clips),
+                RecentClipsMenuModel.layout(pinned: [], recent: testCase.clips, query: "").recent,
                 testCase.expected,
                 testCase.name
             )
+        }
+    }
+
+    // MARK: - (P1) Sections, overflow and search
+
+    /// Locks down: pinned show above recent with the 6th+ in the overflow
+    /// submenu, a search spans both lists (pinned first) with no overflow, the
+    /// 10-row search cap, and sourceIndex pointing into the right list (a wrong
+    /// index re-copies a different clip than the one clicked).
+    func testSectionsOverflowAndSearch() {
+        typealias Clip = RecentClipsMenuModel.Clip
+        let pinned = (0..<7).map { Clip(text: "pin \($0)", isImage: false) }
+        let recent = (0..<12).map { Clip(text: "clip \($0)", isImage: false) } + [Clip(text: "PIN-like", isImage: false)]
+        let cases: [(name: String, query: String, pinned: [Int], morePinned: [Int], recent: [Int], moreRecent: [Int])] = [
+            ("no query: 5 visible per section, rest overflow", "", [0, 1, 2, 3, 4], [5, 6], [0, 1, 2, 3, 4], Array(5..<13)),
+            ("query matches both lists, case-insensitive, pinned first, no overflow", "pin", Array(0..<7), [], [12], []),
+            ("search caps at 10 rows in total", "i", Array(0..<7), [], [0, 1, 2], []),
+            ("whitespace-only query behaves like no query", "  ", [0, 1, 2, 3, 4], [5, 6], [0, 1, 2, 3, 4], Array(5..<13)),
+            ("no match yields empty sections", "zzz", [], [], [], []),
+        ]
+        for c in cases {
+            let layout = RecentClipsMenuModel.layout(pinned: pinned, recent: recent, query: c.query)
+            XCTAssertEqual(layout.pinned.map(\.sourceIndex), c.pinned, c.name)
+            XCTAssertEqual(layout.morePinned.map(\.sourceIndex), c.morePinned, c.name)
+            XCTAssertEqual(layout.recent.map(\.sourceIndex), c.recent, c.name)
+            XCTAssertEqual(layout.moreRecent.map(\.sourceIndex), c.moreRecent, c.name)
         }
     }
 }

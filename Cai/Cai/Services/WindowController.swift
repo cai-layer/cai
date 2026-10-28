@@ -468,6 +468,7 @@ class WindowController: NSObject, ObservableObject {
         Self.submitScreenActive = false
         Self.acceptsFilterInput = true
         Self.isPanelVisible = false
+        Self.pendingDigitSlot = nil
         window = nil
         currentText = nil
         actions = []
@@ -714,17 +715,34 @@ class WindowController: NSObject, ObservableObject {
             return true
         }
 
-        // Cmd+1 through Cmd+9
+        // Cmd+1 through Cmd+9. A held key's auto-repeat is swallowed so one press
+        // can't run a slot and then, on the result screen, also fire destination N.
         if event.modifierFlags.contains(.command) {
-            let keyNumber = keyCodeToNumber(event.keyCode)
+            let keyNumber = Self.keyCodeToNumber(event.keyCode)
             if let number = keyNumber, number >= 1 && number <= 9 {
-                NotificationCenter.default.post(
-                    name: .caiCmdNumber,
-                    object: nil,
-                    userInfo: ["number": number]
-                )
+                if !event.isARepeat {
+                    NotificationCenter.default.post(
+                        name: .caiCmdNumber,
+                        object: nil,
+                        userInfo: ["number": number]
+                    )
+                }
                 return true
             }
+        }
+
+        // Hotkey-modifier + digit (⌥1–9, ⌥0 by default): on the action list,
+        // same as the ⌘ digits, so ⌥C then ⌥2 runs pinned action #2 without
+        // letting go of ⌥. The action list ignores it on every other screen.
+        if let slot = Self.hotKeyDigitSlot(
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags,
+            hotKeyModifiers: CaiSettings.shared.keyCombo.modifiers,
+            passThrough: Self.passThrough,
+            isRepeat: event.isARepeat
+        ) {
+            Self.requestDigitSlot(slot)
+            return true
         }
 
         // Type-to-filter: capture printable characters and backspace.
@@ -755,8 +773,57 @@ class WindowController: NSObject, ObservableObject {
         return false
     }
 
-    private func keyCodeToNumber(_ keyCode: UInt16) -> Int? {
+    /// A digit slot waiting for the action list to take it. `ActionListWindow`
+    /// consumes it on `.caiHotKeyDigitSlot` or on appear, whichever comes first,
+    /// so a replay right after a fresh show isn't lost to SwiftUI subscription
+    /// timing. Cleared on hide so it can never fire on a later open.
+    static var pendingDigitSlot: Int?
+
+    /// Hands a hotkey-modifier digit to the action list. Also called by
+    /// `AppDelegate` to replay a digit pressed before the panel was listening.
+    static func requestDigitSlot(_ slot: Int) {
+        pendingDigitSlot = slot
+        NotificationCenter.default.post(name: .caiHotKeyDigitSlot, object: nil)
+    }
+
+    /// Drops the resume cache so the next show starts fresh on the action list.
+    /// Used when a digit slot is already pending: resuming a cached result
+    /// screen would leave the digit nothing to run.
+    func discardResumeCache() {
+        clearCache()
+    }
+
+    /// The modifiers that turn a digit into a slot key: the main hotkey's ⌥/⌃,
+    /// so a rebind to ⌃Space gives ⌃1–9. `nil` (feature off) when the hotkey
+    /// has no ⌥ or ⌃, or includes ⌘: ⇧-only would steal `!@#` from the filter,
+    /// and ⌘ digits already have their own path.
+    static func slotModifiers(forHotKey hotKeyModifiers: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags? {
+        guard !hotKeyModifiers.contains(.command) else { return nil }
+        let slot = hotKeyModifiers.intersection([.option, .control])
+        return slot.isEmpty ? nil : slot
+    }
+
+    /// Which digit slot (0–9) a panel keypress selects through the hotkey's
+    /// modifier, or `nil`. Ignores ⇧, ⇪ and fn; requires the ⌘⌥⌃ set to equal the
+    /// slot modifiers exactly. Never fires in a text editor (⌥digit types ¡™£
+    /// there) or on auto-repeat. Pure so the rule is table-tested.
+    static func hotKeyDigitSlot(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        hotKeyModifiers: NSEvent.ModifierFlags,
+        passThrough: Bool,
+        isRepeat: Bool
+    ) -> Int? {
+        guard !passThrough, !isRepeat,
+              let slotMods = slotModifiers(forHotKey: hotKeyModifiers),
+              modifiers.intersection([.command, .option, .control]) == slotMods
+        else { return nil }
+        return keyCodeToNumber(keyCode)
+    }
+
+    static func keyCodeToNumber(_ keyCode: UInt16) -> Int? {
         switch keyCode {
+        case 29: return 0  // 0
         case 18: return 1  // 1
         case 19: return 2  // 2
         case 20: return 3  // 3

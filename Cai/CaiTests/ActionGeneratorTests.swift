@@ -26,9 +26,12 @@ final class ActionGeneratorTests: XCTestCase {
         actions.contains { $0.id == id }
     }
 
-    // MARK: - Ask AI is always first
+    // MARK: - Ask AI is the first built-in, right after pinned shortcuts
 
-    func testAskAIIsAlwaysFirstAction() {
+    func testAskAIIsFirstBuiltInAction() {
+        // Pinned custom shortcuts come first (they own ⌘1…k), so the expected
+        // position depends on how many the machine running the tests has pinned.
+        let pinned = settings.shortcuts.filter(\.pinned).count
         let types: [ContentType] = [.shortText, .longText, .url, .json, .word, .meeting, .address, .image]
         for type in types {
             let actions = ActionGenerator.generateActions(
@@ -36,10 +39,14 @@ final class ActionGeneratorTests: XCTestCase {
                 detection: detection(type),
                 settings: settings
             )
-            XCTAssertEqual(actions.first?.id, "custom_prompt",
-                           "Ask AI should be first for content type \(type)")
-            XCTAssertEqual(actions.first?.shortcut, 1,
-                           "Ask AI should have shortcut 1 for content type \(type)")
+            guard actions.count > pinned else {
+                XCTFail("Expected Ask AI after \(pinned) pinned shortcuts for content type \(type)")
+                continue
+            }
+            XCTAssertEqual(actions[pinned].id, "custom_prompt",
+                           "Ask AI should be the first built-in for content type \(type)")
+            XCTAssertEqual(actions[pinned].shortcut, pinned + 1,
+                           "Ask AI should take the first slot after pinned shortcuts for content type \(type)")
         }
     }
 

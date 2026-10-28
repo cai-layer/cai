@@ -14,6 +14,7 @@ extension NSNotification.Name {
     static let caiArrowLeft = NSNotification.Name("CaiArrowLeft")
     static let caiArrowRight = NSNotification.Name("CaiArrowRight")
     static let caiCmdNumber = NSNotification.Name("CaiCmdNumber")
+    static let caiHotKeyDigitSlot = NSNotification.Name("CaiHotKeyDigitSlot")   // slot in WindowController.pendingDigitSlot
     static let caiTabPressed = NSNotification.Name("CaiTabPressed")
     static let caiCmdNPressed = NSNotification.Name("CaiCmdNPressed")
     static let caiFilterCharacter = NSNotification.Name("CaiFilterCharacter")   // userInfo["char": String]

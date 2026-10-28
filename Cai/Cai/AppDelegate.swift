@@ -844,9 +844,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // so we can't reliably check for a selection beforehand.
         // If nothing is selected, Cmd+C is a no-op and we fall back to
         // whatever is already on the clipboard.
+        //
+        // Until the panel is up and listening, catch hotkey-modifier + digit
+        // globally so a fast ⌥C ⌥2 runs slot 2 instead of typing "™" over the
+        // selection. The digit is replayed once the panel's key monitor exists.
+        if let slotModifiers = WindowController.slotModifiers(forHotKey: CaiSettings.shared.keyCombo.modifiers) {
+            hotKeyManager.armSlotKeys(modifiers: slotModifiers)
+        }
         clipboardService.copySelectedText { [weak self] in
             Task { @MainActor in
-                await self?.openWithClipboard(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
+                guard let self else { return }
+                // A digit already pressed means "run a slot": open fresh on the
+                // action list instead of resuming a cached result screen.
+                if self.hotKeyManager.hasBufferedSlot {
+                    self.windowController.discardResumeCache()
+                }
+                await self.openWithClipboard(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
+                if let slot = self.hotKeyManager.disarmSlotKeys(), self.windowController.isVisible {
+                    WindowController.requestDigitSlot(slot)
+                }
             }
         }
     }

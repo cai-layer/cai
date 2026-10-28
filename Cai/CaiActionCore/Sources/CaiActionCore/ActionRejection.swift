@@ -22,6 +22,15 @@ public enum ActionRejection: Error, Equatable, Sendable {
     case queueFull(max: Int)
     case duplicateActionId(id: String)
     case unknownTargetAction(id: String)
+    /// The id names a proposal the user already declined. Distinct from
+    /// `proposalRefused`: a decline is an answer, not something to fix.
+    case proposalDeclined(id: String)
+    /// The id names a proposal Cai refused, carrying the reason it gave.
+    case proposalRefused(id: String, reason: String?)
+    /// The id names a waiting proposal another connected agent authored.
+    /// Revising it would swap the payload under that agent's name on an
+    /// approval surface, so it is refused rather than silently rewritten.
+    case proposalFromAnotherClient(id: String, client: String?)
     case emptyPatch
     case missingExpectedValue(field: String)
     case valueMismatch(field: String, expected: String, current: String)
@@ -61,7 +70,21 @@ public enum ActionRejection: Error, Equatable, Sendable {
         case .duplicateActionId(let id):
             return "An action with id \(id) already exists. Send an update_action to change it, or let Cai assign a new id."
         case .unknownTargetAction(let id):
-            return "No action with id \(id) exists in Cai. Call list_actions for the current ids."
+            // Covers both id spaces since a still-pending proposal became
+            // addressable: an agent that reads "no action" for an id it just
+            // proposed under concludes the proposal itself is gone.
+            return "No action or waiting proposal has id \(id) in Cai. Call list_actions for the current ids."
+        case .proposalDeclined(let id):
+            return "Proposal \(id) was declined by the user, so there is nothing waiting to revise. "
+                + "Do not re-send it unless they ask."
+        case .proposalRefused(let id, let reason):
+            let detail = reason.map { ": \($0)" } ?? "."
+            return "Proposal \(id) was refused by Cai\(detail) "
+                + "It is no longer waiting, so send a fresh proposal rather than revising it."
+        case .proposalFromAnotherClient(let id, let client):
+            let author = client ?? "another agent"
+            return "Proposal \(id) is waiting for approval and was proposed by \(author), not by you. "
+                + "The user sees it under that name, so it cannot be revised from here."
         case .emptyPatch:
             return "The update carries no changes."
         case .missingExpectedValue(let field):

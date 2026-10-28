@@ -236,6 +236,14 @@ enum ActionReviewPresentation {
             : "\(author) proposed a new action"
     }
 
+    /// A revision replaces a waiting card in place, so nothing about the queue
+    /// looks different: same position, same count, new text. Said plainly,
+    /// because the alternative is a user approving a card whose content
+    /// changed while they were reading it.
+    static func revisedToast(client: String?) -> String {
+        "\(client ?? unknownAuthor) changed a proposal you have not decided on yet"
+    }
+
     static func approvedToast(isUpdate: Bool) -> String {
         isUpdate ? "Action updated" : "Action added"
     }

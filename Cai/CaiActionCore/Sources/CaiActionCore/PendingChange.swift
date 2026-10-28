@@ -73,6 +73,23 @@ public struct PendingChange: Equatable, Sendable {
     }
 }
 
+extension PendingChange {
+
+    /// The draft this change proposes, when it is a create. Sugar over the
+    /// operation enum for the resolution rules, which ask "is this a pending
+    /// create for id X" often enough that the pattern match is noise.
+    public var draft: ActionDraft? {
+        if case .create(let draft) = operation { return draft }
+        return nil
+    }
+
+    /// The patch this change proposes, when it is an update.
+    public var update: ActionUpdate? {
+        if case .update(let update) = operation { return update }
+        return nil
+    }
+}
+
 // MARK: - Draft (create)
 
 /// A brand new action, exactly as proposed. Flags default to false and the
@@ -103,6 +120,21 @@ public struct ActionDraft: Equatable, Sendable {
         self.runInBackground = runInBackground
         self.pinned = pinned
         self.next = next
+    }
+
+    /// Rebuilds a draft from a snapshot. Used when a revision applies a patch
+    /// to a still-pending create: the patch machinery speaks `ActionSnapshot`,
+    /// and the result has to go back into the file as a draft.
+    public init(snapshot: ActionSnapshot) {
+        self.init(
+            name: snapshot.name,
+            type: snapshot.type,
+            value: snapshot.value,
+            autoReplaceSelection: snapshot.autoReplaceSelection,
+            runInBackground: snapshot.runInBackground,
+            pinned: snapshot.pinned,
+            next: snapshot.next
+        )
     }
 
     /// The draft as it would be stored, given an id assigned at approval time.

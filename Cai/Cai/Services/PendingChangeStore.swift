@@ -232,13 +232,46 @@ final class PendingChangeStore: ObservableObject {
             print("PendingChanges: \(candidates.count - examined.count) file(s) beyond the per-scan cap were left for the next pass")
         }
 
+        // A proposal can be revised in place, so a decision and a revision can
+        // cross: the helper reads the file, the user declines, the helper
+        // writes its revision, and a card the user already said no to comes
+        // back looking brand new. The decision wins.
+        let decided = decidedFileNames()
+
         for file in examined {
             switch load(file, known: known) {
             case .success(let proposal):
+                if decided.contains(Self.quarantineKey(for: proposal.fileURL)) {
+                    discardSupersededDecision(proposal)
+                    continue
+                }
                 accepted.append(proposal)
             case .failure(let rejection):
                 quarantine(file, reason: rejection, change: nil)
             }
+        }
+
+        // Queue position belongs to the card, not to the file's mtime. A
+        // revision rewrites the file, which bumps the mtime and would send the
+        // card to the back of the queue mid-read: the same swap-under-the-
+        // cursor the sort comment below exists to prevent. A file already in
+        // the queue therefore keeps the arrival time it was first seen with.
+        let pinnedArrival = Dictionary(
+            pending.map { ($0.fileURL, $0.arrivedAt) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        accepted = accepted.map { proposal in
+            guard let pinned = pinnedArrival[proposal.fileURL], pinned != proposal.arrivedAt else {
+                return proposal
+            }
+            return PendingProposal(
+                changeId: proposal.changeId,
+                fileURL: proposal.fileURL,
+                arrivedAt: pinned,
+                createdAt: proposal.createdAt,
+                change: proposal.change,
+                validated: proposal.validated
+            )
         }
 
         // Oldest first, so a queue that hits the cap keeps the proposals the
@@ -286,12 +319,7 @@ final class PendingChangeStore: ObservableObject {
 
         guard accepted != pending else { return }
 
-        // Arrival is passive by design: one toast naming who proposed it, and
-        // a dot on the menu bar icon. Nothing takes focus, nothing opens. Only
-        // genuinely new proposals announce themselves, so a rescan triggered by
-        // an unrelated write stays silent.
-        let alreadyQueued = Set(pending.map(\.id))
-        let arrivals = accepted.filter { !alreadyQueued.contains($0.id) }
+        let announcement = Self.announcement(previous: pending, current: accepted)
         pending = accepted
         notifyQueueChanged()
 
@@ -299,15 +327,123 @@ final class PendingChangeStore: ObservableObject {
         // the user; several arriving seconds apart are separate events, and
         // `ToastQueue` gives each its full time on screen rather than letting
         // the second cut off the first.
-        if let arrival = arrivals.first {
+        switch announcement {
+        case .arrival(let client, let isUpdate):
             ToastQueue.post(
-                ActionReviewPresentation.arrivalToast(
-                    client: arrival.provenance.client,
-                    isUpdate: arrival.validated.isUpdate
-                ),
+                ActionReviewPresentation.arrivalToast(client: client, isUpdate: isUpdate),
                 outcome: .arrival
             )
+        case .revised(let client):
+            ToastQueue.post(ActionReviewPresentation.revisedToast(client: client), outcome: .arrival)
+        case nil:
+            break
         }
+    }
+
+    /// What a scan should say, if anything.
+    ///
+    /// Arrival is passive by design: one toast naming who proposed it, and a
+    /// dot on the menu bar icon. Nothing takes focus, nothing opens.
+    ///
+    /// A revision needs its own line. It keeps the file URL, so the arrival
+    /// filter is silent on it, and the card's content changes under a user who
+    /// may be reading it: the acknowledgment tick resets, but a standard-tier
+    /// proposal has no tick, so without a toast the next click approves text
+    /// they never consciously re-read. Compared on the payload, not the
+    /// verdict, because a verdict can change when an unrelated approval moves
+    /// the world underneath the queue.
+    ///
+    /// An arrival outranks a revision when a scan sees both: something new
+    /// needing a decision is the larger event.
+    enum QueueAnnouncement: Equatable {
+        case arrival(client: String?, isUpdate: Bool)
+        case revised(client: String?)
+    }
+
+    static func announcement(
+        previous: [PendingProposal],
+        current: [PendingProposal]
+    ) -> QueueAnnouncement? {
+        let before = Dictionary(
+            previous.map { ($0.fileURL, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        if let arrival = current.first(where: { before[$0.fileURL] == nil }) {
+            return .arrival(
+                client: arrival.provenance.client,
+                isUpdate: arrival.validated.isUpdate
+            )
+        }
+        if let revised = current.first(where: { before[$0.fileURL]?.change != $0.change }) {
+            return .revised(client: revised.provenance.client)
+        }
+        return nil
+    }
+
+    /// Proposal files the user already declined.
+    ///
+    /// Only declines count. The quarantine also holds refusals (invalid
+    /// payloads, queue overflow), and those are not answers: a file that
+    /// reappears under a refused name is re-validated like any other arrival,
+    /// so a refusal never silently swallows a later, valid write.
+    ///
+    /// Keyed on the file name, not the id inside the payload, because that is
+    /// how identity works everywhere else here: two files can carry one change
+    /// id, and deciding one of them must not drop the other. A revision
+    /// replaces a file by name, so the name is also exactly what the race
+    /// this guards against reuses.
+    private func decidedFileNames() -> Set<String> {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: quarantineDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        )) ?? []
+        var declined = Set<String>()
+        for sidecar in files where sidecar.lastPathComponent.hasSuffix(".rejection.json") {
+            guard let data = ProposalStatus.boundedRead(sidecar),
+                  let record = try? ActionCoding.decoder.decode(QuarantineRecord.self, from: data),
+                  record.outcome == .declined
+            else { continue }
+            declined.insert(sidecar.lastPathComponent
+                .replacingOccurrences(of: ".rejection.json", with: "")
+                .lowercased())
+        }
+        return declined
+    }
+
+    private static func quarantineKey(for file: URL) -> String {
+        file.deletingPathExtension().lastPathComponent.lowercased()
+    }
+
+    /// Drops a pending file whose id the user (or Cai) already answered.
+    ///
+    /// Removed rather than quarantined: quarantining would write a fresh
+    /// sidecar over the existing one, turning the user's "declined" into a
+    /// "refused" and losing the answer the agent is waiting to read. No toast
+    /// either: the user already decided this one, and telling them again
+    /// about a card they dismissed is noise. The audit log keeps the trace.
+    private func discardSupersededDecision(_ proposal: PendingProposal) {
+        // Logged only when the file is actually gone. If the delete fails the
+        // file is seen again on the next scan, and one audit line per scan
+        // would fill the log with the same event.
+        do {
+            try FileManager.default.removeItem(at: proposal.fileURL)
+        } catch {
+            print("PendingChanges: could not discard superseded \(proposal.fileURL.lastPathComponent): \(error.localizedDescription)")
+            return
+        }
+        history.append(ActionAuditEntry(
+            timestamp: now(),
+            changeId: proposal.changeId,
+            operation: proposal.validated.isUpdate ? "update" : "create",
+            outcome: .rejected,
+            actionId: proposal.validated.after.id,
+            actionName: proposal.validated.after.name,
+            provenance: proposal.validated.provenance,
+            before: proposal.validated.before,
+            after: proposal.validated.after,
+            reason: "A revision arrived after this proposal was already decided. The decision stands."
+        ))
     }
 
     private func load(_ file: URL, known: KnownActions) -> Result<PendingProposal, ActionRejection> {

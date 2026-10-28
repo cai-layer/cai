@@ -92,7 +92,13 @@ public enum AgentReply {
             sentence = "Proposed \"\(actionName)\" to Cai."
         }
 
-        sentence += validated.tier == .escalated
+        return sentence + tail(validated)
+    }
+
+    /// What every proposal reply ends with: nothing has happened yet, how to
+    /// look it up, and anything the user was warned about.
+    private static func tail(_ validated: ValidatedChange) -> String {
+        var sentence = validated.tier == .escalated
             ? " The user must acknowledge what it can do before they can approve it."
             : " It is waiting for the user to approve it in Cai."
         sentence += " Nothing happens until they do."
@@ -126,6 +132,69 @@ public enum AgentReply {
         lines.append("value (\(action.value.count) characters, verbatim below this line):")
         lines.append(action.value)
         return lines.joined(separator: "\n")
+    }
+
+    /// The answer to `get_action`, for whichever half of the lifecycle the id
+    /// turned out to name.
+    ///
+    /// A waiting proposal is labelled as one. Without the label an agent reads
+    /// a draft as an installed action and tells the user their action exists,
+    /// which is the one thing this whole surface is built not to say.
+    public static func actionDetail(
+        for target: AgentAuthoring.Target,
+        snapshot: ActionsSnapshot
+    ) throws -> String {
+        switch target {
+        case .installedAction(let action):
+            return actionDetail(action)
+
+        case .pendingCreate(let file):
+            guard let draft = file.change.draft else {
+                throw ActionRejection.unknownTargetAction(id: file.change.id.uuidString)
+            }
+            // The draft comes from a file any local process can write and
+            // nothing has validated yet, so the single-line fields are clamped
+            // the way `list_actions` clamps them. The value stays verbatim:
+            // it is what the agent needs to revise, and it sits below a
+            // "verbatim below this line" fence.
+            var shown = draft.snapshot(id: file.change.id)
+            shown.name = ProposalStatus.clamp(shown.name)
+            return """
+                This is a proposal you sent that is still waiting for the user's approval, \
+                not an installed action. update_action with this id revises it in place.
+
+                \(actionDetail(shown))
+                """
+
+        case .pendingUpdate(let file):
+            let action = try AgentAuthoring.action(id: file.change.update?.targetId ?? file.change.id, snapshot: snapshot)
+            let fields = (file.change.update?.changes.fields).map {
+                $0.map(\.rawValue).joined(separator: ", ")
+            } ?? ""
+            return """
+                The action as it is installed today is below. A change to it is waiting for the \
+                user's approval (proposal \(file.change.id.uuidString), fields: \(fields)); \
+                update_action with this id revises that waiting change in place, replacing it \
+                rather than adding a second card. Send the whole change you want, not just the \
+                part you are amending.
+
+                \(actionDetail(action))
+                """
+        }
+    }
+
+    /// The answer to an `update_action` that replaced a waiting proposal.
+    ///
+    /// The count is the point. An agent that has just been told "proposed"
+    /// twice has every reason to think the user is looking at two cards, and
+    /// the whole bug this replaces was an agent doing exactly that.
+    public static func proposalRevised(validated: ValidatedChange, actionName: String) -> String {
+        var sentence = validated.isUpdate
+            ? "Revised the waiting proposal: it now changes \"\(actionName)\" "
+                + "(\(validated.changedFields.map(\.rawValue).joined(separator: ", ")))."
+            : "Revised the waiting proposal for \"\(actionName)\"."
+        sentence += " It replaced the card the user already had, so there is still one proposal, not two."
+        return sentence + tail(validated)
     }
 
     /// One line per action for the listing, with the cut announced.

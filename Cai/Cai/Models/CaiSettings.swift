@@ -37,6 +37,10 @@ class CaiSettings: ObservableObject {
         static let keepAwakeEnabled = "cai_keepAwakeEnabled"
         static let keepAwakeLastMinutes = "cai_keepAwakeLastMinutes"
         static let keepAwakeAllowsDisplaySleep = "cai_keepAwakeAllowsDisplaySleep"
+        static let focusTimerEnabled = "cai_focusTimerEnabled"
+        static let focusMinutes = "cai_focusMinutes"
+        static let shortBreakMinutes = "cai_shortBreakMinutes"
+        static let longBreakMinutes = "cai_longBreakMinutes"
         static let installedExtensions = "cai_installedExtensions"
         static let hiddenBuiltInActions = "cai_hiddenBuiltInActions"
         static let appearance = "cai_appearance"
@@ -245,6 +249,30 @@ class CaiSettings: ObservableObject {
             defaults.set(keepAwakeAllowsDisplaySleep, forKey: Keys.keepAwakeAllowsDisplaySleep)
             Task { @MainActor in KeepAwakeController.shared.displaySleepSettingChanged() }
         }
+    }
+
+    /// The focus timer on the menu bar icon. Off by default; turning it off
+    /// mid-phase stops it.
+    @Published var focusTimerEnabled: Bool {
+        didSet {
+            defaults.set(focusTimerEnabled, forKey: Keys.focusTimerEnabled)
+            if !focusTimerEnabled {
+                Task { @MainActor in FocusTimerController.shared.send(.disable) }
+            }
+        }
+    }
+
+    /// Phase lengths in minutes. An edit applies from the next phase.
+    @Published var focusMinutes: Int {
+        didSet { defaults.set(focusMinutes, forKey: Keys.focusMinutes) }
+    }
+
+    @Published var shortBreakMinutes: Int {
+        didSet { defaults.set(shortBreakMinutes, forKey: Keys.shortBreakMinutes) }
+    }
+
+    @Published var longBreakMinutes: Int {
+        didSet { defaults.set(longBreakMinutes, forKey: Keys.longBreakMinutes) }
     }
 
     /// The kill switch for agent authoring: "Allow agents to propose actions".
@@ -509,6 +537,11 @@ class CaiSettings: ObservableObject {
         self.keepAwakeLastMinutes = defaults.object(forKey: Keys.keepAwakeLastMinutes) as? Int
             ?? KeepAwakeDuration.default.storedMinutes
         self.keepAwakeAllowsDisplaySleep = defaults.bool(forKey: Keys.keepAwakeAllowsDisplaySleep)
+        let timerDefaults = FocusTimerConfig()
+        self.focusTimerEnabled = defaults.bool(forKey: Keys.focusTimerEnabled)
+        self.focusMinutes = defaults.object(forKey: Keys.focusMinutes) as? Int ?? timerDefaults.focusMinutes
+        self.shortBreakMinutes = defaults.object(forKey: Keys.shortBreakMinutes) as? Int ?? timerDefaults.shortBreakMinutes
+        self.longBreakMinutes = defaults.object(forKey: Keys.longBreakMinutes) as? Int ?? timerDefaults.longBreakMinutes
 
         // Defaults ON: `bool(forKey:)` is false for an unset key, so read the
         // object first and only fall back to true when nothing is stored.

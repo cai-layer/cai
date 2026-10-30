@@ -1,0 +1,51 @@
+import XCTest
+@testable import Cai
+
+/// The focus timer's state machine.
+final class FocusTimerTests: XCTestCase {
+
+    // MARK: - Transitions (P1)
+
+    /// P1: state machine. A wrong row skips a break, double-counts a session,
+    /// or resumes with the wrong time left, and the user stops trusting it.
+    func testTransitions() {
+        let t0 = Date(timeIntervalSince1970: 2_000_000)
+        let config = FocusTimerConfig(focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 30)
+        func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
+        func state(_ phase: FocusPhase?, _ clock: FocusTimerState.Clock?, done: Int = 0) -> FocusTimerState {
+            FocusTimerState(phase: phase, clock: clock, completedSessions: done)
+        }
+        let focusRunning = state(.focus, .running(endsAt: at(1500)))
+
+        // (name, from, event, now, expected)
+        let cases: [(String, FocusTimerState, FocusTimerEvent, Date, FocusTimerState)] = [
+            ("start from idle", .idle, .start, t0, focusRunning),
+            ("start while running is ignored", focusRunning, .start, at(60), focusRunning),
+            ("tick before the end changes nothing", focusRunning, .tick, at(1499), focusRunning),
+            ("focus ends: short break, session counted",
+             focusRunning, .tick, at(1500), state(.shortBreak, .running(endsAt: at(1800)), done: 1)),
+            ("4th focus ends: long break, counter reset",
+             state(.focus, .running(endsAt: at(1500)), done: 3), .tick, at(1500),
+             state(.longBreak, .running(endsAt: at(3300)), done: 0)),
+            ("break ends: idle, waits for Start Focus, count kept",
+             state(.shortBreak, .running(endsAt: at(300)), done: 2), .tick, at(300), state(nil, nil, done: 2)),
+            ("pause keeps the time left", focusRunning, .pause, at(500), state(.focus, .paused(remaining: 1000))),
+            ("resume restarts the clock from now",
+             state(.focus, .paused(remaining: 1000)), .resume, at(9000), state(.focus, .running(endsAt: at(10000)))),
+            ("paused does not end on a tick",
+             state(.focus, .paused(remaining: 10)), .tick, at(99_999), state(.focus, .paused(remaining: 10))),
+            ("restart keeps the phase", state(.shortBreak, .running(endsAt: at(100)), done: 1), .restart, at(50),
+             state(.shortBreak, .running(endsAt: at(350)), done: 1)),
+            ("skip in focus counts the session",
+             focusRunning, .skip, at(10), state(.shortBreak, .running(endsAt: at(310)), done: 1)),
+            ("skip in a break goes idle",
+             state(.longBreak, .paused(remaining: 600)), .skip, at(10), state(nil, nil)),
+            ("asleep through focus and its break: one phase, starting now",
+             focusRunning, .tick, at(5000), state(.shortBreak, .running(endsAt: at(5300)), done: 1)),
+            ("turned off in Settings mid-phase", state(.focus, .paused(remaining: 5), done: 3), .disable, at(0), .idle),
+        ]
+        for (name, from, event, now, expected) in cases {
+            XCTAssertEqual(FocusTimerMachine.next(from, event, now: now, config: config), expected, name)
+        }
+    }
+}

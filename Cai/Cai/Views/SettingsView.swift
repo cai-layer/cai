@@ -471,6 +471,24 @@ struct SettingsView: View {
                                 accessibilityLabel: "Let the display sleep while Keep Awake is on"
                             )
                         }
+
+                        settingsDivider
+
+                        settingsToggleRow(
+                            "Focus Timer",
+                            subtitle: "Start, pause and skip from the Cai icon's menu",
+                            isOn: $settings.focusTimerEnabled,
+                            accessibilityLabel: "Focus timer in the menu bar"
+                        )
+
+                        if settings.focusTimerEnabled {
+                            settingsDivider
+                            minutesRow("Focus", value: $settings.focusMinutes, range: 5...90)
+                            settingsDivider
+                            minutesRow("Short break", value: $settings.shortBreakMinutes, range: 1...30)
+                            settingsDivider
+                            minutesRow("Long break, every 4th", value: $settings.longBreakMinutes, range: 5...60)
+                        }
                     }
 
                     // MARK: General Group
@@ -1081,6 +1099,22 @@ struct SettingsView: View {
     /// The accessibility label sits on the Toggle itself (not the row) so VoiceOver
     /// announces the control with a name — a bare `Toggle("", …).labelsHidden()`
     /// otherwise reads as an unnamed switch.
+    /// A label with a minutes value and a stepper, for the focus timer lengths.
+    private func minutesRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+            Spacer()
+            Text("\(value.wrappedValue) min")
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundColor(.caiTextSecondary)
+            Stepper("", value: value, in: range)
+                .labelsHidden()
+                .accessibilityLabel("\(title) minutes")
+        }
+    }
+
     private func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>, accessibilityLabel: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {

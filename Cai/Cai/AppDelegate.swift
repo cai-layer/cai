@@ -96,13 +96,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-        // Keep Awake started, stopped, or its curtain moved.
-        NotificationCenter.default.addObserver(
-            forName: .caiKeepAwakeChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshStatusItem() }
+        // Keep Awake started, stopped, or its curtain moved; the focus timer
+        // changed phase or ticked.
+        for name in [Notification.Name.caiKeepAwakeChanged, .caiFocusTimerChanged] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshStatusItem() }
+            }
         }
 
         // A proposal arriving never steals focus: the icon grows a dot and one
@@ -295,6 +294,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if CaiSettings.shared.keepAwakeEnabled {
             MainActor.assumeIsolated { addKeepAwakeItems(to: menu) }
         }
+        if CaiSettings.shared.focusTimerEnabled {
+            MainActor.assumeIsolated { addFocusTimerItems(to: menu) }
+        }
 
         // No "Open Cai": ⌥C is the way in. "Cai Settings…" is needed because a
         // click no longer always opens Settings once Keep Awake is enabled.
@@ -341,6 +343,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let parent = NSMenuItem(title: "Keep Awake For", action: nil, keyEquivalent: "")
         parent.submenu = submenu
         menu.addItem(parent)
+    }
+
+    /// The focus timer section: a grey status row, then plain items for the
+    /// controls (they get keyboard navigation and VoiceOver for free).
+    @MainActor
+    private func addFocusTimerItems(to menu: NSMenu) {
+        let timer = FocusTimerController.shared
+        let state = timer.state
+        menu.addItem(NSMenuItem.separator())
+        let header = NSMenuItem(title: state.menuHeader(now: Date(), config: timer.config), action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+
+        func add(_ title: String, _ event: FocusTimerEvent) {
+            let item = NSMenuItem(title: title, action: #selector(focusTimerItemClicked(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = event
+            menu.addItem(item)
+        }
+        guard let phase = state.phase else {
+            add("Start Focus", .start)
+            return
+        }
+        add(state.isRunning ? "Pause" : "Resume", state.isRunning ? .pause : .resume)
+        add("Restart \(phase.title)", .restart)
+        add(phase.isBreak ? "Skip \(phase.title)" : "Skip to Break", .skip)
+    }
+
+    @objc private func focusTimerItemClicked(_ sender: NSMenuItem) {
+        guard let event = sender.representedObject as? FocusTimerEvent else { return }
+        MainActor.assumeIsolated { FocusTimerController.shared.send(event) }
     }
 
     @objc private func keepAwakeDurationClicked(_ sender: NSMenuItem) {
@@ -747,6 +780,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return .indefinitely
         }()
         button.image = Self.statusItemImage(showsPendingDot: hasPending, keepAwake: keepAwakeIcon)
+
+        // The focus countdown sits right of the logo, in digits that don't
+        // shift width as they change.
+        if CaiSettings.shared.focusTimerEnabled, let countdown = FocusTimerController.shared.state.countdown(now: now) {
+            button.imagePosition = .imageLeading
+            button.attributedTitle = NSAttributedString(
+                string: " " + countdown,
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)]
+            )
+        } else {
+            button.imagePosition = .imageOnly
+            button.title = ""
+        }
 
         let keepAwakeLine = keepAwakeState.menuHeader(now: now)
         button.toolTip = isBackgroundBusy

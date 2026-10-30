@@ -1019,7 +1019,7 @@ class WindowController: NSObject, ObservableObject {
     /// than an anonymous black rectangle over the user's work.
     private static func caiMarkImage() -> NSImage {
         let height: CGFloat = 11
-        let size = NSSize(width: height * (217.0 / 127.0), height: height)
+        let size = NSSize(width: height * CaiLogoShape.aspectRatio, height: height)
         return NSImage(size: size, flipped: true) { rect in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
             ctx.addPath(CaiLogoShape().path(in: CGRect(origin: .zero, size: rect.size)).cgPath)

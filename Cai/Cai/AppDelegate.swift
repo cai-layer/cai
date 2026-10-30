@@ -598,10 +598,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// A template image, so the dot inherits the menu bar's own tint in light
     /// and dark rather than introducing colour where macOS expects none.
     private static func statusItemImage(showsPendingDot: Bool) -> NSImage {
-        let logoHeight: CGFloat = 11
-        let logoWidth: CGFloat = logoHeight * (217.0 / 127.0)  // Preserve aspect ratio
-        let dotDiameter: CGFloat = 4
-        let dotGap: CGFloat = 2
+        // 14pt sits at the visual weight of the system's ~16pt glyphs: the
+        // mark fills its whole box, where SF Symbols carry their own padding.
+        let logoHeight: CGFloat = 14
+        let logoWidth: CGFloat = logoHeight * CaiLogoShape.aspectRatio
+        let dotDiameter: CGFloat = 5
+        let dotGap: CGFloat = 2.5
         let size = NSSize(
             width: logoWidth + (showsPendingDot ? dotGap + dotDiameter : 0),
             height: logoHeight

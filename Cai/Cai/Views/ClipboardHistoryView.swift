@@ -182,6 +182,9 @@ struct ClipboardHistoryView: View {
         let canPin = entry.isPinned || history.pinnedEntries.count < ClipboardHistory.maxPinnedEntries
         // Show pin icon when: pinned (always), or hovered/selected AND there's room to pin
         let showPinIcon = entry.isPinned || ((isHovered || isSelected) && canPin)
+        // Text clips with a known source app show its real icon. It sits bare:
+        // the tile only appears with the pin, where the icon is a button.
+        let appIcon = showPinIcon || entry.isImage ? nil : AppIcon.image(forBundleId: entry.sourceBundleId, size: 28)
 
         return HStack(spacing: 12) {
             // Icon — doubles as pin toggle on hover/selection (progressive disclosure)
@@ -198,16 +201,16 @@ struct ClipboardHistoryView: View {
                               ? Color.caiPrimary.opacity(0.15)
                               : isSelected
                                 ? Color.caiPrimary.opacity(0.15)
-                                : Color.caiSurface.opacity(0.6))
+                                : appIcon != nil
+                                  ? Color.clear
+                                  : Color.caiSurface.opacity(0.6))
                         .frame(width: 28, height: 28)
 
                     if showPinIcon {
                         Image(systemName: entry.isPinned ? "pin.fill" : "pin")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(entry.isPinned ? .caiPrimary : .caiTextSecondary.opacity(0.5))
-                    } else if !entry.isImage, let appIcon = AppIcon.image(forBundleId: entry.sourceBundleId, size: 20) {
-                        // The source app's real icon stands in for the generic text
-                        // glyph; image clips keep the photo glyph.
+                    } else if let appIcon {
                         Image(nsImage: appIcon)
                     } else {
                         Image(systemName: entry.isImage ? "photo" : "doc.on.clipboard")

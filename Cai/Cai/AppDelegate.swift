@@ -296,11 +296,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { addKeepAwakeItems(to: menu) }
         }
 
-        // ⌥C is the main way in, so Open Cai sits with the app-level items.
-        // "Cai Settings…" is needed because a click no longer always opens
-        // Settings once Keep Awake is enabled.
+        // No "Open Cai": ⌥C is the way in. "Cai Settings…" is needed because a
+        // click no longer always opens Settings once Keep Awake is enabled.
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Open Cai", action: #selector(openCai), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Cai Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "About Cai", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit Cai", action: #selector(quitApp), keyEquivalent: "q"))
@@ -420,13 +418,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openSettings() {
         windowController.showSettingsWindow()
-    }
-
-    @objc func openCai() {
-        // Use whatever is already on the clipboard — don't simulate Cmd+C
-        // because by the time the user clicks this menu item, the frontmost
-        // app is Cai itself (or the menu bar), not the app with selected text.
-        Task { @MainActor in await openWithClipboard() }
     }
 
     func showShortcutsWindow() {

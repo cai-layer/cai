@@ -36,6 +36,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Subscription to `BackgroundTaskTracker` — drives the menu bar icon
     /// pulse while a background shell action is running.
     private var taskTrackerSubscription: AnyCancellable?
+    /// A background shell action is running (the icon pulses). Read by
+    /// `refreshStatusItem()`, the one place that sets the icon and tooltip.
+    private var isBackgroundBusy = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
@@ -92,6 +95,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.stopStatusBarPulse()
                 }
             }
+
+        // Keep Awake started, stopped, or its curtain moved.
+        NotificationCenter.default.addObserver(
+            forName: .caiKeepAwakeChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStatusItem() }
+        }
 
         // A proposal arriving never steals focus: the icon grows a dot and one
         // toast fires. The review window opens only when the user asks for it.
@@ -217,9 +229,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if event.type == .rightMouseUp {
             // Right-click: show menu
             showMenu()
-        } else {
-            // Left-click: show settings in the main Cai window
-            windowController.showSettingsWindow()
+            return
+        }
+
+        // Left-click (or Space on the focused item): Settings, unless Keep
+        // Awake is enabled, in which case it toggles with the last duration.
+        MainActor.assumeIsolated {
+            let settings = CaiSettings.shared
+            let keepAwake = KeepAwakeController.shared
+            switch KeepAwakePolicy.clickAction(
+                keepAwakeEnabled: settings.keepAwakeEnabled,
+                isOn: keepAwake.state.isOn,
+                lastDuration: KeepAwakeDuration(storedMinutes: settings.keepAwakeLastMinutes)
+            ) {
+            case .openSettings: windowController.showSettingsWindow()
+            case .start(let duration): keepAwake.start(duration)
+            case .stop: keepAwake.stop()
+            }
         }
     }
 
@@ -255,9 +281,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        let openItem = NSMenuItem(title: "Open Cai", action: #selector(openCai), keyEquivalent: "")
-        menu.addItem(openItem)
-
         // Only present while something waits: the review window is the one
         // place a proposal can be approved, so it needs a click path, but an
         // always-visible entry would advertise a queue that is usually empty.
@@ -269,14 +292,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem(title: title, action: #selector(showActionReview), keyEquivalent: ""))
         }
 
-        menu.addItem(NSMenuItem.separator())
+        if CaiSettings.shared.keepAwakeEnabled {
+            MainActor.assumeIsolated { addKeepAwakeItems(to: menu) }
+        }
 
+        // ⌥C is the main way in, so Open Cai sits with the app-level items.
+        // "Cai Settings…" is needed because a click no longer always opens
+        // Settings once Keep Awake is enabled.
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Open Cai", action: #selector(openCai), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Cai Settings\u{2026}", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "About Cai", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit Cai", action: #selector(quitApp), keyEquivalent: "q"))
 
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    /// The Keep Awake section: a grey status row while on, then the
+    /// durations submenu (the running or last-used one checked).
+    @MainActor
+    private func addKeepAwakeItems(to menu: NSMenu) {
+        let keepAwake = KeepAwakeController.shared
+        menu.addItem(NSMenuItem.separator())
+        if let header = keepAwake.state.menuHeader(now: Date()) {
+            let item = NSMenuItem(title: header, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
+
+        let current: KeepAwakeDuration = {
+            if case .on(_, let duration) = keepAwake.state { return duration }
+            return KeepAwakeDuration(storedMinutes: CaiSettings.shared.keepAwakeLastMinutes)
+        }()
+        let submenu = NSMenu()
+        for duration in KeepAwakeDuration.presets {
+            let item = NSMenuItem(title: duration.menuTitle, action: #selector(keepAwakeDurationClicked(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = duration.storedMinutes
+            item.state = duration == current ? .on : .off
+            submenu.addItem(item)
+        }
+        if keepAwake.state.isOn {
+            submenu.addItem(NSMenuItem.separator())
+            let off = NSMenuItem(title: "Turn Off", action: #selector(keepAwakeTurnOffClicked), keyEquivalent: "")
+            off.target = self
+            submenu.addItem(off)
+        }
+        let parent = NSMenuItem(title: "Keep Awake For", action: nil, keyEquivalent: "")
+        parent.submenu = submenu
+        menu.addItem(parent)
+    }
+
+    @objc private func keepAwakeDurationClicked(_ sender: NSMenuItem) {
+        MainActor.assumeIsolated {
+            KeepAwakeController.shared.start(KeepAwakeDuration(storedMinutes: sender.tag))
+        }
+    }
+
+    @objc private func keepAwakeTurnOffClicked() {
+        MainActor.assumeIsolated { KeepAwakeController.shared.stop() }
     }
 
     /// Replaces the Pinned and Recent sections for `query`. Runs while the
@@ -582,6 +658,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // made right before ⌘Q isn't lost when the process exits.
         PasteboardQueue.shared.flush()
 
+        // The kernel drops the assertion with the process anyway; releasing
+        // it here keeps `pmset -g assertions` honest during a normal quit.
+        MainActor.assumeIsolated { KeepAwakeController.shared.stop() }
+
         // Safety net: unload MLX model if process is killed without going through quitApp()
         Task { await MLXInference.shared.unload() }
 
@@ -597,7 +677,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// A template image, so the dot inherits the menu bar's own tint in light
     /// and dark rather than introducing colour where macOS expects none.
-    private static func statusItemImage(showsPendingDot: Bool) -> NSImage {
+    /// Keep Awake as the icon draws it: a curtain with the share of time
+    /// left, or no limit.
+    enum KeepAwakeIcon: Equatable {
+        case timed(remainingFraction: Double)
+        case indefinitely
+    }
+
+    private static func statusItemImage(showsPendingDot: Bool, keepAwake: KeepAwakeIcon? = nil) -> NSImage {
         // 14pt sits at the visual weight of the system's ~16pt glyphs: the
         // mark fills its whole box, where SF Symbols carry their own padding.
         let logoHeight: CGFloat = 14
@@ -612,10 +699,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let image = NSImage(size: size, flipped: true) { rect in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
             let logoRect = CGRect(x: 0, y: 0, width: logoWidth, height: rect.height)
-            let swiftPath = CaiLogoShape().path(in: logoRect)
-            ctx.addPath(swiftPath.cgPath)
+            let logo = CaiLogoShape().path(in: logoRect).cgPath
             ctx.setFillColor(NSColor.black.cgColor)
-            ctx.fillPath()
+            ctx.setStrokeColor(NSColor.black.cgColor)
+
+            if let keepAwake {
+                // On: the logo as a 0.5pt outline inside its own contour (a 1pt
+                // stroke clipped to the shape), solid above a curtain that comes
+                // down as time passes. At 0% left it is the solid logo again.
+                ctx.saveGState()
+                ctx.addPath(logo)
+                ctx.clip()
+                ctx.addPath(logo)
+                ctx.setLineWidth(1)
+                ctx.strokePath()
+                if case .timed(let left) = keepAwake {
+                    let filled = rect.height * CGFloat(1 - min(1, max(0, left)))
+                    ctx.clip(to: CGRect(x: 0, y: 0, width: logoWidth, height: filled))
+                    ctx.addPath(logo)
+                    ctx.fillPath()
+                }
+                ctx.restoreGState()
+            } else {
+                ctx.addPath(logo)
+                ctx.fillPath()
+            }
 
             if showsPendingDot {
                 let dot = CGRect(
@@ -633,13 +741,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return image
     }
 
+    /// The one writer of the status item's image and tooltip. The pending dot,
+    /// Keep Awake and the background-task pulse each change state and call
+    /// this, so none of them can wipe what another one drew.
+    @MainActor
+    private func refreshStatusItem() {
+        guard let button = statusItem?.button else { return }
+        let hasPending = !PendingChangeStore.shared.pending.isEmpty
+        let now = Date()
+        let keepAwakeState = KeepAwakeController.shared.state
+        let keepAwakeIcon: KeepAwakeIcon? = {
+            guard keepAwakeState.isOn else { return nil }
+            if let left = keepAwakeState.remainingFraction(now: now) { return .timed(remainingFraction: left) }
+            return .indefinitely
+        }()
+        button.image = Self.statusItemImage(showsPendingDot: hasPending, keepAwake: keepAwakeIcon)
+
+        let keepAwakeLine = keepAwakeState.menuHeader(now: now)
+        button.toolTip = isBackgroundBusy
+            ? "Cai is working\u{2026}"
+            : hasPending ? "Cai has a proposed action waiting for review" : keepAwakeLine
+        button.setAccessibilityValue(keepAwakeLine)
+    }
+
     /// Adds or clears the dot, and keeps an open review window sized to the
     /// proposal it is now showing.
     @MainActor
     private func updatePendingBadge() {
-        let hasPending = !PendingChangeStore.shared.pending.isEmpty
-        statusItem?.button?.image = Self.statusItemImage(showsPendingDot: hasPending)
-        statusItem?.button?.toolTip = hasPending ? "Cai has a proposed action waiting for review" : nil
+        refreshStatusItem()
 
         // Re-fit on the next runloop pass, not now: this notification is posted
         // synchronously from the store, before SwiftUI has re-rendered for the
@@ -942,7 +1071,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         button.layer?.add(pulse, forKey: "caiPulse")
-        button.toolTip = "Cai is working\u{2026}"
+        isBackgroundBusy = true
+        MainActor.assumeIsolated { refreshStatusItem() }
     }
 
     /// Stops the pulse animation and restores the icon to fully opaque.
@@ -953,6 +1083,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
         button.layer?.removeAnimation(forKey: "caiPulse")
         button.alphaValue = 1.0
-        button.toolTip = nil
+        isBackgroundBusy = false
+        MainActor.assumeIsolated { refreshStatusItem() }
     }
 }

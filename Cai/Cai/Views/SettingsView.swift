@@ -453,6 +453,26 @@ struct SettingsView: View {
                         }
                     }
 
+                    // MARK: Menu Bar Group
+                    settingsGroup(title: "Menu Bar") {
+                        settingsToggleRow(
+                            "Keep Awake",
+                            subtitle: "Click the Cai icon to turn it on or off",
+                            isOn: $settings.keepAwakeEnabled,
+                            accessibilityLabel: "Keep Awake from the menu bar icon"
+                        )
+
+                        if settings.keepAwakeEnabled {
+                            settingsDivider
+
+                            settingsToggleRow(
+                                "Let the display sleep",
+                                isOn: $settings.keepAwakeAllowsDisplaySleep,
+                                accessibilityLabel: "Let the display sleep while Keep Awake is on"
+                            )
+                        }
+                    }
+
                     // MARK: General Group
                     settingsGroup(title: "General") {
                         HStack {

@@ -34,6 +34,9 @@ class CaiSettings: ObservableObject {
         static let aboutYou = "cai_aboutYou"
         static let clipboardHistorySize = "cai_clipboardHistorySize"
         static let pressReturnToSend = "cai_pressReturnToSend"
+        static let keepAwakeEnabled = "cai_keepAwakeEnabled"
+        static let keepAwakeLastMinutes = "cai_keepAwakeLastMinutes"
+        static let keepAwakeAllowsDisplaySleep = "cai_keepAwakeAllowsDisplaySleep"
         static let installedExtensions = "cai_installedExtensions"
         static let hiddenBuiltInActions = "cai_hiddenBuiltInActions"
         static let appearance = "cai_appearance"
@@ -215,6 +218,32 @@ class CaiSettings: ObservableObject {
     @Published var pressReturnToSend: Bool {
         didSet {
             defaults.set(pressReturnToSend, forKey: Keys.pressReturnToSend)
+        }
+    }
+
+    /// Keep Awake on the menu bar icon. Off by default: while off, a click on
+    /// the icon opens Settings as it always has.
+    @Published var keepAwakeEnabled: Bool {
+        didSet {
+            defaults.set(keepAwakeEnabled, forKey: Keys.keepAwakeEnabled)
+            if !keepAwakeEnabled {
+                Task { @MainActor in KeepAwakeController.shared.stop() }
+            }
+            NotificationCenter.default.post(name: .caiKeepAwakeChanged, object: nil)
+        }
+    }
+
+    /// The duration a click starts, in minutes; 0 means indefinitely.
+    @Published var keepAwakeLastMinutes: Int {
+        didSet { defaults.set(keepAwakeLastMinutes, forKey: Keys.keepAwakeLastMinutes) }
+    }
+
+    /// "Let the display sleep": hold only system sleep, so builds and
+    /// downloads continue while the screen turns off.
+    @Published var keepAwakeAllowsDisplaySleep: Bool {
+        didSet {
+            defaults.set(keepAwakeAllowsDisplaySleep, forKey: Keys.keepAwakeAllowsDisplaySleep)
+            Task { @MainActor in KeepAwakeController.shared.displaySleepSettingChanged() }
         }
     }
 
@@ -476,6 +505,10 @@ class CaiSettings: ObservableObject {
         self.crashReportingPromptShown = defaults.bool(forKey: Keys.crashReportingPromptShown)
 
         self.pressReturnToSend = defaults.bool(forKey: Keys.pressReturnToSend)
+        self.keepAwakeEnabled = defaults.bool(forKey: Keys.keepAwakeEnabled)
+        self.keepAwakeLastMinutes = defaults.object(forKey: Keys.keepAwakeLastMinutes) as? Int
+            ?? KeepAwakeDuration.default.storedMinutes
+        self.keepAwakeAllowsDisplaySleep = defaults.bool(forKey: Keys.keepAwakeAllowsDisplaySleep)
 
         // Defaults ON: `bool(forKey:)` is false for an unset key, so read the
         // object first and only fall back to true when nothing is stored.

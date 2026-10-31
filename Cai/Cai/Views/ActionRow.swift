@@ -6,6 +6,7 @@ struct ActionRow: View {
     /// Which model engine the AI chip names. Passed in rather than read from
     /// `CaiSettings.shared`, so the row stays a function of its inputs.
     let engine: ActionReviewPresentation.AIEngine
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 12) {
@@ -108,7 +109,10 @@ struct ActionRow: View {
 
     @ViewBuilder
     private func actionIcon(name: String, isSelected: Bool) -> some View {
-        let color: Color = isSelected ? .caiPrimary : .caiTextSecondary
+        // In dark, an indigo glyph on the indigo-washed tile stays under 3:1
+        // whatever the hex, so the selected glyph takes the label colour there.
+        let selectedColor: Color = colorScheme == .dark ? .caiTextPrimary : .caiPrimary
+        let color: Color = isSelected ? selectedColor : .caiTextSecondary
         switch name {
         case "github.logo":
             GitHubIcon(color: color)

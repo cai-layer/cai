@@ -913,7 +913,14 @@ class WindowController: NSObject, ObservableObject {
         // _postWindowNeedsUpdateConstraints during the display cycle.
         let pill = NSView()
         pill.wantsLayer = true
-        pill.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
+        // A black pill has no edge on a dark desktop: in dark it is a lifted
+        // grey with the light hairline macOS draws on its own dark HUDs.
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        pill.layer?.backgroundColor = isDark
+            ? NSColor(white: 0.17, alpha: 0.92).cgColor
+            : NSColor.black.withAlphaComponent(0.85).cgColor
+        pill.layer?.borderColor = NSColor.white.withAlphaComponent(isDark ? 0.14 : 0).cgColor
+        pill.layer?.borderWidth = isDark ? 0.5 : 0
         pill.layer?.cornerRadius = 18
 
         let glyph: NSImage

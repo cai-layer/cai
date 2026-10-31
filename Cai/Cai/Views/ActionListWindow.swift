@@ -102,6 +102,9 @@ struct ActionListWindow: View {
     /// Corner radius matching Spotlight's rounded appearance
     private let cornerRadius: CGFloat = 20
 
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
     /// Which screen is currently active — used for keyboard routing
     private var activeScreen: Screen {
         if showExtensionConfirm { return .extensionConfirm }
@@ -305,7 +308,7 @@ struct ActionListWindow: View {
         ZStack(alignment: .top) {
             VisualEffectBackground()
 
-            Color.caiPrimary.opacity(0.05)
+            Color.caiPrimary.opacity(isDark ? 0.03 : 0.05)
                 .allowsHitTesting(false)
 
             routedContent
@@ -313,10 +316,20 @@ struct ActionListWindow: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius)
-                .strokeBorder(Color.caiDivider.opacity(0.3), lineWidth: 0.5)
+                .strokeBorder(windowEdge, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
-        .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+        .shadow(color: .black.opacity(isDark ? 0.5 : 0.3), radius: 20, y: 8)
+        .shadow(color: .black.opacity(isDark ? 0.35 : 0.1), radius: 2, y: 1)
+    }
+
+    private var isDark: Bool { colorScheme == .dark }
+
+    /// A black shadow vanishes on a dark desktop, so in dark the window gets
+    /// the light hairline macOS draws on its own dark menus and popovers.
+    private var windowEdge: Color {
+        let increased = colorSchemeContrast == .increased
+        if isDark { return .white.opacity(increased ? 0.4 : 0.14) }
+        return Color.caiDivider.opacity(increased ? 1 : 0.3)
     }
 
     /// Accept type-to-filter input on both the action list and history screens.
@@ -901,7 +914,7 @@ struct ActionListWindow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
-            .background(Color.caiPrimary)
+            .background(Color.caiPrimaryFill)
         }
     }
 
@@ -1958,7 +1971,7 @@ struct ActionListWindow: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 5)
                         .background(
-                            RoundedRectangle(cornerRadius: 6).fill(Color.caiPrimary)
+                            RoundedRectangle(cornerRadius: 6).fill(Color.caiPrimaryFill)
                         )
                         .contentShape(Rectangle())
                 }

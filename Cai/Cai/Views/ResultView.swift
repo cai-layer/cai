@@ -319,7 +319,7 @@ struct ResultView: View {
                     .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.caiPrimary)
+                            .fill(Color.caiPrimaryFill)
                     )
             }
             .buttonStyle(.plain)

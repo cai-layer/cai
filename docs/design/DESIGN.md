@@ -22,9 +22,10 @@ Tokens are defined in [`CaiColors.swift`](../../Cai/Cai/Views/CaiColors.swift) �
 
 | Token | Use |
 |---|---|
-| `caiPrimary` | Brand accent. Hardcoded (the only hardcoded color). See "Indigo discipline" below. |
-| `caiPrimarySubtle` | `caiPrimary` @ 12%. Hover/selection wash for indigo-branded interactive states. |
-| `caiSuccess` / `caiError` | Apple system green / orange. Match SF Symbol semantic colors. |
+| `caiPrimary` | Brand accent as a glyph, text, border, tint or wash. `#6366F2` in light, `#8C8FFA` in dark, with Increase Contrast variants. See "Indigo discipline" below. |
+| `caiPrimaryFill` | `#6366F2` in both modes. Solid fills under white text only (primary buttons, notice bar). White on the brighter dark indigo would fail contrast. |
+| `caiPrimarySubtle` | `caiPrimary` @ 12% (light) / 20% (dark). Hover/selection wash for indigo-branded interactive states. |
+| `caiSuccess` / `caiError` | `NSColor.systemGreen` / `.systemOrange`, so dark mode and Increase Contrast get Apple's variants. |
 | `caiBackground` / `caiSurface` | Window/control surfaces. NSColor-based — auto-adapt Light/Dark. |
 | `caiTextPrimary` / `caiTextSecondary` | Primary/secondary text. NSColor-based. |
 | `caiSelection` | Text selection only (system blue). Do NOT use for interactive states — use `caiPrimarySubtle`. |
@@ -33,7 +34,7 @@ Tokens are defined in [`CaiColors.swift`](../../Cai/Cai/Views/CaiColors.swift) �
 
 **Never hardcode a background or text color.** All NSColor tokens auto-adapt to Light/Dark/System.
 
-**Dark mode:** three modes (System default, Light, Dark) via `NSApp.appearance` in `CaiSettings`. NSColor tokens handle it; no overrides needed.
+**Dark mode:** three modes (System default, Light, Dark) via `NSApp.appearance` in `CaiSettings`. Every token has a light and a dark value; never hardcode a hex that only suits one mode. Two dark-only adjustments: the window and the toast get a light hairline (white 14%, 0.5pt) because a black shadow vanishes on a dark desktop, and a selected action row's glyph is label colour, since indigo on an indigo-washed tile stays under 3:1.
 
 ### Red
 
@@ -85,7 +86,7 @@ Scope of the exception, do not widen it without a design decision:
 ## Window & Background
 
 - **Material:** `NSVisualEffectView` with `.behindWindow`. Light = `.hudWindow` (Spotlight-style frosted glass). Dark = `.underWindowBackground` (`.hudWindow` is too translucent in dark). `window.backgroundColor = .clear`, `isOpaque = false`.
-- **Indigo tint:** 4–5% `caiPrimary` overlay on the visual effect background. Makes the window feel like Cai before the user reads a word. Implemented in `VisualEffectBackground.swift`.
+- **Indigo tint:** 5% (light) / 3% (dark) `caiPrimary` overlay on the visual effect background. Makes the window feel like Cai before the user reads a word. Implemented in `VisualEffectBackground.swift`.
 - **Window dimensions:** 540pt wide, fixed. Height varies by content. Corner radius **20pt**. The wider width accommodates MCP forms, subtitles, and destination chips comfortably (closer to Raycast than Spotlight).
 
 ---
@@ -295,5 +296,5 @@ Multi-line form fields use `MultilineTextEditor` (an `NSTextView` wrapper).
 - **Pulsing ◉:** add `.accessibilityAddTraits(.updatesFrequently)` to suppress VoiceOver chatter on animation frames.
 - **State change announcements:** `UIAccessibility.post(notification: .announcement, ...)` on each step transition.
 - **Keyboard navigation:** all interactive elements reachable via Tab. `⌘1`–`⌘9` are the primary interaction model — they must work before the mouse does.
-- **Contrast:** `caiPrimary` (#6366F2) on white = 4.52:1 (WCAG AA). On dark (#1C1C1E) = 6.1:1. Both pass.
+- **Contrast:** `caiPrimary` light (#6366F2) on white = 4.46:1; dark (#8C8FFA) on #2A2A2C = 5.06:1. White on `caiPrimaryFill` = 4.46:1. Recheck these when a token changes.
 - **Hover-only affordances:** anything that appears on hover (e.g., the unpinned pin button) must also be reachable via the form/edit flow for keyboard-only users.

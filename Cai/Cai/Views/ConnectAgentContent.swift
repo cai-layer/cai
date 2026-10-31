@@ -52,7 +52,7 @@ struct ConnectAgentContent: View {
                             NSWorkspace.shared.open(installURL)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.caiPrimary)
+                        .tint(.caiPrimaryFill)
                         .controlSize(.small)
                         .help("Opens Cursor and adds Cai for you")
 

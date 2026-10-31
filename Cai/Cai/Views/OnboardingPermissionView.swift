@@ -58,7 +58,7 @@ struct OnboardingPermissionView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(Color.caiPrimary)
+                    .background(Color.caiPrimaryFill)
                     .cornerRadius(8)
             }
             .buttonStyle(.plain)

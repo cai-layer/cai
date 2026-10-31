@@ -74,8 +74,8 @@ struct LLMEditPopover: View {
                         .background(
                             RoundedRectangle(cornerRadius: 5)
                                 .fill(directive.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                      ? Color.caiPrimary.opacity(0.4)
-                                      : Color.caiPrimary)
+                                      ? Color.caiPrimaryFill.opacity(0.4)
+                                      : Color.caiPrimaryFill)
                         )
                 }
                 .buttonStyle(.plain)

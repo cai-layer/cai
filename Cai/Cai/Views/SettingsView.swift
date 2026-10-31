@@ -483,9 +483,14 @@ struct SettingsView: View {
                             accessibilityLabel: "Focus timer in the menu bar"
                         )
                         .task(id: settings.focusTimerEnabled) {
-                            breakNotificationsDenied = settings.focusTimerEnabled
-                                ? await FocusBreakNotifier.shared.isDenied()
-                                : false
+                            guard settings.focusTimerEnabled else {
+                                breakNotificationsDenied = false
+                                return
+                            }
+                            // Read the status only after the prompt is answered:
+                            // while it is up, macOS still reports "not determined".
+                            await FocusBreakNotifier.shared.requestAuthorization()
+                            breakNotificationsDenied = await FocusBreakNotifier.shared.isDenied()
                         }
 
                         if breakNotificationsDenied {

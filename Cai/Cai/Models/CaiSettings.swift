@@ -256,9 +256,9 @@ class CaiSettings: ObservableObject {
     @Published var focusTimerEnabled: Bool {
         didSet {
             defaults.set(focusTimerEnabled, forKey: Keys.focusTimerEnabled)
-            if focusTimerEnabled {
-                FocusBreakNotifier.shared.requestAuthorization()
-            } else {
+            // Turning it on asks for notification permission from Settings,
+            // which waits for the answer before showing the denied note.
+            if !focusTimerEnabled {
                 Task { @MainActor in FocusTimerController.shared.send(.disable) }
             }
         }

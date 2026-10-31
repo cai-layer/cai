@@ -363,7 +363,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         func add(_ title: String, _ event: FocusTimerEvent) {
             let item = NSMenuItem(title: title, action: #selector(focusTimerItemClicked(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = event
+            item.representedObject = FocusMenuCommand(event: event, phase: state.phase)
             menu.addItem(item)
         }
         guard let phase = state.phase else {
@@ -375,9 +375,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         add(phase.isBreak ? "Skip \(phase.title)" : "Skip to Break", .skip)
     }
 
+    /// A timer menu item's event plus the phase its title was written for.
+    private struct FocusMenuCommand {
+        let event: FocusTimerEvent
+        let phase: FocusPhase?
+    }
+
     @objc private func focusTimerItemClicked(_ sender: NSMenuItem) {
-        guard let event = sender.representedObject as? FocusTimerEvent else { return }
-        MainActor.assumeIsolated { FocusTimerController.shared.send(event) }
+        guard let command = sender.representedObject as? FocusMenuCommand else { return }
+        MainActor.assumeIsolated {
+            let timer = FocusTimerController.shared
+            // The menu is built once per open but the timer keeps ticking: if
+            // the phase ended under it, "Restart Focus" would restart the break.
+            guard timer.state.phase == command.phase else { return }
+            timer.send(command.event)
+        }
     }
 
     @objc private func keepAwakeDurationClicked(_ sender: NSMenuItem) {

@@ -24,8 +24,10 @@ final class FocusBreakNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Asked when the timer is turned on, not at launch. The Accessibility
     /// reminder may already have asked for alerts only; this adds sound.
-    func requestAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    /// Returns once the user has answered the prompt (or at once if they
+    /// already had), so a status read after it sees the real answer.
+    func requestAuthorization() async {
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     }
 
     /// Whether macOS will show the break notification; drives the note under

@@ -7,6 +7,10 @@ import SwiftUI
 struct FocusTimerPill: View {
     let send: (FocusTimerEvent) -> Void
     @State private var state: FocusTimerState
+    /// Advances on every timer tick. While a phase runs the state itself is
+    /// unchanged second to second, so without this the Stop / Start Over
+    /// button would keep showing whatever it showed when the pill opened.
+    @State private var now = Date()
 
     init(state: FocusTimerState, send: @escaping (FocusTimerEvent) -> Void) {
         self.send = send
@@ -17,7 +21,7 @@ struct FocusTimerPill: View {
         VStack(spacing: 2) {
             HStack(spacing: 4) {
                 // At a fresh start the next ↺ stops the timer, so it says so.
-                if state.isFreshCycle(now: Date(), config: FocusTimerController.shared.config) {
+                if state.isFreshCycle(now: now, config: FocusTimerController.shared.config) {
                     control("stop.fill", label: "Stop", .restartCycle)
                 } else {
                     control("arrow.counterclockwise", label: "Start Over", .restartCycle)
@@ -31,6 +35,7 @@ struct FocusTimerPill: View {
         .padding(EdgeInsets(top: 6, leading: 6, bottom: 8, trailing: 6))
         .onReceive(NotificationCenter.default.publisher(for: .caiFocusTimerChanged)) { _ in
             state = FocusTimerController.shared.state
+            now = Date()
         }
     }
 

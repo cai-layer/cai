@@ -11,6 +11,7 @@ final class FocusTimerPillPanel {
     private var outsideClickMonitor: Any?
     private var keyMonitor: Any?
     private var resignObserver: NSObjectProtocol?
+    private var timerObserver: NSObjectProtocol?
 
     var isShown: Bool { panel != nil }
 
@@ -58,10 +59,22 @@ final class FocusTimerPillPanel {
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.close() }
         }
+        // Esc closes it only when no other Cai window has the keyboard, so it
+        // never eats an Esc meant for Settings, a shortcut recorder or the
+        // action panel.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return event }  // Esc
+            guard event.keyCode == 53, NSApp.keyWindow == nil else { return event }  // Esc
             MainActor.assumeIsolated { self?.close() }
             return nil
+        }
+        // However the timer goes idle (a break running out, Stop Timer from
+        // the menu), the pill goes with it: its controls do nothing on idle.
+        timerObserver = NotificationCenter.default.addObserver(
+            forName: .caiFocusTimerChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if FocusTimerController.shared.state.phase == nil { self?.close() }
+            }
         }
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
@@ -76,8 +89,10 @@ final class FocusTimerPillPanel {
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        if let timerObserver { NotificationCenter.default.removeObserver(timerObserver) }
         outsideClickMonitor = nil
         keyMonitor = nil
         resignObserver = nil
+        timerObserver = nil
     }
 }

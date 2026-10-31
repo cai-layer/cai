@@ -282,20 +282,30 @@ class CaiSettings: ObservableObject {
             if !focusTimerEnabled {
                 Task { @MainActor in FocusTimerController.shared.send(.disable) }
             }
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
         }
     }
 
     /// Phase lengths in minutes. An edit applies from the next phase.
     @Published var focusMinutes: Int {
-        didSet { defaults.set(focusMinutes, forKey: Keys.focusMinutes) }
+        didSet {
+            defaults.set(focusMinutes, forKey: Keys.focusMinutes)
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
+        }
     }
 
     @Published var shortBreakMinutes: Int {
-        didSet { defaults.set(shortBreakMinutes, forKey: Keys.shortBreakMinutes) }
+        didSet {
+            defaults.set(shortBreakMinutes, forKey: Keys.shortBreakMinutes)
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
+        }
     }
 
     @Published var longBreakMinutes: Int {
-        didSet { defaults.set(longBreakMinutes, forKey: Keys.longBreakMinutes) }
+        didSet {
+            defaults.set(longBreakMinutes, forKey: Keys.longBreakMinutes)
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
+        }
     }
 
     /// The kill switch for agent authoring: "Allow agents to propose actions".

@@ -42,6 +42,11 @@ public enum CaiSupportPaths {
         root.appendingPathComponent("actions-snapshot.json")
     }
 
+    /// The menu bar focus timer and Keep Awake state. See `FocusStateSnapshot`.
+    public static func focusState(in root: URL = root) -> URL {
+        root.appendingPathComponent("focus-state.json")
+    }
+
     /// Stable path an agent's config points at, so the configuration survives
     /// the app being moved, renamed or updated. Refreshed on every launch.
     public static func helperSymlink(in root: URL = root) -> URL {

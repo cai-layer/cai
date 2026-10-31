@@ -104,9 +104,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // changed phase or ticked.
         for name in [Notification.Name.caiKeepAwakeChanged, .caiFocusTimerChanged] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshStatusItem() }
+                MainActor.assumeIsolated {
+                    self?.refreshStatusItem()
+                    FocusStatePublisher.shared.publish()
+                }
             }
         }
+        MainActor.assumeIsolated { FocusStatePublisher.shared.publish() }
 
         // A proposal arriving never steals focus: the icon grows a dot and one
         // toast fires. The review window opens only when the user asks for it.

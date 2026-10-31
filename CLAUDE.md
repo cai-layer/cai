@@ -33,7 +33,7 @@ Cai/Cai/
 └── Views/                    # ActionListWindow (router), ActionRow, ResultView, CustomPromptView, SettingsView, ShortcutsManagementView, DestinationsManagementView, ExtensionBrowserView, MCPFormView, MCPManagementView ("Connections": Agents / Tools / System Access tabs), NativeAccessSettingsView (macOS grants), ConnectorsSettingsView, ConnectAgentContent + AgentConnection (connect-agent payloads), ModelSetupView, OnboardingPermissionView, ShortcutRecorderView, ActionReviewView (approval sheet), CapabilitySubtitle (capability chips in list rows), CaiColors, CaiLogo, KeyboardHint, AboutView, VisualEffectBackground
 
 Cai/CaiActionCore/            # SPM package: authored-action schema, validator, approval tiers, chain walk + capability detection. Shared with the cai-mcp helper; every function pure and table-tested.
-Cai/CaiMCPHelper/             # cai-mcp: the stdio MCP server agents talk to. main.swift (handshake), Tools.swift (the four tools), ToolDispatch, CaiBridge. Embedded in Contents/Helpers, symlinked into ~/Library/Application Support/Cai/bin.
+Cai/CaiMCPHelper/             # cai-mcp: the stdio MCP server agents talk to. main.swift (handshake), Tools.swift (the four authoring tools plus read-only `get_focus_state`), ToolDispatch, CaiBridge. Embedded in Contents/Helpers, symlinked into ~/Library/Application Support/Cai/bin.
 ```
 
 `ls Cai/Cai/{Models,Services,Views}` for the full file list.

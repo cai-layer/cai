@@ -62,6 +62,15 @@ struct FocusTimerState: Equatable {
         }
     }
 
+    /// Session 1 of a cycle, nothing done yet, at most a few seconds in. ↺
+    /// stops the timer from here, and the pill shows Stop for it.
+    static let freshCycleWindow: TimeInterval = 5
+
+    func isFreshCycle(now: Date, config: FocusTimerConfig) -> Bool {
+        guard phase == .focus, completedSessions == 0, let left = remaining(now: now) else { return false }
+        return config.seconds(for: .focus) - left <= Self.freshCycleWindow
+    }
+
     enum CycleDot: Equatable { case done, current, upcoming }
 
     /// The 4 dots in the timer pill. The current focus session is a ring, so
@@ -123,6 +132,9 @@ enum FocusTimerMachine {
             return .idle
 
         case .restartCycle:
+            // Already at a fresh start: a second ↺ stops instead, like a music
+            // player's back button going further on the second press.
+            if s.isFreshCycle(now: now, config: config) { return .idle }
             return run(.focus, from: .idle, now: now, config: config)
 
         case .start:

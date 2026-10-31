@@ -16,7 +16,12 @@ struct FocusTimerPill: View {
     var body: some View {
         VStack(spacing: 2) {
             HStack(spacing: 4) {
-                control("arrow.counterclockwise", label: "Start Over", .restartCycle)
+                // At a fresh start the next ↺ stops the timer, so it says so.
+                if state.isFreshCycle(now: Date(), config: FocusTimerController.shared.config) {
+                    control("stop.fill", label: "Stop", .restartCycle)
+                } else {
+                    control("arrow.counterclockwise", label: "Start Over", .restartCycle)
+                }
                 control(state.isRunning ? "pause.fill" : "play.fill", label: state.isRunning ? "Pause" : "Play",
                         state.isRunning ? .pause : .resume)
                 control("forward.end.fill", label: skipLabel, .skip)

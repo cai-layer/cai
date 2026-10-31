@@ -12,7 +12,7 @@ struct OnboardingPermissionView: View {
             // Logo
             CaiLogoShape()
                 .fill(Color.caiPrimary)
-                .frame(width: 48, height: 48 * (127.0 / 217.0))
+                .frame(width: 48, height: 48 / CaiLogoShape.aspectRatio)
                 .padding(.bottom, 16)
 
             Text("Welcome to Cai")
@@ -58,7 +58,7 @@ struct OnboardingPermissionView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(Color.caiPrimary)
+                    .background(Color.caiPrimaryFill)
                     .cornerRadius(8)
             }
             .buttonStyle(.plain)

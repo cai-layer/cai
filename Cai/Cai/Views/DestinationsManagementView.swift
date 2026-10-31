@@ -584,8 +584,8 @@ struct DestinationsManagementView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(destSaveDisabled
-                                      ? Color.caiPrimary.opacity(0.4)
-                                      : Color.caiPrimary)
+                                      ? Color.caiPrimaryFill.opacity(0.4)
+                                      : Color.caiPrimaryFill)
                         )
                 }
                 .buttonStyle(.plain)

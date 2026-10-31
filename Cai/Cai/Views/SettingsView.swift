@@ -28,6 +28,10 @@ struct SettingsView: View {
     /// Secret count for the nav row, read once when settings opens instead of
     /// enumerating the Keychain (`SecItemCopyMatching`) on every body redraw.
     @State private var secretCount: Int = 0
+    /// Notifications denied for Cai: the focus timer's breaks start silently.
+    @State private var breakNotificationsDenied = false
+    /// Desktops have no battery, so the threshold row would do nothing there.
+    private let hasBattery = KeepAwakeController.batteryStatus() != nil
     /// Debounce task for LLM status checks (prevents API call storms during typing)
     @State private var statusCheckTask: Task<Void, Never>?
     /// Debounce task for model list fetches (prevents API call storms during key paste/typing)
@@ -450,6 +454,97 @@ struct SettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.menu)
                             .accessibilityLabel("Maps provider")
+                        }
+                    }
+
+                    // MARK: Menu Bar Group
+                    settingsGroup(title: "Menu Bar") {
+                        settingsToggleRow(
+                            "Keep Awake",
+                            subtitle: "Click the Cai icon to turn it on or off",
+                            isOn: $settings.keepAwakeEnabled,
+                            accessibilityLabel: "Keep Awake from the menu bar icon"
+                        )
+
+                        if settings.keepAwakeEnabled {
+                            settingsDivider
+
+                            settingsToggleRow(
+                                "Let the display sleep",
+                                isOn: $settings.keepAwakeAllowsDisplaySleep,
+                                accessibilityLabel: "Let the display sleep while Keep Awake is on"
+                            )
+
+                            if hasBattery {
+                                settingsDivider
+
+                                HStack {
+                                    Text("Stop when battery is below")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.caiTextPrimary)
+                                    Spacer()
+                                    Picker("", selection: $settings.keepAwakeBatteryThreshold) {
+                                        ForEach(CaiSettings.keepAwakeBatteryThresholds, id: \.self) { percent in
+                                            Text("\(percent)%").tag(percent)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                    .fixedSize()
+                                    .disabled(!settings.keepAwakeStopsOnLowBattery)
+                                    .accessibilityLabel("Battery level that stops Keep Awake")
+                                    Toggle("", isOn: $settings.keepAwakeStopsOnLowBattery)
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                        .controlSize(.mini)
+                                        .tint(.caiPrimary)
+                                        .accessibilityLabel("Stop Keep Awake on low battery")
+                                }
+                            }
+                        }
+
+                        settingsDivider
+
+                        settingsToggleRow(
+                            "Focus Timer",
+                            subtitle: "Start, pause and skip from the Cai icon's menu",
+                            isOn: $settings.focusTimerEnabled,
+                            accessibilityLabel: "Focus timer in the menu bar"
+                        )
+                        .task(id: settings.focusTimerEnabled) {
+                            guard settings.focusTimerEnabled else {
+                                breakNotificationsDenied = false
+                                return
+                            }
+                            // Read the status only after the prompt is answered:
+                            // while it is up, macOS still reports "not determined".
+                            await FocusBreakNotifier.shared.requestAuthorization()
+                            breakNotificationsDenied = await FocusBreakNotifier.shared.isDenied()
+                        }
+
+                        if breakNotificationsDenied {
+                            HStack {
+                                Text("Notifications are off for Cai, so breaks start without an alert.")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
+                                Spacer()
+                                Button("Open Notification Settings") {
+                                    let id = Bundle.main.bundleIdentifier ?? ""
+                                    if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                .controlSize(.small)
+                            }
+                        }
+
+                        if settings.focusTimerEnabled {
+                            settingsDivider
+                            minutesRow("Focus", value: $settings.focusMinutes, range: 5...90)
+                            settingsDivider
+                            minutesRow("Short break", value: $settings.shortBreakMinutes, range: 1...30)
+                            settingsDivider
+                            minutesRow("Long break, every 4th", value: $settings.longBreakMinutes, range: 5...60)
                         }
                     }
 
@@ -1061,6 +1156,22 @@ struct SettingsView: View {
     /// The accessibility label sits on the Toggle itself (not the row) so VoiceOver
     /// announces the control with a name — a bare `Toggle("", …).labelsHidden()`
     /// otherwise reads as an unnamed switch.
+    /// A label with a minutes value and a stepper, for the focus timer lengths.
+    private func minutesRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+            Spacer()
+            Text("\(value.wrappedValue) min")
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundColor(.caiTextSecondary)
+            Stepper("", value: value, in: range)
+                .labelsHidden()
+                .accessibilityLabel("\(title) minutes")
+        }
+    }
+
     private func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>, accessibilityLabel: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {

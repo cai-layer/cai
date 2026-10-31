@@ -204,7 +204,7 @@ struct SecretFormView: View {
                     .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.caiPrimary.opacity(canSave ? 1 : 0.4))
+                            .fill(Color.caiPrimaryFill.opacity(canSave ? 1 : 0.4))
                     )
             }
             .buttonStyle(.plain)

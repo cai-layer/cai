@@ -126,10 +126,14 @@ extension ActionIconTile {
 struct ActionIconGlyph: View {
     let name: String
     let isSelected: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     @ViewBuilder
     var body: some View {
-        let color: Color = isSelected ? .caiPrimary : .caiTextSecondary
+        // In dark, an indigo glyph on the indigo-washed tile stays under 3:1
+        // whatever the hex, so the selected glyph takes the label colour there.
+        let selectedColor: Color = colorScheme == .dark ? .caiTextPrimary : .caiPrimary
+        let color: Color = isSelected ? selectedColor : .caiTextSecondary
         switch name {
         case "github.logo":
             GitHubIcon(color: color)

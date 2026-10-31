@@ -593,8 +593,8 @@ struct ShortcutsManagementView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(saveDisabled
-                                      ? Color.caiPrimary.opacity(0.4)
-                                      : Color.caiPrimary)
+                                      ? Color.caiPrimaryFill.opacity(0.4)
+                                      : Color.caiPrimaryFill)
                         )
                 }
                 .buttonStyle(.plain)

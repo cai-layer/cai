@@ -391,7 +391,7 @@ struct ExtensionBrowserView: View {
                         .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(isInstalled ? Color.caiSurface.opacity(0.6) : Color.caiPrimary)
+                                .fill(isInstalled ? Color.caiSurface.opacity(0.6) : Color.caiPrimaryFill)
                         )
                         .contentShape(Rectangle())
                 }

@@ -3,7 +3,7 @@ import XCTest
 
 /// The running-state machine behind the in-progress indicator. Lean by design
 /// (see "Test economy" in CLAUDE.md): covers the non-obvious behaviour only —
-/// the nest-safe counter, the failure-outcome commit, the busy decision, and
+/// the nest-safe counter, the failure-outcome commit, the queue's line order, and
 /// clamping — not trivial getters.
 final class ExecutionStateTests: XCTestCase {
 
@@ -68,9 +68,28 @@ final class ExecutionStateTests: XCTestCase {
         XCTAssertEqual(S.stepCaption(index: 5, total: 3), "Step 3 of 3")   // clamps
     }
 
-    func testStartDecision() {
-        XCTAssertEqual(S.startDecision(isRunning: false), .start)
-        XCTAssertEqual(S.startDecision(isRunning: true), .busy)
+    // MARK: - (P1) Queue line order
+
+    /// Locks down: FIFO order, the head consumed when it starts with its own
+    /// id (and marked `waited`, which turns paste-back into a copy), an
+    /// unqueued start not taking a waiting item's seat, and a nested start
+    /// leaving the line alone.
+    func testQueueLineOrder() {
+        let a = S.QueuedRun(id: UUID(), name: "A")
+        let b = S.QueuedRun(id: UUID(), name: "B")
+        let other = UUID()
+        let cases: [(name: String, events: [S.Event], queued: [S.QueuedRun], running: String?, waited: Bool?)] = [
+            ("head starts: consumed, waited", [.enqueue(a), .enqueue(b), start("A", a.id)], [b], "A", true),
+            ("unqueued start leaves the line", [.enqueue(a), .enqueue(b), start("C", other)], [a, b], "C", false),
+            ("non-head id starting doesn't jump the line", [.enqueue(a), .enqueue(b), start("B", b.id)], [a, b], "B", false),
+            ("nested start leaves the line", [start("C", other), .enqueue(a), start("inner", a.id)], [a], "C", false),
+        ]
+        for c in cases {
+            let s = run(c.events)
+            XCTAssertEqual(s.queued, c.queued, c.name)
+            XCTAssertEqual(s.action?.name, c.running, c.name)
+            XCTAssertEqual(s.action?.waited, c.waited, c.name)
+        }
     }
 
     func testFailureRecordedOnlyAtOutermostFinish() {
@@ -149,8 +168,8 @@ final class ExecutionStateTests: XCTestCase {
     ///
     /// Kept because `record` does `recent[i]` with this as the only guard, so a
     /// wrong clamp indexes out of bounds — and CLAUDE.md names clamping as a
-    /// tricky invariant worth covering. `openingResultIndex` and
-    /// `nextUnviewedIndex` are deliberately NOT tested: getting them wrong
+    /// tricky invariant worth covering. `openingResultIndex` is
+    /// deliberately NOT tested: getting it wrong
     /// shows the user a result they already read, which is a visible annoyance
     /// rather than a silent bug, and cannot crash.
     func testRunSurfacePagerClamping() {

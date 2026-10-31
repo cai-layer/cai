@@ -45,6 +45,19 @@ struct ResultView: View {
     /// Drives the follow-up footer hint live when "Press Return to send" toggles.
     @ObservedObject private var settings = CaiSettings.shared
 
+    /// The generator waits for queued work ahead of it. While a tracked run is
+    /// live it must be ahead (a foreground answer holds the line, so nothing
+    /// behind it can start), so the loading line names it.
+    var waitsForTurn: Bool = false
+    @ObservedObject private var execution = ExecutionState.shared
+
+    private var loadingText: String {
+        if waitsForTurn, let running = execution.runningAction {
+            return "Waiting for \(running.name) to finish..."
+        }
+        return streamGenerator != nil ? "Thinking..." : "Processing..."
+    }
+
     /// Async generator that produces the result string (non-streaming fallback).
     let generator: () async throws -> String
     /// Optional streaming generator — tokens appear progressively. Used for built-in MLX provider.
@@ -82,7 +95,7 @@ struct ResultView: View {
                     VStack(spacing: 12) {
                         ProgressView()
                             .scaleEffect(0.8)
-                        Text(streamGenerator != nil ? "Thinking..." : "Processing...")
+                        Text(loadingText)
                             .font(.system(size: 12))
                             .foregroundColor(.caiTextSecondary)
                     }

@@ -22,12 +22,12 @@ final class FocusBreakNotifier: NSObject, UNUserNotificationCenterDelegate {
         ])
     }
 
-    /// Asked when the timer is turned on, not at launch. The Accessibility
-    /// reminder may already have asked for alerts only; this adds sound.
+    /// Asked when the timer is turned on, not at launch. Alerts only: the
+    /// chime is played by Cai, not by the notification.
     /// Returns once the user has answered the prompt (or at once if they
     /// already had), so a status read after it sees the real answer.
     func requestAuthorization() async {
-        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])
     }
 
     /// Whether macOS will show the break notification; drives the note under
@@ -40,7 +40,7 @@ final class FocusBreakNotifier: NSObject, UNUserNotificationCenterDelegate {
         let content = UNMutableNotificationContent()
         content.title = phase == .longBreak ? "Time for a long break" : "Time for a break"
         content.body = "Look away from the screen for \(minutes) minutes."
-        content.sound = .default
+        // No sound here: FocusTimerController plays the chime itself.
         content.categoryIdentifier = Self.category
         // Same identifier every time, so a new break replaces the last banner.
         let request = UNNotificationRequest(identifier: Self.requestID, content: content, trigger: nil)

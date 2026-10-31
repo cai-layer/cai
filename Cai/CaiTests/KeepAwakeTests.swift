@@ -7,22 +7,35 @@ final class KeepAwakeTests: XCTestCase {
 
     // MARK: - Click routing (P1)
 
-    /// P1: a wrong row turns the menu bar icon into a dead button, or takes
-    /// Settings away from every user who never enabled Keep Awake.
+    /// P1: a wrong row turns the menu bar icon into a dead button, takes
+    /// Settings away from every user who never enabled Keep Awake, or lets a
+    /// click on the logo open the timer pill (or one on the countdown toggle Keep Awake).
     func testClickRouting() {
         let last = KeepAwakeDuration.minutes(30)
-        // (enabled, isOn, expected)
-        let cases: [(Bool, Bool, KeepAwakePolicy.ClickAction)] = [
-            (false, false, .openSettings),
+        let logoWidth: CGFloat = 24
+        // (click x, countdown shown, Keep Awake enabled, Keep Awake on, expected)
+        let cases: [(CGFloat?, Bool, Bool, Bool, KeepAwakePolicy.ClickAction)] = [
+            (10, false, false, false, .openSettings),
             // Disabling mid-run stops it elsewhere; a click must still open Settings.
-            (false, true, .openSettings),
-            (true, false, .start(last)),
-            (true, true, .stop),
+            (10, false, false, true, .openSettings),
+            (10, false, true, false, .start(last)),
+            (10, false, true, true, .stop),
+            // With a countdown showing, the logo half keeps its own job...
+            (10, true, true, true, .stop),
+            (10, true, false, false, .openSettings),
+            // ...and only the countdown half reaches the timer.
+            (40, true, true, true, .showTimerPill),
+            (40, true, false, false, .showTimerPill),
+            // Past the logo with no countdown (idle timer): still the logo action.
+            (40, false, true, false, .start(last)),
+            // Space on the focused item has no location: the logo action.
+            (nil, true, true, false, .start(last)),
         ]
-        for (enabled, isOn, expected) in cases {
+        for (x, hasCountdown, enabled, isOn, expected) in cases {
+            let onCountdown = KeepAwakePolicy.clickIsOnCountdown(x: x, imageWidth: logoWidth, hasCountdown: hasCountdown)
             XCTAssertEqual(
-                KeepAwakePolicy.clickAction(keepAwakeEnabled: enabled, isOn: isOn, lastDuration: last),
-                expected, "enabled \(enabled), on \(isOn)"
+                KeepAwakePolicy.clickAction(onCountdown: onCountdown, keepAwakeEnabled: enabled, isOn: isOn, lastDuration: last),
+                expected, "x \(String(describing: x)), countdown \(hasCountdown), enabled \(enabled), on \(isOn)"
             )
         }
     }

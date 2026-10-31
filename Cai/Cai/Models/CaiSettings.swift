@@ -40,6 +40,7 @@ class CaiSettings: ObservableObject {
         static let keepAwakeStopsOnLowBattery = "cai_keepAwakeStopsOnLowBattery"
         static let keepAwakeBatteryThreshold = "cai_keepAwakeBatteryThreshold"
         static let focusTimerEnabled = "cai_focusTimerEnabled"
+        static let focusTimerPlaysSound = "cai_focusTimerPlaysSound"
         static let focusMinutes = "cai_focusMinutes"
         static let shortBreakMinutes = "cai_shortBreakMinutes"
         static let longBreakMinutes = "cai_longBreakMinutes"
@@ -284,6 +285,11 @@ class CaiSettings: ObservableObject {
             }
             NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
         }
+    }
+
+    /// A chime when a focus session or a break ends. On by default.
+    @Published var focusTimerPlaysSound: Bool {
+        didSet { defaults.set(focusTimerPlaysSound, forKey: Keys.focusTimerPlaysSound) }
     }
 
     /// Phase lengths in minutes. An edit applies from the next phase.
@@ -574,6 +580,7 @@ class CaiSettings: ObservableObject {
         self.keepAwakeBatteryThreshold = defaults.object(forKey: Keys.keepAwakeBatteryThreshold) as? Int ?? 10
         let timerDefaults = FocusTimerConfig()
         self.focusTimerEnabled = defaults.bool(forKey: Keys.focusTimerEnabled)
+        self.focusTimerPlaysSound = defaults.object(forKey: Keys.focusTimerPlaysSound) as? Bool ?? true
         self.focusMinutes = defaults.object(forKey: Keys.focusMinutes) as? Int ?? timerDefaults.focusMinutes
         self.shortBreakMinutes = defaults.object(forKey: Keys.shortBreakMinutes) as? Int ?? timerDefaults.shortBreakMinutes
         self.longBreakMinutes = defaults.object(forKey: Keys.longBreakMinutes) as? Int ?? timerDefaults.longBreakMinutes

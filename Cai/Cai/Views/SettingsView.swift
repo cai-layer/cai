@@ -545,6 +545,12 @@ struct SettingsView: View {
                             minutesRow("Short break", value: $settings.shortBreakMinutes, range: 1...30)
                             settingsDivider
                             minutesRow("Long break, every 4th", value: $settings.longBreakMinutes, range: 5...60)
+                            settingsDivider
+                            settingsToggleRow(
+                                "Play a sound when a session ends",
+                                isOn: $settings.focusTimerPlaysSound,
+                                accessibilityLabel: "Play a sound when a focus session or break ends"
+                            )
                         }
                     }
 

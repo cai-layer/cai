@@ -62,6 +62,20 @@ struct FocusTimerState: Equatable {
         }
     }
 
+    enum CycleDot: Equatable { case done, current, upcoming }
+
+    /// The 4 dots in the timer pill. The current focus session is a ring, so
+    /// "in session 3" and "on the break after session 2" look different. The
+    /// count resets when the long break starts, so that break shows all done.
+    var cycleDots: [CycleDot] {
+        let total = FocusTimerConfig.sessionsPerLongBreak
+        if phase == .longBreak { return Array(repeating: .done, count: total) }
+        return (0..<total).map { i in
+            if i < completedSessions { return .done }
+            return phase == .focus && i == completedSessions ? .current : .upcoming
+        }
+    }
+
     /// The countdown next to the logo, e.g. "24:13" or "0:42". Nil when idle.
     func countdown(now: Date) -> String? {
         remaining(now: now).map(Self.format)
@@ -90,6 +104,11 @@ enum FocusTimerEvent: Equatable {
     case snooze
     /// The clock moved on (a timer tick, or waking from sleep).
     case tick
+    /// ↺ in the pill: start the whole cycle over, session 1, focus running.
+    case restartCycle
+    /// "Stop Timer" in the menu: clear the current session and start the
+    /// next cycle from scratch, without turning the timer off in Settings.
+    case stop
     /// The timer was turned off in Settings.
     case disable
 }
@@ -100,8 +119,11 @@ enum FocusTimerMachine {
     static func next(_ state: FocusTimerState, _ event: FocusTimerEvent, now: Date, config: FocusTimerConfig) -> FocusTimerState {
         var s = state
         switch event {
-        case .disable:
+        case .stop, .disable:
             return .idle
+
+        case .restartCycle:
+            return run(.focus, from: .idle, now: now, config: config)
 
         case .start:
             guard s.phase == nil else { return s }
@@ -122,6 +144,9 @@ enum FocusTimerMachine {
             return run(phase, from: s, now: now, config: config)
 
         case .skip:
+            // ⏭ is "next": skipping a break starts the next focus session
+            // right away. Only a break that runs out on its own waits.
+            if s.phase?.isBreak == true { return run(.focus, from: s, now: now, config: config) }
             return phaseEnded(s, now: now, config: config)
 
         case .snooze:

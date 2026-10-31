@@ -11,11 +11,14 @@ enum CaiBridge {
 
     enum BridgeError: Error {
         case noSnapshot
+        case noFocusState
 
         var reason: String {
             switch self {
             case .noSnapshot:
                 return "Cai has not published its actions yet. Ask the user to open Cai once, then try again."
+            case .noFocusState:
+                return "Cai is not running, so there is no focus timer state to read. Ask the user to open Cai."
             }
         }
     }
@@ -31,6 +34,18 @@ enum CaiBridge {
         bundleIdentifiers.contains { identifier in
             !NSRunningApplication.runningApplications(withBundleIdentifier: identifier).isEmpty
         }
+    }
+
+    /// Only while Cai runs: a file left by a quit Cai would describe a timer
+    /// that no longer exists.
+    static func focusState() throws -> FocusStateSnapshot {
+        guard isCaiRunning,
+              let data = try? Data(contentsOf: CaiSupportPaths.focusState()),
+              let state = try? ActionCoding.decoder.decode(FocusStateSnapshot.self, from: data)
+        else {
+            throw BridgeError.noFocusState
+        }
+        return state
     }
 
     static func snapshot() throws -> ActionsSnapshot {

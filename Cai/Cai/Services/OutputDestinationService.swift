@@ -55,13 +55,9 @@ actor OutputDestinationService {
         // call ClipboardService directly so it can surface the three outcomes
         // as distinct toasts — this service path is kept for parity but loses
         // the outcome distinction by necessity (throws/doesn't).
-        let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<ClipboardService.PasteOutcome, Never>) in
-            Task { @MainActor in
-                ClipboardService.shared.pasteResult(text, toBundleId: sourceBundleId) { outcome in
-                    continuation.resume(returning: outcome)
-                }
-            }
-        }
+        // A chain that waited in the queue copies instead of pasting (see
+        // `RunQueue.pasteBack`).
+        let outcome = await RunQueue.pasteBack(text, toBundleId: sourceBundleId)
         if case .failed = outcome {
             throw OutputDestinationError.pasteBackFailed
         }

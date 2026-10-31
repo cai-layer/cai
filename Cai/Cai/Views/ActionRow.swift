@@ -6,18 +6,10 @@ struct ActionRow: View {
     /// Which model engine the AI chip names. Passed in rather than read from
     /// `CaiSettings.shared`, so the row stays a function of its inputs.
     let engine: ActionReviewPresentation.AIEngine
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 12) {
-            // Icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color.caiPrimary.opacity(0.15) : Color.caiSurface.opacity(0.6))
-                    .frame(width: 28, height: 28)
-
-                actionIcon(name: action.icon, isSelected: isSelected)
-            }
+            ActionIconTile(icon: action.icon, isSelected: isSelected)
 
             // Title + subtitle
             VStack(alignment: .leading, spacing: 1) {
@@ -106,9 +98,38 @@ struct ActionRow: View {
         let middle = description.isEmpty ? "" : ", \(description)"
         return "\(action.title)\(middle), Command \(action.shortcut)"
     }
+}
+
+/// The 28pt icon tile an action wears in a list row. Shared with the run
+/// list, so a queued action looks exactly as it does where it was picked.
+struct ActionIconTile<Content: View>: View {
+    let isSelected: Bool
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.caiPrimary.opacity(0.15) : Color.caiSurface.opacity(0.6))
+                .frame(width: 28, height: 28)
+            content()
+        }
+    }
+}
+
+extension ActionIconTile {
+    /// The tile with an action's own icon (SF Symbol or a connector logo).
+    init(icon: String, isSelected: Bool = false) where Content == ActionIconGlyph {
+        self.init(isSelected: isSelected) { ActionIconGlyph(name: icon, isSelected: isSelected) }
+    }
+}
+
+struct ActionIconGlyph: View {
+    let name: String
+    let isSelected: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     @ViewBuilder
-    private func actionIcon(name: String, isSelected: Bool) -> some View {
+    var body: some View {
         // In dark, an indigo glyph on the indigo-washed tile stays under 3:1
         // whatever the hex, so the selected glyph takes the label colour there.
         let selectedColor: Color = colorScheme == .dark ? .caiTextPrimary : .caiPrimary

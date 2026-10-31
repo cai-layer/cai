@@ -11,17 +11,23 @@ import SwiftUI
 struct RunningPill: View {
     /// Render the spinner static when the user prefers reduced motion.
     let reduceMotion: Bool
+    /// Actions waiting behind the running one; shown as "· N queued".
+    var queuedCount: Int = 0
     let onTap: () -> Void
 
     var body: some View {
         HeaderPill(onTap: onTap) {
             RunningSpinner(reduceMotion: reduceMotion, size: 11)
-            Text("Running")
+            Text(queuedCount > 0 ? "Running · \(queuedCount) queued" : "Running")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.caiPrimary)
         }
-        .help("An action is running — click to view progress")
-        .accessibilityLabel("Action running. Open progress.")
+        .help(queuedCount > 0
+              ? "An action is running and \(queuedCount) more will follow — click to view progress"
+              : "An action is running — click to view progress")
+        .accessibilityLabel(queuedCount > 0
+                            ? "Action running, \(queuedCount) queued. Open progress."
+                            : "Action running. Open progress.")
     }
 }
 
@@ -134,7 +140,12 @@ struct RunningView: View {
     /// Which kept result is on screen (0 = newest). Owned by the parent so the
     /// existing arrow-key plumbing can move through the ring.
     @Binding var resultIndex: Int
+    /// One kept result fills the view (→ from the list, or a chain's "Show in
+    /// Cai"). Otherwise finished runs show as a list.
+    let showsDetail: Bool
     let onBack: () -> Void
+    /// Copies the result at this index and closes the panel (click or Return).
+    let onCopy: (Int) -> Void
 
     @ObservedObject private var execution = ExecutionState.shared
 
@@ -144,6 +155,9 @@ struct RunningView: View {
     /// glyph and body copy instead.
     private var headerTitle: String {
         if execution.isRunning { return "Running" }
+        // Waiting behind an answer in the panel, which is not a tracked run.
+        if !execution.queued.isEmpty { return "Queued" }
+        if showsResultsList { return "Results" }
         // A kept result names the run that produced IT, which is not
         // necessarily the most recent run once the ring holds several.
         if let record { return record.actionName }
@@ -158,13 +172,23 @@ struct RunningView: View {
         return false
     }
 
+    /// The run list is up: something runs, or waits behind an answer.
+    private var showsRunList: Bool {
+        execution.isRunning || !execution.queued.isEmpty
+    }
+
+    /// Finished runs as a list, newest first, the failure on top.
+    private var showsResultsList: Bool {
+        ExecutionState.showsResultsList(execution.snapshot, showsDetail: showsDetail)
+    }
+
     /// The kept result currently on screen, if any.
     ///
     /// Index -1 is the failure slot. Without it, a failed run whose ring still
     /// held earlier successes showed the newest SUCCESS and made the failure
     /// message unreachable — visible only in a 1.5s toast.
     private var record: ExecutionState.RunRecord? {
-        guard !execution.isRunning else { return nil }
+        guard !showsRunList, showsDetail else { return nil }
         let recent = execution.recent
         guard !recent.isEmpty else { return nil }
         let i = ExecutionState.clampResultIndex(
@@ -231,7 +255,10 @@ struct RunningView: View {
                 // 10pt footer-hint weight (DESIGN typography) so the pager
                 // never out-shouts Esc and Return. Rounded + monospaced
                 // numerals so it doesn't jitter as it changes.
-                if pageCount > 1 {
+                if showsResultsList {
+                    KeyboardHint(key: "\u{2192}", label: "Open")
+                }
+                if pageCount > 1 && record != nil {
                     KeyboardHint(
                         key: "\u{2190}\u{2192}",
                         label: "\(pagePosition) of \(pageCount)"
@@ -240,7 +267,7 @@ struct RunningView: View {
                 }
                 // Same affordance ResultView offers on a result, because it is
                 // the same result.
-                if record != nil {
+                if record != nil || (showsResultsList && selectedIndex >= 0) {
                     KeyboardHint(key: "\u{21B5}", label: "Copy")
                 }
             }
@@ -261,8 +288,22 @@ struct RunningView: View {
     }
 
     private func markVisibleRecordViewed() {
-        guard WindowController.isPanelVisible, let record, !record.viewed else { return }
-        execution.markResultViewed(record.id)
+        guard WindowController.isPanelVisible else { return }
+        if showsResultsList {
+            // The list shows every kept result, so opening it collects them.
+            for record in execution.recent where !record.viewed {
+                execution.markResultViewed(record.id)
+            }
+        } else if let record, !record.viewed {
+            execution.markResultViewed(record.id)
+        }
+    }
+
+    /// The highlighted row in the results list (-1 is the failure).
+    private var selectedIndex: Int {
+        ExecutionState.clampResultIndex(
+            resultIndex, recentCount: execution.recent.count, hasFailure: hasFailure
+        )
     }
 
     @ViewBuilder
@@ -286,9 +327,136 @@ struct RunningView: View {
                         ? "Result \(pagePosition) of \(pageCount), from \(record.actionName)"
                         : "Result from \(record.actionName)"
                 )
+        } else if showsRunList {
+            runList
+        } else if showsResultsList {
+            resultsList
         } else {
             centeredStatus
         }
+    }
+
+    /// One row per action: the running one, then what waits, in order. Rows
+    /// carry the name and the start of the text each runs on, so two runs of
+    /// one action can be told apart. No per-row controls: cancel is its own
+    /// change, and reordering belongs to History.
+    private var runList: some View {
+        let queued = execution.queued
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if let action = execution.runningAction {
+                    // A chain on a step shows the step; otherwise the input.
+                    runRow(name: action.name, subtitle: action.step.map(stepSubtitle) ?? action.input) {
+                        ActionIconTile(isSelected: false) {
+                            RunningSpinner(reduceMotion: reduceMotion, size: 14)
+                        }
+                    }
+                } else {
+                    // Only an answer in the panel holds the line without being
+                    // a tracked run, so there is nothing to name here.
+                    Text("Starts when the current answer finishes.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiTextSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                }
+
+                if !queued.isEmpty {
+                    if execution.runningAction != nil {
+                        Text("Queued")
+                            .font(.system(size: 11))
+                            .foregroundColor(.caiTextSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+                    }
+                    // Top to bottom is the order; no position numbers. Every
+                    // queued row shows: the queue is uncapped and this scrolls.
+                    ForEach(queued) { run in
+                        runRow(name: run.name, subtitle: run.input) {
+                            ActionIconTile(icon: run.icon)
+                        }
+                    }
+                }
+            }
+            // Same insets as the action list, so the rows line up with it.
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
+        }
+    }
+
+    /// Finished runs, newest first, with a failure on top. The highlighted row
+    /// moves with ↑↓; Return or a click copies it and closes the panel, → opens
+    /// it in full. Same rows as the run list.
+    private var resultsList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if case .failed(let message) = execution.lastOutcome {
+                    runRow(name: execution.lastRunName ?? "Action", subtitle: message, selected: selectedIndex == -1) {
+                        ActionIconTile(isSelected: false) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.caiError)
+                        }
+                    }
+                    .onTapGesture { resultIndex = -1 }
+                }
+                ForEach(Array(execution.recent.enumerated()), id: \.element.id) { index, record in
+                    runRow(name: record.actionName, subtitle: ExecutionState.inputPreview(record.text), selected: selectedIndex == index) {
+                        ActionIconTile(isSelected: false) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.caiSuccess)
+                        }
+                    }
+                    .onTapGesture { onCopy(index) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Copies this result")
+                    .accessibilityAction { onCopy(index) }
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
+        }
+    }
+
+    /// Laid out like `ActionRow` (icon tile, 13pt title, 11pt subtitle, same
+    /// padding) so a queued action looks as it did where it was picked.
+    private func runRow<Lead: View>(name: String, subtitle: String, selected: Bool = false, @ViewBuilder lead: () -> Lead) -> some View {
+        HStack(spacing: 12) {
+            lead()
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.caiTextPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(name)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiTextSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? Color.caiPrimarySubtle : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// "Step 2 of 3 · Save to Notes", or just the count when the step has no label.
+    private func stepSubtitle(_ step: ExecutionState.StepProgress) -> String {
+        let count = ExecutionState.stepCaption(index: step.index, total: step.total)
+        return step.label.isEmpty ? count : "\(count) \u{00B7} \(step.label)"
     }
 
     @ViewBuilder
@@ -296,45 +464,7 @@ struct RunningView: View {
         VStack {
             Spacer()
             VStack(spacing: 12) {
-                if let action = execution.runningAction {
-                    RunningSpinner(reduceMotion: reduceMotion, size: 16)
-
-                    // Action name — primary, matches ResultView body text.
-                    Text(action.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.caiTextPrimary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 24)
-
-                    if let step = action.step {
-                        VStack(spacing: 4) {
-                            // "Step N of M" — rounded numerals, monospaced so the
-                            // counter doesn't jitter as it advances (DESIGN).
-                            Text(ExecutionState.stepCaption(index: step.index, total: step.total))
-                                .font(.system(size: 11, weight: .medium, design: .rounded))
-                                .foregroundColor(.caiTextSecondary)
-                                .monospacedDigit()
-
-                            // What this step is — a quiet, centered, wrapped
-                            // subtitle (an inline-LLM step's label is its whole
-                            // directive, so it must cap + wrap, never run to the
-                            // edge). Padding + centering + 2-line cap match the
-                            // ResultView error subtitle treatment.
-                            if !step.label.isEmpty {
-                                Text(step.label)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(2)
-                                    .truncationMode(.tail)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .padding(.horizontal, 32)
-                            }
-                        }
-                    }
-                } else if case .failed(let message) = execution.lastOutcome {
+                if case .failed(let message) = execution.lastOutcome {
                     // The run ended in failure while this view was open. Same
                     // vocabulary as ResultView's error state (triangle + caiError
                     // orange — Cai has no red), with the message capped + wrapped.

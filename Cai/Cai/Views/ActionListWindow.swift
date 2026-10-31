@@ -44,9 +44,16 @@ struct ActionListWindow: View {
     /// Which entry the run surface is showing: -1 is the failure slot, 0 is the
     /// newest kept result. Lives here so the key handlers can page it.
     @State private var runResultIndex: Int = 0
+    /// The run surface shows one kept result in full instead of the list.
+    @State private var showRunResultDetail = false
+    /// "Show in Cai" arrived while its run was still open: pick the result to
+    /// open on once the run has committed it (see `handleShowRunResult`).
+    @State private var pickRunResultWhenDone = false
     @State private var resultTitle: String = ""
     @State private var resultGenerator: (() async throws -> String)?
     @State private var resultStreamGenerator: (() async throws -> AsyncThrowingStream<String, Error>)?
+    /// The result's generator waits for queued work ahead of it (see `showResultView`).
+    @State private var resultWaitsForTurn = false
     @State private var pendingResultText: String = ""
     @State private var showSettings: Bool = false
     @State private var showHistory: Bool = false
@@ -188,6 +195,7 @@ struct ActionListWindow: View {
 
     var body: some View {
         bodyWithKeyboardHandlers
+            .onChange(of: execution.isRunning) { _, running in pickPendingRunResult(running: running) }
             .onChange(of: showSettings) { updateFilterInputFlag() }
             .onChange(of: showHistory) { updateFilterInputFlag() }
             .onChange(of: showResult) { updateFilterInputFlag() }
@@ -242,6 +250,7 @@ struct ActionListWindow: View {
             .onReceive(NotificationCenter.default.publisher(for: .caiShowRunResult)) { _ in
                 handleShowRunResult()
             }
+
             .onReceive(NotificationCenter.default.publisher(for: .caiCmdNumber)) { notification in
                 if let number = notification.userInfo?["number"] as? Int {
                     handleCmdNumber(number)
@@ -417,9 +426,13 @@ struct ActionListWindow: View {
         } else if showRunning {
             // easeOut 0.2 both ways — DESIGN's motion table puts screen changes
             // there, and the door shouldn't swing on a different curve than it
-            // opened on.
+            // opened on. A result opened from the list goes back to the list.
             withAnimation(.easeOut(duration: 0.2)) {
-                showRunning = false
+                if showRunResultDetail {
+                    showRunResultDetail = false
+                } else {
+                    showRunning = false
+                }
             }
         } else if !selectionState.filterText.isEmpty {
             // Clear filter first; second Esc dismisses
@@ -496,6 +509,8 @@ struct ActionListWindow: View {
             guard count > 0 else { return }
             let current = historySelectionState.selectedIndex
             historySelectionState.selectedIndex = current > 0 ? current - 1 : count - 1
+        case .running:
+            moveRunResultSelection(by: -1)
         default:
             break
         }
@@ -513,9 +528,40 @@ struct ActionListWindow: View {
             guard count > 0 else { return }
             let current = historySelectionState.selectedIndex
             historySelectionState.selectedIndex = current < count - 1 ? current + 1 : 0
+        case .running:
+            moveRunResultSelection(by: 1)
         default:
             break
         }
+    }
+
+    /// Whether the run surface is showing the finished-results list.
+    private var showsRunResultsList: Bool {
+        activeScreen == .running
+            && ExecutionState.showsResultsList(execution.snapshot, showsDetail: showRunResultDetail)
+    }
+
+    /// ↑↓ in the results list. Clamped, no wraparound, like the pager.
+    private func moveRunResultSelection(by delta: Int) {
+        guard showsRunResultsList else { return }
+        runResultIndex = ExecutionState.clampResultIndex(
+            runResultIndex + delta,
+            recentCount: execution.recent.count,
+            hasFailure: execution.lastRunFailed
+        )
+    }
+
+    /// Copies the kept result at `index` and closes the panel (Return, or a
+    /// click in the results list). The failure slot has nothing to copy.
+    private func copyRunResult(at index: Int) {
+        let recent = execution.recent
+        let i = ExecutionState.clampResultIndex(
+            index, recentCount: recent.count, hasFailure: execution.lastRunFailed
+        )
+        guard i >= 0, i < recent.count, !recent[i].text.isEmpty else { return }
+        SystemActions.copyToClipboard(recent[i].text)
+        execution.markResultViewed(recent[i].id)
+        copyAndDismissWithToast()
     }
 
     private func handleEnter() {
@@ -537,22 +583,9 @@ struct ActionListWindow: View {
             }
             copyAndDismissWithToast()
         case .running:
-            // Copies like a ResultView result — but with more still waiting it
-            // ADVANCES instead of dismissing. Ejecting the user mid-collection
-            // made three results cost three ⌥C summons.
-            let recent = execution.recent
-            let i = ExecutionState.clampResultIndex(
-                runResultIndex, recentCount: recent.count,
-                hasFailure: execution.lastRunFailed
-            )
-            guard i >= 0, i < recent.count, !recent[i].text.isEmpty else { return }
-            SystemActions.copyToClipboard(recent[i].text)
-            if let next = ExecutionState.nextUnviewedIndex(after: i, in: recent) {
-                runResultIndex = next
-                ToastQueue.post("Copied to Clipboard", outcome: .success)
-            } else {
-                copyAndDismissWithToast()
-            }
+            // Copies and closes, like picking a clip in ⌘0. The list replaced
+            // the copy-and-advance pager: the next result is one ↓ away.
+            copyRunResult(at: runResultIndex)
         case .extensionConfirm:
             confirmInstallExtension()
         case .mcpForm:
@@ -682,10 +715,12 @@ struct ActionListWindow: View {
         pendingResultText = ""
         WindowController.passThrough = false
 
-        resultGenerator = {
+        // A follow-up runs the model too, so it waits its turn like the first answer.
+        resultWaitsForTurn = true
+        resultGenerator = RunQueue.inTurn {
             return try await LLMService.shared.generateWithMessages(messages, config: config)
         }
-        resultStreamGenerator = {
+        resultStreamGenerator = RunQueue.inTurn {
             return try await LLMService.shared.generateStreamingWithMessages(messages, config: config)
         }
         resultViewId += 1
@@ -995,9 +1030,12 @@ struct ActionListWindow: View {
             // the default sink would keep the text but advertise it only via a
             // 1.5s toast, which is the original bug wearing a costume: the
             // pill is the one signal that survives ⌥C reopen.
-            if execution.isRunning {
-                RunningPill(reduceMotion: reduceMotion) {
-                    withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
+            // Also while actions wait behind a foreground answer, which holds
+            // the line without being a tracked run: the count is the only
+            // trace of them once the "Queued" toast has gone.
+            if execution.isRunning || execution.queuedCount > 0 {
+                RunningPill(reduceMotion: reduceMotion, queuedCount: execution.queuedCount) {
+                    withAnimation(.easeOut(duration: 0.2)) { showRunResultDetail = false; showRunning = true }
                 }
             } else if !execution.recent.isEmpty || execution.lastRunFailed {
                 // Stays while anything is kept, not only while something is
@@ -1008,7 +1046,7 @@ struct ActionListWindow: View {
                     runResultIndex = ExecutionState.openingResultIndex(
                         in: execution.recent, hasFailure: execution.lastRunFailed
                     )
-                    withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
+                    withAnimation(.easeOut(duration: 0.2)) { showRunResultDetail = false; showRunning = true }
                 }
             }
         }
@@ -1304,33 +1342,14 @@ struct ActionListWindow: View {
 
     // MARK: - Actions
 
-    /// Whether this action type starts a run the in-progress indicator tracks,
-    /// and is therefore subject to v1's one-at-a-time busy rule. Instant / UI /
-    /// navigational types (JSON pretty-print, compose prompt, open-URL) are
-    /// exempt — they don't contend and shouldn't be blocked.
-    private func startsTrackedRun(_ type: ActionType) -> Bool {
-        switch type {
-        case .llmAction, .shortcutShell: return true
-        default: return false
-        }
-    }
-
     private func executeAction(_ action: ActionItem) {
         CrashReportingService.shared.addBreadcrumb(category: "action", message: "Execute: \(action.title)")
 
-        // v1 runs one action at a time. If a long-running action (LLM or shell)
-        // is already in flight, surface "busy" rather than starting a second and
-        // silently contending — the built-in model is a single in-process engine
-        // and a paste-back terminator races on the current selection. Queuing is
-        // a separate item. Pure-UI / instant types stay allowed.
-        // Chain-bearing actions of any type also start a tracked run (via
-        // ChainExecutor), so they're blocked too — otherwise a second chain runs
-        // concurrently and corrupts the shared "Step N of M".
-        if ExecutionState.startDecision(isRunning: ExecutionState.shared.isRunning) == .busy,
-           startsTrackedRun(action.type) || !action.next.isEmpty {
-            ToastQueue.post("An action is already running", outcome: .problem)
-            return
-        }
+        // One action runs at a time: anything that starts a run (LLM, shell,
+        // or a chain) goes through `RunQueue`, which starts it now or queues it
+        // behind the running one. Foreground answers wait their turn through
+        // `RunQueue.inTurn`. Instant types (JSON, compose, a plain URL) run
+        // directly, since they never contend.
 
         switch action.type {
         case .jsonPrettyPrint(let json):
@@ -1367,14 +1386,11 @@ struct ActionListWindow: View {
                     ? action.title.prefix(38) + "…"
                     : Substring(action.title)
                 onDismiss()
-                ToastQueue.post("Generating: \(displayName)", outcome: .progress)
-                Task { @MainActor in
-                    // Track the generation so the pill shows and the busy guard
-                    // blocks a second action — without this, a slow auto-replace
-                    // gen races a follow-up action on the single MLX engine and
-                    // the pending paste-back races the current selection.
-                    let runId = ExecutionState.shared.start(name: autoReplaceTitle)
-                    defer { ExecutionState.shared.finish() }
+                // A tracked run, so the pill shows and a second action waits its
+                // turn instead of racing this one on the single MLX engine.
+                RunQueue.run(name: autoReplaceTitle, input: clipboardText, icon: action.icon) { runId in
+                    // Posted when it actually starts, not when it was queued.
+                    ToastQueue.post("Generating: \(displayName)", outcome: .progress)
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1384,30 +1400,31 @@ struct ActionListWindow: View {
                         // `finish()` then committed the run before the closure could
                         // report anything, making the rescue below a guaranteed
                         // no-op (and, if a later run had started, filing this text
-                        // under that run's name). Same continuation pattern as
-                        // `OutputDestinationService.executePasteBack`.
-                        let outcome = await withCheckedContinuation { (c: CheckedContinuation<ClipboardService.PasteOutcome, Never>) in
-                            ClipboardService.shared.pasteResult(trimmed, toBundleId: bundleId) { outcome in
-                                c.resume(returning: outcome)
+                        // under that run's name). A run that waited in the queue
+                        // copies instead of pasting (see `RunQueue.pasteBack`).
+                        // A waited run with a chain hands its answer straight to
+                        // the chain: copying it with a "⌘V to paste" toast would
+                        // promise a clipboard the chain is about to overwrite.
+                        if !(ExecutionState.shared.currentRunWaited && !chainSlugs.isEmpty) {
+                            let outcome = await RunQueue.pasteBack(trimmed, toBundleId: bundleId)
+                            switch outcome {
+                            case .pasted:
+                                // No toast — user sees the replacement happen.
+                                // Consumed: the text is in their document.
+                                break
+                            case .copiedForManualPaste:
+                                // Not consumed — it's on the clipboard but nowhere
+                                // the user can read it, so the sink keeps it too.
+                                Self.recordUnconsumedResult(trimmed, for: runId)
+                                ToastQueue.post("Response copied → ⌘V to paste", outcome: .success)
+                            case .failed:
+                                // The paste-back failed, so nothing consumed the
+                                // output. Without this the LLM's answer is gone and a
+                                // 1.5s toast is its only trace — finding #18
+                                // surviving in one path.
+                                Self.recordUnconsumedResult(trimmed, for: runId)
+                                ToastQueue.post("Could not paste. Check Accessibility permission.", outcome: .problem)
                             }
-                        }
-                        switch outcome {
-                        case .pasted:
-                            // No toast — user sees the replacement happen.
-                            // Consumed: the text is in their document.
-                            break
-                        case .copiedForManualPaste:
-                            // Not consumed — it's on the clipboard but nowhere
-                            // the user can read it, so the sink keeps it too.
-                            Self.recordUnconsumedResult(trimmed, for: runId)
-                            ToastQueue.post("Response copied → ⌘V to paste", outcome: .success)
-                        case .failed:
-                            // The paste-back failed, so nothing consumed the
-                            // output. Without this the LLM's answer is gone and a
-                            // 1.5s toast is its only trace — finding #18
-                            // surviving in one path.
-                            Self.recordUnconsumedResult(trimmed, for: runId)
-                            ToastQueue.post("Could not paste. Check Accessibility permission.", outcome: .problem)
                         }
                         if !chainSlugs.isEmpty {
                             await ChainExecutor.shared.runChain(
@@ -1417,9 +1434,7 @@ struct ActionListWindow: View {
                         }
                     } catch {
                         ExecutionState.shared.reportFailure(error.localizedDescription)
-                        await MainActor.run {
-                            ToastQueue.post("Error: \(error.localizedDescription)", outcome: .problem)
-                        }
+                        ToastQueue.post("Error: \(error.localizedDescription)", outcome: .problem)
                     }
                 }
                 return
@@ -1433,9 +1448,7 @@ struct ActionListWindow: View {
                 let actionTitle = action.title
                 let runsInBackground = action.runInBackground
                 onDismiss()
-                Task { @MainActor in
-                    ExecutionState.shared.start(name: actionTitle)
-                    defer { ExecutionState.shared.finish() }
+                RunQueue.run(name: actionTitle, input: clipboardText, icon: action.icon) { _ in
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1457,9 +1470,7 @@ struct ActionListWindow: View {
             if action.runInBackground {
                 let actionTitle = action.title
                 onDismiss()
-                Task { @MainActor in
-                    let runId = ExecutionState.shared.start(name: actionTitle)
-                    defer { ExecutionState.shared.finish() }
+                RunQueue.run(name: actionTitle, input: clipboardText, icon: action.icon) { runId in
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1481,7 +1492,7 @@ struct ActionListWindow: View {
             activeConfig = config
             isFollowUpEnabled = true
 
-            showResultView(title: title, generator: {
+            showResultView(title: title, waitsForTurn: true, generator: {
                 return try await LLMService.shared.generateWithMessages(initialMessages, config: config)
             }, streamGenerator: {
                 return try await LLMService.shared.generateStreamingWithMessages(initialMessages, config: config)
@@ -1511,7 +1522,7 @@ struct ActionListWindow: View {
             if !chainSlugs.isEmpty {
                 let actionTitle = action.title
                 let runsInBackground = action.runInBackground
-                Task { @MainActor in
+                RunQueue.run(name: actionTitle, input: text, icon: action.icon) { _ in
                     await ChainExecutor.shared.runChain(
                         chainSlugs, initialInput: "", sourceBundleId: bundleId,
                         name: actionTitle, runInBackground: runsInBackground
@@ -1531,9 +1542,7 @@ struct ActionListWindow: View {
             if runInBackground || !chainSlugs.isEmpty {
                 let actionTitle = action.title
                 onDismiss()
-                Task { @MainActor in
-                    let runId = ExecutionState.shared.start(name: actionTitle)
-                    defer { ExecutionState.shared.finish() }
+                RunQueue.run(name: actionTitle, input: clipboardText, icon: action.icon) { runId in
                     do {
                         let result = try await Self.runShellCommand(
                             command, text: clipboardText, sourceBundleId: bundleId
@@ -1567,7 +1576,7 @@ struct ActionListWindow: View {
             let systemPrompt = "You are a helpful assistant. The user ran a shell command on their clipboard text. Help them with any questions about the output. Plain text only \u{2014} no markdown syntax."
             conversationHistory = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: clipboardText)
             isFollowUpEnabled = true
-            showResultView(title: action.title) {
+            showResultView(title: action.title, waitsForTurn: true) {
                 return try await Self.runShellCommand(command, text: clipboardText, sourceBundleId: bundleId)
             }
 
@@ -1629,7 +1638,17 @@ struct ActionListWindow: View {
     /// Steps through the run surface's kept results. No wraparound: no macOS
     /// pager wraps, and wrapping makes the ends indistinguishable.
     private func pageRunResult(by delta: Int) {
-        guard activeScreen == .running else { return }
+        // While something runs or waits, the run list is up and there is no
+        // result to page; moving the index here would change which result
+        // opens (and which Return copies) once the line drains.
+        guard activeScreen == .running, !execution.isRunning, execution.queued.isEmpty else { return }
+        if showsRunResultsList {
+            // → opens the highlighted result in full; ← has nowhere to go.
+            if delta > 0 {
+                withAnimation(.easeOut(duration: 0.2)) { showRunResultDetail = true }
+            }
+            return
+        }
         runResultIndex = ExecutionState.clampResultIndex(
             runResultIndex + delta,
             recentCount: execution.recent.count,
@@ -1647,24 +1666,49 @@ struct ActionListWindow: View {
     /// invisibly — a later Esc would then spend a keypress on a no-op
     /// transition. In those cases the header pill carries the result instead,
     /// which is what the pill is for.
-    private func handleShowRunResult() {
-        guard activeScreen == .actions || activeScreen == .running else { return }
-        selectionState.filterText = ""
+    /// Completes a "Show in Cai" that arrived while its run was open, once the
+    /// run has committed its result.
+    private func pickPendingRunResult(running: Bool) {
+        guard !running, pickRunResultWhenDone else { return }
+        pickRunResultWhenDone = false
         runResultIndex = ExecutionState.openingResultIndex(
             in: execution.recent, hasFailure: execution.lastRunFailed
         )
+    }
+
+    private func handleShowRunResult() {
+        guard activeScreen == .actions || activeScreen == .running else { return }
+        selectionState.filterText = ""
+        // The chain posts this from inside its run, before the outer run's
+        // `finish()` commits the result to `recent`. Choosing the index now
+        // would point at the old ring and open on an older result, so wait for
+        // the commit when the run is still open.
+        if execution.isRunning {
+            pickRunResultWhenDone = true
+        } else {
+            runResultIndex = ExecutionState.openingResultIndex(
+                in: execution.recent, hasFailure: execution.lastRunFailed
+            )
+        }
+        // The chain asked to show its result, so open it in full, not the list.
+        showRunResultDetail = true
         withAnimation(.easeOut(duration: 0.2)) { showRunning = true }
     }
 
+    /// `waitsForTurn`: the generator runs the model or a shell, so it waits
+    /// for any queued work ahead of it and holds the line while it runs. The
+    /// instant ones (JSON, OCR text, extension install) skip the line.
     private func showResultView(
         title: String,
+        waitsForTurn: Bool = false,
         generator: @escaping () async throws -> String,
         streamGenerator: (() async throws -> AsyncThrowingStream<String, Error>)? = nil
     ) {
         selectionState.filterText = ""
         resultTitle = title
-        resultGenerator = generator
-        resultStreamGenerator = streamGenerator
+        resultWaitsForTurn = waitsForTurn
+        resultGenerator = waitsForTurn ? RunQueue.inTurn(generator) : generator
+        resultStreamGenerator = streamGenerator.map { waitsForTurn ? RunQueue.inTurn($0) : $0 }
         pendingResultText = ""
         showFollowUpInput = false
         followUpText = ""
@@ -1689,7 +1733,7 @@ struct ActionListWindow: View {
             isFollowUpEnabled = true
             isNewAction = false
 
-            showResultView(title: instruction, generator: {
+            showResultView(title: instruction, waitsForTurn: true, generator: {
                 return try await LLMService.shared.generateWithMessages(initialMessages, config: config)
             }, streamGenerator: {
                 return try await LLMService.shared.generateStreamingWithMessages(initialMessages, config: config)
@@ -1705,7 +1749,7 @@ struct ActionListWindow: View {
             activeConfig = config
             isFollowUpEnabled = true
 
-            showResultView(title: instruction, generator: {
+            showResultView(title: instruction, waitsForTurn: true, generator: {
                 return try await LLMService.shared.generateWithMessages(initialMessages, config: config)
             }, streamGenerator: {
                 return try await LLMService.shared.generateStreamingWithMessages(initialMessages, config: config)
@@ -1835,6 +1879,7 @@ struct ActionListWindow: View {
                 isFollowUpEnabled: isFollowUpEnabled,
                 showFollowUpInput: $showFollowUpInput,
                 followUpText: $followUpText,
+                waitsForTurn: resultWaitsForTurn,
                 generator: generator,
                 streamGenerator: resultStreamGenerator
             )
@@ -1843,9 +1888,11 @@ struct ActionListWindow: View {
             RunningView(
                 reduceMotion: reduceMotion,
                 resultIndex: $runResultIndex,
+                showsDetail: showRunResultDetail,
                 onBack: {
                     withAnimation(.easeOut(duration: 0.2)) { showRunning = false }
-                }
+                },
+                onCopy: { copyRunResult(at: $0) }
             )
         } else {
             actionListContent
@@ -2081,15 +2128,10 @@ struct ActionListWindow: View {
         // user picked, rather than letting it fall back to the last step's label.
         let destinationName = destination.name
 
-        // A destination whose `next:` chain would start a second concurrent run
-        // while one is already going is blocked (v1 one-at-a-time) — it would
-        // corrupt the shared step counter. A plain send (no chain) is a quick
-        // side-effect and stays allowed.
-        if !chainSlugs.isEmpty,
-           ExecutionState.startDecision(isRunning: ExecutionState.shared.isRunning) == .busy {
-            ToastQueue.post("An action is already running", outcome: .problem)
-            return
-        }
+        // A destination with a `next:` chain is a tracked run and goes through
+        // `RunQueue`, so it waits behind a running action instead of running
+        // alongside it (two chains would overwrite each other's steps). A plain
+        // send (no chain) is a quick side-effect and runs directly.
 
         // Special-case paste-back: dismiss Cai, then call pasteResult directly
         // so the three PasteOutcome cases can each surface their own toast.
@@ -2098,7 +2140,7 @@ struct ActionListWindow: View {
         if case .pasteBack = destination.type {
             let bundleId = sourceBundleId
             onDismiss()
-            ClipboardService.shared.pasteResult(text, toBundleId: bundleId) { outcome in
+            let postOutcome = { (outcome: ClipboardService.PasteOutcome) in
                 switch outcome {
                 case .pasted:
                     // No toast — user sees the replacement happen.
@@ -2108,14 +2150,20 @@ struct ActionListWindow: View {
                 case .failed:
                     ToastQueue.post("Could not paste. Check Accessibility permission.", outcome: .problem)
                 }
-                if !chainSlugs.isEmpty {
-                    Task { @MainActor in
-                        await ChainExecutor.shared.runChain(
-                            chainSlugs, initialInput: "", sourceBundleId: bundleId,
-                            name: destinationName, runInBackground: false
-                        )
-                    }
-                }
+            }
+            guard !chainSlugs.isEmpty else {
+                ClipboardService.shared.pasteResult(text, toBundleId: bundleId, completion: postOutcome)
+                return
+            }
+            // Chained: the paste is AWAITED inside the run, so `finish()` can't
+            // commit before the paste resolves and the chain has run (the bug
+            // class the auto-replace path documents). A run that waited copies.
+            RunQueue.run(name: destinationName, input: text, icon: destination.icon) { _ in
+                postOutcome(await RunQueue.pasteBack(text, toBundleId: bundleId))
+                await ChainExecutor.shared.runChain(
+                    chainSlugs, initialInput: "", sourceBundleId: bundleId,
+                    name: destinationName, runInBackground: false
+                )
             }
             return
         }
@@ -2124,18 +2172,16 @@ struct ActionListWindow: View {
         SystemActions.copyToClipboard(text)
 
         let bundleId = sourceBundleId
-        Task {
+        let send: @MainActor () async -> Void = {
             do {
                 try await OutputDestinationService.shared.execute(destination, with: text, sourceBundleId: bundleId)
-                await MainActor.run {
-                    // Dismiss first — orderOut removes the main window from the
-                    // display hierarchy so the toast's NSHostingView doesn't conflict.
-                    onDismiss()
-                    if chainSlugs.isEmpty {
-                        ToastQueue.post("Sent to \(destination.name)", outcome: .success)
-                    }
-                    // Chained: ChainExecutor posts the terminal toast.
+                // Dismiss first — orderOut removes the main window from the
+                // display hierarchy so the toast's NSHostingView doesn't conflict.
+                onDismiss()
+                if chainSlugs.isEmpty {
+                    ToastQueue.post("Sent to \(destination.name)", outcome: .success)
                 }
+                // Chained: ChainExecutor posts the terminal toast.
                 if !chainSlugs.isEmpty {
                     await ChainExecutor.shared.runChain(
                         chainSlugs, initialInput: "", sourceBundleId: bundleId,
@@ -2145,10 +2191,22 @@ struct ActionListWindow: View {
                     )
                 }
             } catch {
-                await MainActor.run {
-                    ToastQueue.post("Failed: \(error.localizedDescription)", outcome: .problem)
+                // A chained send is a tracked run, which must read as failed.
+                // A plain send has no run of its own: reporting would fail
+                // whatever background action happens to be running.
+                if !chainSlugs.isEmpty {
+                    ExecutionState.shared.reportFailure(error.localizedDescription)
                 }
+                ToastQueue.post("Failed: \(error.localizedDescription)", outcome: .problem)
             }
+        }
+        if chainSlugs.isEmpty {
+            Task { @MainActor in await send() }
+        } else {
+            // Queued behind a running action: close the panel now rather than
+            // leaving it up until this send's turn comes.
+            if RunQueue.isBusy { onDismiss() }
+            RunQueue.run(name: destinationName, input: text, icon: destination.icon) { _ in await send() }
         }
     }
 

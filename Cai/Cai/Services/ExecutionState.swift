@@ -9,13 +9,14 @@ import Foundation
 /// that identity + step, and keeps `BackgroundTaskTracker` in lockstep so the
 /// ambient menu-bar signal is unchanged.
 ///
-/// **v1 is one action at a time (no queue).** A new user-triggered action while
-/// one is running should surface a *busy* state, never silently drop — see
-/// `startDecision`. Internal nesting (a chain that runs inside an already-running
-/// action) is safe: the depth counter mirrors `BackgroundTaskTracker`'s proven
-/// nest-safe pattern, and only the outermost `start` sets the displayed identity.
+/// **One action runs at a time; the rest wait in line.** A user-triggered action
+/// that arrives while one runs is queued by `RunQueue` and
+/// shows in `Snapshot.queued` until its turn. Internal nesting (a chain that
+/// runs inside an already-running action) is safe: the depth counter mirrors
+/// `BackgroundTaskTracker`'s proven nest-safe pattern, and only the outermost
+/// `start` sets the displayed identity.
 ///
-/// The state machine (`reduce`), the start-vs-busy decision (`startDecision`),
+/// The state machine (`reduce`, including the queue's line order),
 /// and the step caption (`stepCaption`) are pure, `nonisolated static` functions
 /// so they're table-tested (`ExecutionStateTests`) rather than only exercised in
 /// the live app.
@@ -38,6 +39,34 @@ final class ExecutionState: ObservableObject {
     struct RunningAction: Equatable {
         var name: String
         var step: StepProgress?
+        /// It sat in the queue before starting, so its input is from earlier
+        /// and a paste-back would land wherever the user is now. Paste-back
+        /// paths read this and copy instead (see `RunQueue`).
+        var waited: Bool = false
+        /// The start of the text it runs on (see `inputPreview`), so two runs
+        /// of one action can be told apart in the run list. Empty when the
+        /// action takes no input.
+        var input: String = ""
+    }
+
+    /// An action admitted while another runs, waiting its turn.
+    struct QueuedRun: Equatable, Identifiable {
+        let id: UUID
+        let name: String
+        var input: String = ""
+        /// The action's own icon, so its row matches the action list.
+        var icon: String = ""
+    }
+
+    /// Longest input kept for display. The row truncates by width; this only
+    /// keeps a 10K-character selection from being held twice in memory.
+    static let maxInputPreview = 200
+
+    /// The text an action runs on, as the run list shows it: whitespace and
+    /// newlines collapsed to single spaces, capped at `maxInputPreview`.
+    nonisolated static func inputPreview(_ text: String) -> String {
+        let collapsed = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        return String(collapsed.prefix(maxInputPreview))
     }
 
     /// One finished run's kept output.
@@ -100,6 +129,9 @@ final class ExecutionState: ObservableObject {
         /// could collect it, which was the original bug surviving for the
         /// back-to-back case.
         var recent: [RunRecord] = []
+        /// Actions waiting their turn, head first. A queued run starts with
+        /// its queued id, which is how `.start` knows to consume the head.
+        var queued: [QueuedRun] = []
 
         var isRunning: Bool { depth > 0 }
 
@@ -115,7 +147,7 @@ final class ExecutionState: ObservableObject {
 
     enum Event: Equatable {
         /// A run began. Only the outermost (`depth 0 -> 1`) sets the identity.
-        case start(name: String, id: UUID)
+        case start(name: String, id: UUID, input: String = "")
         /// The running chain advanced to a new top-level step.
         case advance(StepProgress)
         /// A step/run failed with a user-facing message.
@@ -129,10 +161,9 @@ final class ExecutionState: ObservableObject {
         case finish
         /// The user looked at this result — stops the pill advertising it.
         case viewResult(id: UUID)
+        /// An action was admitted behind the running one.
+        case enqueue(QueuedRun)
     }
-
-    /// Whether a newly triggered action may start, or should surface "busy".
-    enum StartDecision: Equatable { case start, busy }
 
     /// Cap on kept results. Session-only and deliberately shallow: three reads
     /// as a collection buffer, where five starts reading as storage — and
@@ -162,6 +193,12 @@ final class ExecutionState: ObservableObject {
     /// Results not yet looked at — drives the pill's count.
     var unviewedCount: Int { snapshot.unviewedCount }
     var hasUnviewedResult: Bool { snapshot.hasUnviewedResult }
+    /// Actions waiting behind the running one, head first.
+    var queued: [QueuedRun] { snapshot.queued }
+    /// Drives "Running · N queued".
+    var queuedCount: Int { snapshot.queued.count }
+    /// Whether the running action waited in the queue (paste-back copies instead).
+    var currentRunWaited: Bool { snapshot.action?.waited ?? false }
 
     // MARK: - Pure logic (unit-tested)
 
@@ -169,13 +206,18 @@ final class ExecutionState: ObservableObject {
     nonisolated static func reduce(_ snapshot: Snapshot, _ event: Event) -> Snapshot {
         var next = snapshot
         switch event {
-        case .start(let name, let id):
+        case .start(let name, let id, let input):
             // Only the outermost start owns the displayed identity; a nested
             // run (a chain inside an already-running action) just deepens the
             // count and keeps the outer name/step. A fresh run clears the prior
             // outcome and resets the pending one to success.
             if next.depth == 0 {
-                next.action = RunningAction(name: name, step: nil)
+                // A run that starts with the queue head's id is that item
+                // taking its turn. Any other start leaves the line alone, so
+                // it can't take a waiting item's seat.
+                let waited = next.queued.first?.id == id
+                if waited { next.queued.removeFirst() }
+                next.action = RunningAction(name: name, step: nil, waited: waited, input: input)
                 next.lastRunName = name
                 next.runId = id
                 next.pendingOutcome = .succeeded(nil)
@@ -229,15 +271,22 @@ final class ExecutionState: ObservableObject {
             if let i = next.recent.firstIndex(where: { $0.id == id }) {
                 next.recent[i].viewed = true
             }
+        case .enqueue(let run):
+            next.queued.append(run)
         }
         return next
     }
 
-    /// v1 single-action rule: a new user-triggered action is `.busy` if one is
-    /// already running, else `.start`. (Internal nesting doesn't go through this
-    /// — only the executeAction entry point does.)
-    nonisolated static func startDecision(isRunning: Bool) -> StartDecision {
-        isRunning ? .busy : .start
+
+    /// Whether the run surface shows the finished-results list: nothing runs
+    /// or waits, no single result is open in full, and there is something to
+    /// list. One rule for what is drawn (`RunningView`) and what the keys act
+    /// on (`ActionListWindow`), so the two can't disagree.
+    nonisolated static func showsResultsList(_ snapshot: Snapshot, showsDetail: Bool) -> Bool {
+        let failed: Bool
+        if case .failed = snapshot.lastOutcome { failed = true } else { failed = false }
+        return !snapshot.isRunning && snapshot.queued.isEmpty && !showsDetail
+            && (!snapshot.recent.isEmpty || failed)
     }
 
     // MARK: - Run surface pager (pure)
@@ -275,20 +324,6 @@ final class ExecutionState: ObservableObject {
         return 0
     }
 
-    /// The next uncollected result after `index`, or nil when that was the last
-    /// one. Drives "copy and move on" rather than ejecting the user from the
-    /// panel with results still waiting.
-    nonisolated static func nextUnviewedIndex(
-        after index: Int, in recent: [RunRecord]
-    ) -> Int? {
-        guard !recent.isEmpty else { return nil }
-        let start = max(0, index + 1)
-        if start < recent.count,
-           let i = recent[start...].firstIndex(where: { !$0.viewed }) { return i }
-        // Nothing later — fall back to anything still uncollected before it.
-        return recent.prefix(max(0, index)).firstIndex(where: { !$0.viewed })
-    }
-
     /// "Step N of M" caption for the progress view. Clamped so a malformed
     /// (index/total) never reads worse than "Step 1 of 1".
     nonisolated static func stepCaption(index: Int, total: Int) -> String {
@@ -307,10 +342,10 @@ final class ExecutionState: ObservableObject {
     /// report belongs to. Returning the freshly minted id here made every
     /// chain that runs inside an already-running action report against an id
     /// `reduce` never stored, so the staleness guard dropped its output.
+    /// `id` is the queued id when a queued action takes its turn.
     @discardableResult
-    func start(name: String) -> UUID {
-        let id = UUID()
-        snapshot = Self.reduce(snapshot, .start(name: name, id: id))
+    func start(name: String, id: UUID = UUID(), input: String = "") -> UUID {
+        snapshot = Self.reduce(snapshot, .start(name: name, id: id, input: input))
         BackgroundTaskTracker.shared.start()
         return snapshot.runId ?? id
     }
@@ -342,4 +377,10 @@ final class ExecutionState: ObservableObject {
         snapshot = Self.reduce(snapshot, .finish)
         BackgroundTaskTracker.shared.end()
     }
+
+    func enqueue(_ run: QueuedRun) {
+        snapshot = Self.reduce(snapshot, .enqueue(run))
+    }
+
+
 }

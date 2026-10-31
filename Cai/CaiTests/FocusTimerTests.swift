@@ -42,6 +42,13 @@ final class FocusTimerTests: XCTestCase {
              state(.longBreak, .paused(remaining: 600)), .skip, at(10), state(nil, nil)),
             ("asleep through focus and its break: one phase, starting now",
              focusRunning, .tick, at(5000), state(.shortBreak, .running(endsAt: at(5300)), done: 1)),
+            ("snooze a short break: 5 more focus minutes, session un-counted",
+             state(.shortBreak, .running(endsAt: at(300)), done: 1), .snooze, at(10),
+             state(.focus, .running(endsAt: at(310)), done: 0)),
+            ("snooze a long break: ending focus again leads to the long break",
+             state(.longBreak, .running(endsAt: at(1800)), done: 0), .snooze, at(10),
+             state(.focus, .running(endsAt: at(310)), done: 3)),
+            ("snooze outside a break is ignored", focusRunning, .snooze, at(10), focusRunning),
             ("turned off in Settings mid-phase", state(.focus, .paused(remaining: 5), done: 3), .disable, at(0), .idle),
         ]
         for (name, from, event, now, expected) in cases {

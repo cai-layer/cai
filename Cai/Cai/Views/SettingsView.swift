@@ -28,6 +28,8 @@ struct SettingsView: View {
     /// Secret count for the nav row, read once when settings opens instead of
     /// enumerating the Keychain (`SecItemCopyMatching`) on every body redraw.
     @State private var secretCount: Int = 0
+    /// Notifications denied for Cai: the focus timer's breaks start silently.
+    @State private var breakNotificationsDenied = false
     /// Debounce task for LLM status checks (prevents API call storms during typing)
     @State private var statusCheckTask: Task<Void, Never>?
     /// Debounce task for model list fetches (prevents API call storms during key paste/typing)
@@ -480,6 +482,27 @@ struct SettingsView: View {
                             isOn: $settings.focusTimerEnabled,
                             accessibilityLabel: "Focus timer in the menu bar"
                         )
+                        .task(id: settings.focusTimerEnabled) {
+                            breakNotificationsDenied = settings.focusTimerEnabled
+                                ? await FocusBreakNotifier.shared.isDenied()
+                                : false
+                        }
+
+                        if breakNotificationsDenied {
+                            HStack {
+                                Text("Notifications are off for Cai, so breaks start without an alert.")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
+                                Spacer()
+                                Button("Open Notification Settings") {
+                                    let id = Bundle.main.bundleIdentifier ?? ""
+                                    if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                .controlSize(.small)
+                            }
+                        }
 
                         if settings.focusTimerEnabled {
                             settingsDivider

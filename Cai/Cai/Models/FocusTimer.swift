@@ -24,6 +24,7 @@ struct FocusTimerConfig: Equatable {
     var shortBreakMinutes = 5
     var longBreakMinutes = 30
     static let sessionsPerLongBreak = 4
+    static let snoozeSeconds: TimeInterval = 5 * 60
 
     func seconds(for phase: FocusPhase) -> TimeInterval {
         switch phase {
@@ -84,6 +85,9 @@ struct FocusTimerState: Equatable {
 
 enum FocusTimerEvent: Equatable {
     case start, pause, resume, restart, skip
+    /// "Snooze 5 min" on the break notification: back to focus for five more
+    /// minutes, and the break comes again when they are up.
+    case snooze
     /// The clock moved on (a timer tick, or waking from sleep).
     case tick
     /// The timer was turned off in Settings.
@@ -119,6 +123,17 @@ enum FocusTimerMachine {
 
         case .skip:
             return phaseEnded(s, now: now, config: config)
+
+        case .snooze:
+            guard let phase = s.phase, phase.isBreak else { return s }
+            // Un-count the session that started this break, so the focus end
+            // five minutes from now counts it again and picks the same break.
+            s.completedSessions = phase == .longBreak
+                ? FocusTimerConfig.sessionsPerLongBreak - 1
+                : max(0, s.completedSessions - 1)
+            s.phase = .focus
+            s.clock = .running(endsAt: now.addingTimeInterval(FocusTimerConfig.snoozeSeconds))
+            return s
 
         case .tick:
             guard case .running(let endsAt) = s.clock, now >= endsAt else { return s }

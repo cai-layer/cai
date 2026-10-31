@@ -256,7 +256,9 @@ class CaiSettings: ObservableObject {
     @Published var focusTimerEnabled: Bool {
         didSet {
             defaults.set(focusTimerEnabled, forKey: Keys.focusTimerEnabled)
-            if !focusTimerEnabled {
+            if focusTimerEnabled {
+                FocusBreakNotifier.shared.requestAuthorization()
+            } else {
                 Task { @MainActor in FocusTimerController.shared.send(.disable) }
             }
         }

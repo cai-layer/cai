@@ -51,6 +51,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start crash reporting early if user has opted in
         CrashReportingService.shared.startIfEnabled()
 
+        // Before anything can post: the break notification's Snooze action and
+        // in-app banners both need the delegate in place.
+        FocusBreakNotifier.shared.install()
+
         // Create the status item in the menu bar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 

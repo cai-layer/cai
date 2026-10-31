@@ -33,11 +33,25 @@ final class FocusTimerController {
     }
 
     func send(_ event: FocusTimerEvent, now: Date = Date()) {
+        let previous = state
         let next = FocusTimerMachine.next(state, event, now: now, config: config)
         // Ticks that change nothing still redraw: the countdown moved.
         state = next
+        announceBreak(from: previous, to: next, event: event)
         updateTicker()
         NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
+    }
+
+    /// A focus session that ran out on its own starts a break with a
+    /// notification. A skip doesn't: the user just chose the break. Leaving
+    /// a break clears the banner so a stale one can't be snoozed later.
+    private func announceBreak(from previous: FocusTimerState, to next: FocusTimerState, event: FocusTimerEvent) {
+        if event == .tick, previous.phase == .focus, let phase = next.phase, phase.isBreak {
+            let minutes = phase == .longBreak ? config.longBreakMinutes : config.shortBreakMinutes
+            FocusBreakNotifier.shared.postBreak(phase, minutes: minutes)
+        } else if previous.phase?.isBreak == true, next.phase?.isBreak != true {
+            FocusBreakNotifier.shared.removeBreakNotification()
+        }
     }
 
     private func updateTicker() {

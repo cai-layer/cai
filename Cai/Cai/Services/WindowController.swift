@@ -39,6 +39,10 @@ class WindowController: NSObject, ObservableObject {
     /// `MultilineTextEditor` (Destinations / Shortcuts / inline edit) honor the same
     /// setting through `ForwardingTextView` rather than this flag.
     static var submitScreenActive = false
+
+    /// True while the Today screen is active, so its ⌘ shortcuts (⌘C, ⌘D, ⌘⌫…)
+    /// are claimed there and nowhere else. See `TodayNavigation.command`.
+    static var todayActive = false
     private var window: NSWindow?
     private var toastWindow: NSWindow?
     private var actions: [ActionItem] = []
@@ -59,6 +63,7 @@ class WindowController: NSObject, ObservableObject {
     private var cachedText: String?
     private var cachedPassThrough: Bool = false
     private var cachedSubmitScreenActive: Bool = false
+    private var cachedTodayActive: Bool = false
     private var cachedDismissTime: Date?
     private var cacheCleanupTimer: Timer?
     private static let resumeTimeout: TimeInterval = 7
@@ -260,12 +265,20 @@ class WindowController: NSObject, ObservableObject {
         showActionWindow(text: "", detection: emptyDetection, showSettings: true)
     }
 
+    /// Opens the panel on Today (the menu-bar "Today" item). Always fresh, like
+    /// Settings: there is no selection behind it, so Esc closes Cai.
+    func showTodayWindow() {
+        clearCache()
+        let emptyDetection = ContentResult(type: .shortText, confidence: 0.0, entities: ContentEntities())
+        showActionWindow(text: "", detection: emptyDetection, showToday: true)
+    }
+
     /// Shows the action window centered on screen with actions for the given content.
     ///
     /// `sourceApp` is the frontmost app's display name (used in LLM prompts as context hint).
     /// `sourceBundleId` is the canonical bundle ID (used by `ContextSnippetsManager` to
     /// match per-app context snippets — see https://getcai.app/docs/usage/context-snippets/).
-    func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil, sourceBundleId: String? = nil, showSettings: Bool = false) {
+    func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil, sourceBundleId: String? = nil, showSettings: Bool = false, showToday: Bool = false) {
         // If a Context Snippets load error was captured at launch, fire its toast
         // now (once) so the user sees it in context as they invoke Cai, instead of
         // as a decontextualized floating pill at app startup.
@@ -278,8 +291,8 @@ class WindowController: NSObject, ObservableObject {
         // If window is already visible, dismiss first
         hideWindow()
 
-        // Skip resume cache when opening directly to settings
-        if showSettings {
+        // Skip resume cache when opening directly to settings or Today
+        if showSettings || showToday {
             clearCache()
         }
 
@@ -295,10 +308,12 @@ class WindowController: NSObject, ObservableObject {
             self.currentText = cachedText  // Restore so next hideWindow() can re-cache it
             Self.passThrough = cachedPassThrough
             Self.submitScreenActive = cachedSubmitScreenActive
+            Self.todayActive = cachedTodayActive
             self.cachedWindow = nil
             self.cachedText = nil
             self.cachedPassThrough = false
             self.cachedSubmitScreenActive = false
+            self.cachedTodayActive = false
             self.cachedDismissTime = nil
             cacheCleanupTimer?.invalidate()
             cacheCleanupTimer = nil
@@ -358,7 +373,8 @@ class WindowController: NSObject, ObservableObject {
             sourceBundleId: sourceBundleId,
             onDismiss: dismissAction,
             onExecute: executeAction,
-            showSettingsOnAppear: showSettings
+            showSettingsOnAppear: showSettings,
+            showTodayOnAppear: showToday
         )
 
         // Wrap in a hosting view (keyboard events are handled exclusively
@@ -456,6 +472,7 @@ class WindowController: NSObject, ObservableObject {
             cachedText = currentText
             cachedPassThrough = Self.passThrough
             cachedSubmitScreenActive = Self.submitScreenActive
+            cachedTodayActive = Self.todayActive
             cachedDismissTime = Date()
 
             // Auto-destroy the cache after the resume timeout
@@ -466,6 +483,7 @@ class WindowController: NSObject, ObservableObject {
         }
         Self.passThrough = false
         Self.submitScreenActive = false
+        Self.todayActive = false
         Self.acceptsFilterInput = true
         Self.isPanelVisible = false
         Self.pendingDigitSlot = nil
@@ -555,6 +573,7 @@ class WindowController: NSObject, ObservableObject {
         // a future code path could apply them to an unrelated window.
         cachedPassThrough = false
         cachedSubmitScreenActive = false
+        cachedTodayActive = false
         cacheCleanupTimer?.invalidate()
         cacheCleanupTimer = nil
     }
@@ -611,6 +630,15 @@ class WindowController: NSObject, ObservableObject {
                 name: .caiEscPressed,
                 object: nil
             )
+            return true
+        }
+
+        // Today's ⌘ shortcuts, ahead of ⌘↵ (claimed below only on submit
+        // screens) and of type-to-filter (where a plain ⌫ edits the filter).
+        if let command = TodayNavigation.command(
+            keyCode: event.keyCode, modifiers: event.modifierFlags, todayActive: Self.todayActive
+        ) {
+            NotificationCenter.default.post(name: .caiTodayCommand, object: nil, userInfo: ["command": command.rawValue])
             return true
         }
 
@@ -706,6 +734,15 @@ class WindowController: NSObject, ObservableObject {
                 name: .caiShowClipboardHistory,
                 object: nil
             )
+            return true
+        }
+
+        // Cmd+T: open Today, from the action list or History (its sibling
+        // screens). Claimed nowhere else, so it never disappears on a screen
+        // that can't act on it.
+        if TodayNavigation.isEnabled, event.modifierFlags.contains(.command), event.keyCode == 17,  // 17 = 'T'
+           !Self.passThrough, Self.acceptsFilterInput, !Self.todayActive {
+            NotificationCenter.default.post(name: .caiShowToday, object: nil)
             return true
         }
 

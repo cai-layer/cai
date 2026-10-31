@@ -23,6 +23,10 @@ extension NSNotification.Name {
     // Actions
     static let caiExecuteAction = NSNotification.Name("CaiExecuteAction")
     static let caiShowClipboardHistory = NSNotification.Name("CaiShowClipboardHistory")
+    /// ⌘T on the action list. userInfo["fromMenu": true] when the menu-bar item opened it.
+    static let caiShowToday = NSNotification.Name("CaiShowToday")
+    /// A ⌘ shortcut on the Today screen. userInfo["command": TodayCommand.rawValue]
+    static let caiTodayCommand = NSNotification.Name("CaiTodayCommand")
     static let caiShowToast = NSNotification.Name("CaiShowToast")
     /// A finished run's output wants the panel NOW — posted only when a
     /// foreground chain terminates in the "Show in Cai" destination. Brings up

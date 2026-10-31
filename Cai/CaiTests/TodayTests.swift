@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Cai
 
@@ -68,7 +69,7 @@ final class TodayTests: XCTestCase {
         let cases: [(name: String, text: String, items: Int, notShown: Int, hasHeader: Bool)] = [
             ("header and two items", [header, line(), line(url: "https://example.com/b")].joined(separator: "\n"), 2, 0, true),
             ("one bad line is counted, the rest show", [header, line(), line(url: "http://x")].joined(separator: "\n"), 1, 1, true),
-            ("a duplicate url is one subject", [header, line(), line(title: "Again")].joined(separator: "\n"), 1, 1, true),
+            ("a duplicate url is one subject, and not counted as refused", [header, line(), line(title: "Again")].joined(separator: "\n"), 1, 0, true),
             ("unknown version shows nothing", [header.replacingOccurrences(of: #""v":1"#, with: #""v":2"#), line()].joined(separator: "\n"), 0, 1, false),
             ("no header shows nothing", line(), 0, 0, false),
             ("blank lines are ignored", [header, "", line(), "  "].joined(separator: "\n"), 1, 0, true),
@@ -150,5 +151,72 @@ final class TodayTests: XCTestCase {
         for c in cases {
             XCTAssertEqual(TodayList.filtered(all, state: state, query: c.query, now: now).map(\.title), c.titles, c.query)
         }
+    }
+
+    // MARK: - (P1) The Today screen's keys and next item
+
+    /// Locks down: ⌘⌫ dismisses while a plain ⌫ stays with the filter, ⌘C is
+    /// claimed only on Today (elsewhere it copies selected text), and a chord
+    /// with an extra modifier (⌘⇧Z is redo) is never mistaken for a command.
+    func testCommandKeys() {
+        let cases: [(name: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags, active: Bool, expected: TodayCommand?)] = [
+            ("⌘⌫ dismisses", 51, .command, true, .dismiss),
+            ("plain ⌫ edits the filter", 51, [], true, nil),
+            ("⌘↵ copies and closes", 36, .command, true, .copyAndClose),
+            ("plain ↵ keeps its own path", 36, [], true, nil),
+            ("⌘C copies", 8, .command, true, .copy),
+            ("⌘C off Today copies text", 8, .command, false, nil),
+            ("⌘O opens", 31, .command, true, .open),
+            ("⌘D done, caps lock ignored", 2, [.command, .capsLock], true, .done),
+            ("⌘S snoozes", 1, .command, true, .snooze),
+            ("⌘Z undoes", 6, .command, true, .undo),
+            ("⌘⇧Z is redo, not undo", 6, [.command, .shift], true, nil),
+            ("⌘⌥D is not done", 2, [.command, .option], true, nil),
+            ("⌘T is not a Today command", 17, .command, true, nil),
+        ]
+        for c in cases {
+            XCTAssertEqual(TodayNavigation.command(keyCode: c.keyCode, modifiers: c.modifiers, todayActive: c.active), c.expected, c.name)
+        }
+    }
+
+    /// Locks down: done, dismiss or snooze from details lands on the next item,
+    /// the previous one at the end, and back on the list when none is left.
+    func testNeighbourAfterRemoval() {
+        let a = item(line(url: "https://example.com/a"))
+        let b = item(line(url: "https://example.com/b"))
+        let c = item(line(url: "https://example.com/c"))
+        let cases: [(name: String, removed: TodayItem, list: [TodayItem], expected: TodayItem?)] = [
+            ("first goes to second", a, [a, b, c], b),
+            ("middle goes to next", b, [a, b, c], c),
+            ("last goes to previous", c, [a, b, c], b),
+            ("only item goes back to the list", a, [a], nil),
+            ("item not in the list", c, [a, b], nil),
+        ]
+        for t in cases {
+            XCTAssertEqual(TodayNavigation.neighbour(of: t.removed.url, in: t.list), t.expected, t.name)
+        }
+    }
+
+    // MARK: - (P1) state.json round trip
+
+    /// Locks down: an item handled before a relaunch is still handled after it,
+    /// including when its activity carries a fraction of a second (an ISO
+    /// string would drop it and the item would come back every launch), and a
+    /// state file of an unknown version is not read.
+    func testStateSurvivesSaveAndLoad() throws {
+        let now = date("2026-11-02T10:00:00Z")
+        let fractional = item(line(activity: "2026-11-02T07:00:00.893579Z"))
+        let cases: [(kind: TodayState.Entry.Kind, expected: TodayState.Visibility)] = [
+            (.done, .hidden), (.dismissed, .hidden), (.snoozed, .snoozed),
+        ]
+        for c in cases {
+            let saved = TodayState().marking(fractional, c.kind, now: now)
+            let loaded = try XCTUnwrap(TodayStore.decodeState(TodayStore.encodeState(saved)))
+            XCTAssertEqual(loaded, saved, "\(c.kind)")
+            XCTAssertEqual(loaded.visibility(of: fractional, now: now), c.expected, "\(c.kind)")
+        }
+        var future = TodayState()
+        future.v = 2
+        XCTAssertNil(TodayStore.decodeState(try TodayStore.encodeState(future)))
     }
 }

@@ -13,7 +13,27 @@ import MCP
 /// belongs in them rather than in a README nobody fetches.
 enum Tools {
 
-    static let all: [Tool] = [listActions, getAction, createAction, updateAction]
+    static let all: [Tool] = [listActions, getAction, createAction, updateAction, getFocusState]
+
+    // MARK: - get_focus_state
+
+    static let getFocusState = Tool(
+        name: "get_focus_state",
+        description: """
+            Read the user's focus timer and Keep Awake state from the Cai menu bar: whether a \
+            focus session or a break is running, how long is left, how many sessions are done \
+            before the long break, and whether the Mac is being kept awake.
+
+            Use it to time a reminder: suggest a break when a focus session has just ended or the \
+            user has been at it a long time, or hold a long-running task until a break. Read-only: \
+            nothing here starts, pauses or skips the timer. Tell the user to do that from the Cai \
+            icon's menu.
+            """,
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([:]),
+        ])
+    )
 
     // MARK: - list_actions
 

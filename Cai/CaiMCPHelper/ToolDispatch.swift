@@ -22,6 +22,8 @@ enum ToolDispatch {
                 return reply(try await createAction(params.arguments))
             case Tools.updateAction.name:
                 return reply(try await updateAction(params.arguments))
+            case Tools.getFocusState.name:
+                return reply(try CaiBridge.focusState().agentReply(now: Date()))
             default:
                 return failure("Unknown tool '\(params.name)'.")
             }

@@ -37,6 +37,8 @@ class CaiSettings: ObservableObject {
         static let keepAwakeEnabled = "cai_keepAwakeEnabled"
         static let keepAwakeLastMinutes = "cai_keepAwakeLastMinutes"
         static let keepAwakeAllowsDisplaySleep = "cai_keepAwakeAllowsDisplaySleep"
+        static let keepAwakeStopsOnLowBattery = "cai_keepAwakeStopsOnLowBattery"
+        static let keepAwakeBatteryThreshold = "cai_keepAwakeBatteryThreshold"
         static let focusTimerEnabled = "cai_focusTimerEnabled"
         static let focusMinutes = "cai_focusMinutes"
         static let shortBreakMinutes = "cai_shortBreakMinutes"
@@ -251,6 +253,25 @@ class CaiSettings: ObservableObject {
         }
     }
 
+    /// "Stop when battery is below": on by default, so a forgotten
+    /// "Indefinitely" can't drain the battery. Applies only when unplugged.
+    @Published var keepAwakeStopsOnLowBattery: Bool {
+        didSet {
+            defaults.set(keepAwakeStopsOnLowBattery, forKey: Keys.keepAwakeStopsOnLowBattery)
+            Task { @MainActor in KeepAwakeController.shared.checkBattery() }
+        }
+    }
+
+    /// Percent, one of `keepAwakeBatteryThresholds`.
+    @Published var keepAwakeBatteryThreshold: Int {
+        didSet {
+            defaults.set(keepAwakeBatteryThreshold, forKey: Keys.keepAwakeBatteryThreshold)
+            Task { @MainActor in KeepAwakeController.shared.checkBattery() }
+        }
+    }
+
+    static let keepAwakeBatteryThresholds = [10, 20, 30, 50]
+
     /// The focus timer on the menu bar icon. Off by default; turning it off
     /// mid-phase stops it.
     @Published var focusTimerEnabled: Bool {
@@ -261,20 +282,30 @@ class CaiSettings: ObservableObject {
             if !focusTimerEnabled {
                 Task { @MainActor in FocusTimerController.shared.send(.disable) }
             }
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
         }
     }
 
     /// Phase lengths in minutes. An edit applies from the next phase.
     @Published var focusMinutes: Int {
-        didSet { defaults.set(focusMinutes, forKey: Keys.focusMinutes) }
+        didSet {
+            defaults.set(focusMinutes, forKey: Keys.focusMinutes)
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
+        }
     }
 
     @Published var shortBreakMinutes: Int {
-        didSet { defaults.set(shortBreakMinutes, forKey: Keys.shortBreakMinutes) }
+        didSet {
+            defaults.set(shortBreakMinutes, forKey: Keys.shortBreakMinutes)
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
+        }
     }
 
     @Published var longBreakMinutes: Int {
-        didSet { defaults.set(longBreakMinutes, forKey: Keys.longBreakMinutes) }
+        didSet {
+            defaults.set(longBreakMinutes, forKey: Keys.longBreakMinutes)
+            NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
+        }
     }
 
     /// The kill switch for agent authoring: "Allow agents to propose actions".
@@ -539,6 +570,8 @@ class CaiSettings: ObservableObject {
         self.keepAwakeLastMinutes = defaults.object(forKey: Keys.keepAwakeLastMinutes) as? Int
             ?? KeepAwakeDuration.default.storedMinutes
         self.keepAwakeAllowsDisplaySleep = defaults.bool(forKey: Keys.keepAwakeAllowsDisplaySleep)
+        self.keepAwakeStopsOnLowBattery = defaults.object(forKey: Keys.keepAwakeStopsOnLowBattery) as? Bool ?? true
+        self.keepAwakeBatteryThreshold = defaults.object(forKey: Keys.keepAwakeBatteryThreshold) as? Int ?? 10
         let timerDefaults = FocusTimerConfig()
         self.focusTimerEnabled = defaults.bool(forKey: Keys.focusTimerEnabled)
         self.focusMinutes = defaults.object(forKey: Keys.focusMinutes) as? Int ?? timerDefaults.focusMinutes

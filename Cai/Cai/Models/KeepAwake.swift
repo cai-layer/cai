@@ -93,6 +93,12 @@ enum KeepAwakePolicy {
         return isOn ? .stop : .start(lastDuration)
     }
 
+    /// Whether a power-source change should end Keep Awake: only on battery,
+    /// only below the threshold (strictly), only when the setting is on.
+    static func shouldStopForBattery(onBattery: Bool, percent: Int, thresholdEnabled: Bool, threshold: Int) -> Bool {
+        thresholdEnabled && onBattery && percent < threshold
+    }
+
     /// How often the curtain is redrawn: when it has moved about half a pixel
     /// at 2x on a 14pt logo (56 steps), between 1 s and 60 s. A 5 h run does
     /// not need a redraw every second.

@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.ps
 import IOKit.pwr_mgt
 
 extension Notification.Name {
@@ -22,6 +23,7 @@ final class KeepAwakeController {
     private var expiryTimer: Timer?
     private var redrawTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
+    private var powerSourceLoop: CFRunLoopSource?
 
     private init() {
         // Timers don't fire on time across sleep, so a run that ended while
@@ -30,6 +32,47 @@ final class KeepAwakeController {
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.stopIfExpired() }
+        }
+
+        // Battery level and AC/battery switches arrive here.
+        if let source = IOPSNotificationCreateRunLoopSource({ _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { KeepAwakeController.shared.checkBattery() }
+            }
+        }, nil)?.takeRetainedValue() {
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+            powerSourceLoop = source
+        }
+    }
+
+    /// The internal battery's state, or nil on a Mac without one.
+    static func batteryStatus() -> (onBattery: Bool, percent: Int)? {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
+        for source in list {
+            guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+                  description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
+                  let current = description[kIOPSCurrentCapacityKey] as? Int,
+                  let max = description[kIOPSMaxCapacityKey] as? Int, max > 0 else { continue }
+            let onBattery = description[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue
+            return (onBattery, current * 100 / max)
+        }
+        return nil
+    }
+
+    /// Re-checked on every power-source change and when the threshold
+    /// setting changes. Not at start: a click on a low battery is the user's
+    /// call, and the next change re-applies the rule.
+    func checkBattery() {
+        guard state.isOn, let battery = Self.batteryStatus() else { return }
+        let settings = CaiSettings.shared
+        if KeepAwakePolicy.shouldStopForBattery(
+            onBattery: battery.onBattery,
+            percent: battery.percent,
+            thresholdEnabled: settings.keepAwakeStopsOnLowBattery,
+            threshold: settings.keepAwakeBatteryThreshold
+        ) {
+            stop()
         }
     }
 

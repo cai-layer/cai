@@ -37,6 +37,8 @@ class CaiSettings: ObservableObject {
         static let keepAwakeEnabled = "cai_keepAwakeEnabled"
         static let keepAwakeLastMinutes = "cai_keepAwakeLastMinutes"
         static let keepAwakeAllowsDisplaySleep = "cai_keepAwakeAllowsDisplaySleep"
+        static let keepAwakeStopsOnLowBattery = "cai_keepAwakeStopsOnLowBattery"
+        static let keepAwakeBatteryThreshold = "cai_keepAwakeBatteryThreshold"
         static let focusTimerEnabled = "cai_focusTimerEnabled"
         static let focusMinutes = "cai_focusMinutes"
         static let shortBreakMinutes = "cai_shortBreakMinutes"
@@ -250,6 +252,25 @@ class CaiSettings: ObservableObject {
             Task { @MainActor in KeepAwakeController.shared.displaySleepSettingChanged() }
         }
     }
+
+    /// "Stop when battery is below": on by default, so a forgotten
+    /// "Indefinitely" can't drain the battery. Applies only when unplugged.
+    @Published var keepAwakeStopsOnLowBattery: Bool {
+        didSet {
+            defaults.set(keepAwakeStopsOnLowBattery, forKey: Keys.keepAwakeStopsOnLowBattery)
+            Task { @MainActor in KeepAwakeController.shared.checkBattery() }
+        }
+    }
+
+    /// Percent, one of `keepAwakeBatteryThresholds`.
+    @Published var keepAwakeBatteryThreshold: Int {
+        didSet {
+            defaults.set(keepAwakeBatteryThreshold, forKey: Keys.keepAwakeBatteryThreshold)
+            Task { @MainActor in KeepAwakeController.shared.checkBattery() }
+        }
+    }
+
+    static let keepAwakeBatteryThresholds = [10, 20, 30, 50]
 
     /// The focus timer on the menu bar icon. Off by default; turning it off
     /// mid-phase stops it.
@@ -539,6 +560,8 @@ class CaiSettings: ObservableObject {
         self.keepAwakeLastMinutes = defaults.object(forKey: Keys.keepAwakeLastMinutes) as? Int
             ?? KeepAwakeDuration.default.storedMinutes
         self.keepAwakeAllowsDisplaySleep = defaults.bool(forKey: Keys.keepAwakeAllowsDisplaySleep)
+        self.keepAwakeStopsOnLowBattery = defaults.object(forKey: Keys.keepAwakeStopsOnLowBattery) as? Bool ?? true
+        self.keepAwakeBatteryThreshold = defaults.object(forKey: Keys.keepAwakeBatteryThreshold) as? Int ?? 10
         let timerDefaults = FocusTimerConfig()
         self.focusTimerEnabled = defaults.bool(forKey: Keys.focusTimerEnabled)
         self.focusMinutes = defaults.object(forKey: Keys.focusMinutes) as? Int ?? timerDefaults.focusMinutes

@@ -27,6 +27,27 @@ final class KeepAwakeTests: XCTestCase {
         }
     }
 
+    // MARK: - Battery threshold (P1)
+
+    /// P1: threshold edge and AC vs battery. Stopping on the charger, or not
+    /// stopping below the threshold, is exactly the bug the setting exists for.
+    func testBatteryThreshold() {
+        // (onBattery, percent, enabled, threshold, stops)
+        let cases: [(Bool, Int, Bool, Int, Bool)] = [
+            (true, 9, true, 10, true),
+            (true, 10, true, 10, false),  // "below" is strict
+            (true, 49, true, 50, true),
+            (false, 3, true, 10, false),  // on the charger: never
+            (true, 3, false, 10, false),  // setting off: never
+        ]
+        for (onBattery, percent, enabled, threshold, stops) in cases {
+            XCTAssertEqual(
+                KeepAwakePolicy.shouldStopForBattery(onBattery: onBattery, percent: percent, thresholdEnabled: enabled, threshold: threshold),
+                stops, "battery \(onBattery), \(percent)% vs \(threshold)%, enabled \(enabled)"
+            )
+        }
+    }
+
     // MARK: - Time left (P1)
 
     /// P1: clamping. The curtain must never draw below empty or above full,

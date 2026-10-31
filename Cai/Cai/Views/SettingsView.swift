@@ -30,6 +30,8 @@ struct SettingsView: View {
     @State private var secretCount: Int = 0
     /// Notifications denied for Cai: the focus timer's breaks start silently.
     @State private var breakNotificationsDenied = false
+    /// Desktops have no battery, so the threshold row would do nothing there.
+    private let hasBattery = KeepAwakeController.batteryStatus() != nil
     /// Debounce task for LLM status checks (prevents API call storms during typing)
     @State private var statusCheckTask: Task<Void, Never>?
     /// Debounce task for model list fetches (prevents API call storms during key paste/typing)
@@ -472,6 +474,33 @@ struct SettingsView: View {
                                 isOn: $settings.keepAwakeAllowsDisplaySleep,
                                 accessibilityLabel: "Let the display sleep while Keep Awake is on"
                             )
+
+                            if hasBattery {
+                                settingsDivider
+
+                                HStack {
+                                    Text("Stop when battery is below")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.caiTextPrimary)
+                                    Spacer()
+                                    Picker("", selection: $settings.keepAwakeBatteryThreshold) {
+                                        ForEach(CaiSettings.keepAwakeBatteryThresholds, id: \.self) { percent in
+                                            Text("\(percent)%").tag(percent)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                    .fixedSize()
+                                    .disabled(!settings.keepAwakeStopsOnLowBattery)
+                                    .accessibilityLabel("Battery level that stops Keep Awake")
+                                    Toggle("", isOn: $settings.keepAwakeStopsOnLowBattery)
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                        .controlSize(.mini)
+                                        .tint(.caiPrimary)
+                                        .accessibilityLabel("Stop Keep Awake on low battery")
+                                }
+                            }
                         }
 
                         settingsDivider

@@ -19,6 +19,11 @@ import SwiftUI
 struct TabBar<Tab: Hashable>: View {
     @Binding var selection: Tab
     let tabs: [TabSpec<Tab>]
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var activeFill: Color {
+        colorScheme == .dark ? .white.opacity(0.16) : Color(nsColor: .windowBackgroundColor)
+    }
 
     struct TabSpec<T: Hashable>: Identifiable {
         let id: T
@@ -66,9 +71,11 @@ struct TabBar<Tab: Hashable>: View {
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(isActive ? Color(nsColor: .windowBackgroundColor) : Color.clear)
+                    // In dark, windowBackgroundColor is nearly the glass behind
+                    // it, so the active segment is a white wash there instead.
+                    .fill(isActive ? activeFill : Color.clear)
                     .shadow(
-                        color: isActive ? Color.black.opacity(0.04) : .clear,
+                        color: isActive ? Color.black.opacity(colorScheme == .dark ? 0.3 : 0.04) : .clear,
                         radius: 0.5,
                         x: 0,
                         y: 0.5

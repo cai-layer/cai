@@ -443,7 +443,7 @@ struct MCPFormView: View {
                         .padding(.vertical, 3)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(commentOnIssue?.id == result.id ? Color.caiPrimary : Color.caiPrimary.opacity(0.1))
+                                .fill(commentOnIssue?.id == result.id ? Color.caiPrimaryFill : Color.caiPrimary.opacity(0.1))
                         )
                 }
                 .buttonStyle(.plain)
@@ -561,7 +561,7 @@ struct MCPFormView: View {
                                 .padding(.vertical, 4)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(isSelected ? Color.caiPrimary : Color.caiSurface.opacity(0.8))
+                                        .fill(isSelected ? Color.caiPrimaryFill : Color.caiSurface.opacity(0.8))
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 12)

@@ -159,7 +159,7 @@ struct ShellImportView: View {
                     .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.caiPrimary.opacity(ticked.isEmpty ? 0.4 : 1))
+                            .fill(Color.caiPrimaryFill.opacity(ticked.isEmpty ? 0.4 : 1))
                     )
             }
             .buttonStyle(.plain)

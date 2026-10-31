@@ -692,7 +692,7 @@ struct ActionReviewView: View {
                 approve(proposal)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.caiPrimary)
+            .tint(.caiPrimaryFill)
             .controlSize(.large)
             .disabled(!canApprove)
             // Return approves, and stays inert on the escalated tier until

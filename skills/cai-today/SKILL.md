@@ -29,19 +29,28 @@ If the file is missing or empty, go on without it.
 
 For each source, prefer a command-line tool when one is installed and signed in, because it is cheaper than a connector: `gh` for GitHub (check with `gh auth status`). Otherwise use the connector the user's Claude already has. Use only read commands and read tools.
 
+Run each command on its own: no pipes, `&&`, `;` or redirects. Shape the output with the tool's own flags instead (`gh … --json fields --jq '…'`). The runner only allows plain read commands, and a chained one is refused.
+
 A source you can't read (not connected, needs sign-in, not ready yet, or an error) goes into the header's `sources` list with `"status": "skipped"` and a short reason. Try a source that is still connecting once more before skipping it. Never drop a source silently.
 
 ## 4. Gather what may need the user
 
-Look back to the previous list's `generated` time (from the header of the existing `items.jsonl`), or 3 days on the first run, and never more than 7 days. Read only what involves the user:
-- **Slack:** DMs, mentions of the user, threads the user is in, and the channels in `priorities.md`. Not every channel.
-- **Email:** threads addressed to the user that look like they need a reply or a decision. Skip newsletters, notifications and automated mail.
-- **GitHub:** review requests, issues and pull requests assigned to the user, and mentions.
-- **Linear, Notion and others:** issues assigned to the user, mentions, comments that ask them something, and the pages in "Also watch".
+**Fill the backlog once, then read only what changed.**
+- **First run** (no `items.jsonl` yet): look back 14 days for new asks, and read all standing work, whatever its age.
+- **Later runs:** read only what changed since the previous list's `generated` time (in the header of the existing `items.jsonl`), minus 15 minutes of overlap. If that was more than 14 days ago, use 14 days. Searches take a time filter (`updated:>=…`, `after:…`), so use it rather than reading everything again.
 
-Then re-check every item in the existing `items.jsonl`: keep the ones still open (with their latest activity), and drop the ones that are resolved.
+Two kinds of input:
+- **New asks** (time-filtered): messages, mentions, emails and comments that ask the user something.
+  - **Slack:** DMs, mentions of the user, threads the user is in, and the channels in `priorities.md`. Not every channel.
+  - **Email:** threads addressed to the user that look like they need a reply or a decision. Skip newsletters, notifications and automated mail.
+  - **GitHub, Linear, Notion and others:** mentions and comments that ask the user something, and changes to the pages in "Also watch".
+- **Standing work** (whatever its age): work that is already the user's.
+  - Open issues assigned to the user, open review requests, and the user's own open pull requests.
+  - On later runs, read only the ones updated since the window started. A newly assigned issue counts as updated, so it is still found.
 
-**Drop what the user already handled:** they replied last after the ask, they already reviewed the pull request, the issue is closed, or the meeting is over.
+Then re-check every item already in `items.jsonl` by fetching it directly (not by searching again): keep the ones still open, with their latest `activity`, and drop the ones that are resolved.
+
+**Drop what the user already handled**, for new asks only: they replied last after the ask, they already reviewed the pull request, the issue is closed, or the meeting is over. Standing work stays until it is closed or no longer the user's, even when the user made the last change.
 
 ## 5. Merge and rank
 
@@ -53,12 +62,12 @@ Rank each item:
 - **P2, this week:** something the user should act on, but nobody is blocked.
 - **P3, good to know:** worth a look; no action expected.
 
-Rank higher when the person is in People, when a topic matches Topics, and when others are waiting. Rank lower when the user is only copied. Keep the list short: at most 20 items. Leave out anything that isn't worth the user's attention today.
+Rank higher when the person is in People, when a topic matches Topics, and when others are waiting. Rank lower when the user is only copied. Standing work with no due date, no milestone and nobody waiting goes to P2 or P3; Cai folds P2 and P3 under "Later", so the top of the list stays short. Leave out new asks that aren't worth the user's attention, but keep all standing work. At most 50 items.
 
 For each item write:
 - **title:** what needs doing, in the user's terms, under about 80 characters.
 - **why:** one line on why it matters now ("Due today, and the team can't start without your call").
-- **prompt:** a self-contained prompt the user can paste into their agent to do the work or draft the reply. Point to the source by its link and say what to do; don't paste long message text into the prompt.
+- **prompt:** a self-contained prompt the user can paste into their agent to do the work or draft the reply. Point to the source by its link and say what to do; don't paste long message text into the prompt. State only what the sources say: never supply a fact, a decision or a company position the sources don't contain. Where one is needed, tell the agent to find it or to ask the user.
 
 ## 6. Write the files
 

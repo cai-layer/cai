@@ -38,8 +38,10 @@ final class FocusTimerTests: XCTestCase {
              state(.shortBreak, .running(endsAt: at(350)), done: 1)),
             ("skip in focus counts the session",
              focusRunning, .skip, at(10), state(.shortBreak, .running(endsAt: at(310)), done: 1)),
-            ("skip in a break goes idle",
-             state(.longBreak, .paused(remaining: 600)), .skip, at(10), state(nil, nil)),
+            ("skip a break: the next focus starts, never idle",
+             state(.shortBreak, .running(endsAt: at(300)), done: 2), .skip, at(10), state(.focus, .running(endsAt: at(1510)), done: 2)),
+            ("skip the long break: focus 1 of a new cycle",
+             state(.longBreak, .paused(remaining: 600)), .skip, at(10), state(.focus, .running(endsAt: at(1510)), done: 0)),
             ("asleep through focus and its break: one phase, starting now",
              focusRunning, .tick, at(5000), state(.shortBreak, .running(endsAt: at(5300)), done: 1)),
             ("snooze a short break: 5 more focus minutes, session un-counted",
@@ -49,10 +51,45 @@ final class FocusTimerTests: XCTestCase {
              state(.longBreak, .running(endsAt: at(1800)), done: 0), .snooze, at(10),
              state(.focus, .running(endsAt: at(310)), done: 3)),
             ("snooze outside a break is ignored", focusRunning, .snooze, at(10), focusRunning),
+            ("restart cycle from session 3 focus: session 1, focus, full length",
+             state(.focus, .running(endsAt: at(100)), done: 2), .restartCycle, at(50), state(.focus, .running(endsAt: at(1550)), done: 0)),
+            ("restart cycle from idle starts focus", .idle, .restartCycle, t0, focusRunning),
+            ("second ↺ on a fresh cycle stops", focusRunning, .restartCycle, at(3), .idle),
+            ("↺ past the fresh window starts over, never stops",
+             focusRunning, .restartCycle, at(6), state(.focus, .running(endsAt: at(1506)), done: 0)),
+            ("↺ in session 2 starts over even at its start",
+             state(.focus, .running(endsAt: at(1500)), done: 1), .restartCycle, at(1), state(.focus, .running(endsAt: at(1501)), done: 0)),
+            ("stop clears the session and the cycle count",
+             state(.focus, .running(endsAt: at(1500)), done: 2), .stop, at(10), .idle),
+            ("stop a paused break", state(.longBreak, .paused(remaining: 600)), .stop, at(10), .idle),
             ("turned off in Settings mid-phase", state(.focus, .paused(remaining: 5), done: 3), .disable, at(0), .idle),
         ]
         for (name, from, event, now, expected) in cases {
             XCTAssertEqual(FocusTimerMachine.next(from, event, now: now, config: config), expected, name)
+        }
+    }
+
+    // MARK: - Cycle dots (P1)
+
+    /// P1: the dots are the only clue in the pill to where the cycle stands; a
+    /// wrong row makes "in session 3" and "on the break after 2" look the same,
+    /// or shows the long break as an empty cycle.
+    func testCycleDots() {
+        func state(_ phase: FocusPhase?, done: Int) -> FocusTimerState {
+            FocusTimerState(phase: phase, clock: phase == nil ? nil : .paused(remaining: 60), completedSessions: done)
+        }
+        let D = FocusTimerState.CycleDot.done, C = FocusTimerState.CycleDot.current, U = FocusTimerState.CycleDot.upcoming
+        let cases: [(String, FocusTimerState, [FocusTimerState.CycleDot])] = [
+            ("idle, fresh cycle", .idle, [U, U, U, U]),
+            ("focus 1", state(.focus, done: 0), [C, U, U, U]),
+            ("focus 3", state(.focus, done: 2), [D, D, C, U]),
+            ("break after 2", state(.shortBreak, done: 2), [D, D, U, U]),
+            ("focus 4", state(.focus, done: 3), [D, D, D, C]),
+            ("long break: count already reset, shows all done", state(.longBreak, done: 0), [D, D, D, D]),
+            ("idle after a break keeps the count", state(nil, done: 2), [D, D, U, U]),
+        ]
+        for (name, s, expected) in cases {
+            XCTAssertEqual(s.cycleDots, expected, name)
         }
     }
 }

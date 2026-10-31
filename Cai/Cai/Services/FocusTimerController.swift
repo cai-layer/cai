@@ -38,6 +38,7 @@ final class FocusTimerController {
         // Ticks that change nothing still redraw: the countdown moved.
         state = next
         announceBreak(from: previous, to: next, event: event)
+        chimeIfPhaseRanOut(from: previous, event: event)
         updateTicker()
         NotificationCenter.default.post(name: .caiFocusTimerChanged, object: nil)
     }
@@ -52,6 +53,16 @@ final class FocusTimerController {
         } else if previous.phase?.isBreak == true, next.phase?.isBreak != true {
             FocusBreakNotifier.shared.removeBreakNotification()
         }
+    }
+
+    /// A chime when a phase runs out on its own, like Flow: Glass when focus
+    /// ends, Hero when a break ends. Played by Cai rather than by the
+    /// notification, so it sounds even with notifications off, and only once.
+    /// Skips, restarts and Stop Timer are the user's own doing and stay quiet.
+    private func chimeIfPhaseRanOut(from previous: FocusTimerState, event: FocusTimerEvent) {
+        guard event == .tick, let ended = previous.phase, state.phase != ended,
+              CaiSettings.shared.focusTimerPlaysSound else { return }
+        NSSound(named: ended == .focus ? "Glass" : "Hero")?.play()
     }
 
     private func updateTicker() {

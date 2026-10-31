@@ -84,13 +84,26 @@ enum KeepAwakePolicy {
         case openSettings
         case start(KeepAwakeDuration)
         case stop
+        /// A click on the focus countdown: open the restart / pause / skip
+        /// pill under it.
+        case showTimerPill
     }
 
-    /// What a one-finger click on the Cai icon does. With Keep Awake disabled
-    /// in Settings (the default) it opens Settings, exactly as before.
-    static func clickAction(keepAwakeEnabled: Bool, isOn: Bool, lastDuration: KeepAwakeDuration) -> ClickAction {
+    /// What a one-finger click on the status item does. On the countdown it
+    /// belongs to the timer; on the logo it is Keep Awake, or Settings when
+    /// Keep Awake is disabled (the default), exactly as before.
+    static func clickAction(onCountdown: Bool, keepAwakeEnabled: Bool, isOn: Bool, lastDuration: KeepAwakeDuration) -> ClickAction {
+        if onCountdown { return .showTimerPill }
         guard keepAwakeEnabled else { return .openSettings }
         return isOn ? .stop : .start(lastDuration)
+    }
+
+    /// Whether a click at `x` (in the status button's coordinates) landed on
+    /// the countdown rather than the logo. The countdown starts where the
+    /// image ends; a keyboard press has no location and counts as the logo.
+    static func clickIsOnCountdown(x: CGFloat?, imageWidth: CGFloat, hasCountdown: Bool) -> Bool {
+        guard hasCountdown, let x else { return false }
+        return x > imageWidth
     }
 
     /// Whether a power-source change should end Keep Awake: only on battery,

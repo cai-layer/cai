@@ -39,6 +39,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// A background shell action is running (the icon pulses). Read by
     /// `refreshStatusItem()`, the one place that sets the icon and tooltip.
     private var isBackgroundBusy = false
+    /// The countdown's right-click pill; a second right-click replaces it.
+    @MainActor private lazy var timerPill = FocusTimerPillPanel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
@@ -63,6 +65,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(handleStatusItemClick(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            // A left-click on the logo or on the countdown does different
+            // things, so no press flash across the whole item: the result
+            // (outline logo, the timer pill) is the feedback.
+            (button.cell as? NSButtonCell)?.highlightsBy = []
 
             // Layer-backed so we can pulse the icon's opacity via Core Animation
             // when a background task is in flight (BackgroundTaskTracker).
@@ -234,17 +240,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp {
-            // Right-click: show menu
+            // Right-click is the same anywhere on the item: the full menu.
             showMenu()
             return
         }
 
-        // Left-click (or Space on the focused item): Settings, unless Keep
-        // Awake is enabled, in which case it toggles with the last duration.
+        let onCountdown = MainActor.assumeIsolated { clickIsOnCountdown(event, in: sender) }
+
+        // Left-click (or Space on the focused item): on the countdown, the
+        // timer pill; on the logo, Settings, unless Keep Awake is enabled, in
+        // which case it toggles with the last duration.
         MainActor.assumeIsolated {
             let settings = CaiSettings.shared
             let keepAwake = KeepAwakeController.shared
             switch KeepAwakePolicy.clickAction(
+                onCountdown: onCountdown,
                 keepAwakeEnabled: settings.keepAwakeEnabled,
                 isOn: keepAwake.state.isOn,
                 lastDuration: KeepAwakeDuration(storedMinutes: settings.keepAwakeLastMinutes)
@@ -252,7 +262,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .openSettings: windowController.showSettingsWindow()
             case .start(let duration): keepAwake.start(duration)
             case .stop: keepAwake.stop()
+            case .showTimerPill: showTimerPill(from: sender)
             }
+        }
+    }
+
+    /// Where the logo ends inside the status button, padding included: the
+    /// countdown starts right of it.
+    private func logoMaxX(in button: NSStatusBarButton) -> CGFloat {
+        (button.cell as? NSButtonCell)?.imageRect(forBounds: button.bounds).maxX ?? button.image?.size.width ?? 0
+    }
+
+    @MainActor
+    private func clickIsOnCountdown(_ event: NSEvent, in button: NSStatusBarButton) -> Bool {
+        let isMouse = event.type == .leftMouseUp || event.type == .rightMouseUp
+        return KeepAwakePolicy.clickIsOnCountdown(
+            x: isMouse ? button.convert(event.locationInWindow, from: nil).x : nil,
+            imageWidth: logoMaxX(in: button),
+            hasCountdown: CaiSettings.shared.focusTimerEnabled && FocusTimerController.shared.state.phase != nil
+        )
+    }
+
+    /// The quick restart / pause / skip pill, flush under the countdown.
+    /// Closes itself once the timer goes idle (skipping a break, Stop Timer).
+    @MainActor
+    private func showTimerPill(from button: NSStatusBarButton) {
+        // A second click on the countdown closes it, like a menu.
+        if timerPill.isShown {
+            timerPill.close()
+            return
+        }
+        guard let window = button.window else { return }
+        let start = logoMaxX(in: button)
+        let local = NSRect(x: start, y: 0, width: max(1, button.bounds.width - start), height: button.bounds.height)
+        let anchor = window.convertToScreen(button.convert(local, to: nil))
+        timerPill.show(under: anchor, on: window.screen) { event in
+            FocusTimerController.shared.send(event)
         }
     }
 
@@ -313,8 +358,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "About Cai", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit Cai", action: #selector(quitApp), keyEquivalent: "q"))
 
+        // The item has no press highlight of its own (see setup), so it is
+        // lit by hand while the menu is open: right-click lights the whole
+        // item, while a left-click lights nothing and lets its result show.
         statusItem?.menu = menu
+        statusItem?.button?.highlight(true)
         statusItem?.button?.performClick(nil)
+        statusItem?.button?.highlight(false)
         statusItem?.menu = nil
     }
 
@@ -377,6 +427,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         add(state.isRunning ? "Pause" : "Resume", state.isRunning ? .pause : .resume)
         add("Restart \(phase.title)", .restart)
         add(phase.isBreak ? "Skip \(phase.title)" : "Skip to Break", .skip)
+        add("Stop Timer", .stop)
     }
 
     /// A timer menu item's event plus the phase its title was written for.
@@ -802,12 +853,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = Self.statusItemImage(showsPendingDot: hasPending, keepAwake: keepAwakeIcon)
 
         // The focus countdown sits right of the logo, in digits that don't
-        // shift width as they change.
+        // shift width as they change. 12pt medium, a step under the menu bar's
+        // text, so the time reads as a status beside the logo, not a second item.
         if CaiSettings.shared.focusTimerEnabled, let countdown = FocusTimerController.shared.state.countdown(now: now) {
             button.imagePosition = .imageLeading
             button.attributedTitle = NSAttributedString(
                 string: " " + countdown,
-                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)]
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)]
             )
         } else {
             button.imagePosition = .imageOnly

@@ -15,6 +15,11 @@ You build the list Cai shows on its Today screen: the few things across the user
 
 Use the folder the user or Cai named. Otherwise use `~/Library/Application Support/Cai/Today/` (create it if it is missing). In this file, `items.jsonl` and `candidates.json` mean files in that folder. `priorities.md` is not there (step 2).
 
+**Replay.** The invocation may add `as of: <datetime>` and `skip: <channels>`, to rebuild a past list for testing.
+- With `as of`, that time is "now". Every search and list ends at it: a timestamp limit when the tool has one (Slack `before`, `latest`, Calendar `timeMax`), else a filter at the exact time, never the next day (Gmail `before:<epoch seconds>`, GitHub `updated:<=<ISO time>`), and drop anything newer, including later messages in a thread you open. Search issues in any state, and treat one closed after that time as open. Write `generated` as that time.
+- What can't be dated, like an issue's current state, assignee or a page's current text, still counts, but list each such source in the report as leakage.
+- Never read, search or open a channel in `skip`. Add `-in:#name` to every Slack search and drop any result from it.
+
 ## 2. Read the user's priorities
 
 Read `priorities.md` from the path given after `priorities:` in the invocation (Cai runs `/cai-today priorities: <path>`). Without one, use `~/Library/Application Support/Cai/TodayState/priorities.md`. Only read it; never write it. Ignore everything inside `<!-- -->` comments: those are examples, not entries. The sections:

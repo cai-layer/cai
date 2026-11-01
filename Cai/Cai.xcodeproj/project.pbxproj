@@ -16,6 +16,7 @@
 		CAI00170 /* CaiActionCore in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00171 /* CaiActionCore */; };
 		CAI00180 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00181 /* MCP */; };
 		CAI00182 /* CaiActionCore in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00183 /* CaiActionCore */; };
+		CAI00301 /* cai-today in Resources */ = {isa = PBXBuildFile; fileRef = CAI00300 /* cai-today */; };
 		CAI00184 /* cai-mcp in Embed Helpers */ = {isa = PBXBuildFile; fileRef = CAI00185 /* cai-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -53,6 +54,7 @@
 /* Begin PBXFileReference section */
 		CAI00009 /* Cai.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cai.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CAI00049 /* CaiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CaiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CAI00300 /* cai-today */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "cai-today"; path = "../skills/cai-today"; sourceTree = SOURCE_ROOT; };
 		CAI00185 /* cai-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "cai-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -112,6 +114,7 @@
 				70B2E7AE2FF7F108006F0575 /* Cai */,
 				70B2E8072FF7F10D006F0575 /* CaiTests */,
 				CAI00186 /* CaiMCPHelper */,
+				CAI00300 /* cai-today */,
 				CAI00015 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -257,6 +260,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CAI00301 /* cai-today in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -26,8 +26,8 @@ final class TodayRunner: ObservableObject {
         case failed(reason: String)
     }
 
-    /// A tool source from the run's `system/init` event. Setup and Settings
-    /// show these in a later PR.
+    /// A tool source from the run's `system/init` event. Setup step 2 shows
+    /// them; Settings → Tools will too.
     struct Connector: Equatable {
         let name: String
         let status: String
@@ -53,6 +53,11 @@ final class TodayRunner: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastRunSeconds: Int?
     @Published private(set) var connectors: [Connector] = []
+    /// The sources the current run has started reading (it called one of
+    /// their tools), and whether it has written `candidates.json`. Setup's
+    /// building rows show these; nothing claims a source is finished.
+    @Published private(set) var reading: Set<TodaySource> = []
+    @Published private(set) var wroteCandidates = false
     /// Nil until looked up, then whether `claude` was found.
     @Published private(set) var claudeFound: Bool?
 
@@ -68,7 +73,7 @@ final class TodayRunner: ObservableObject {
     nonisolated static let interruptGrace: TimeInterval = 30
     nonisolated static let staleAfter: TimeInterval = 2 * 60 * 60
 
-    static var skillFolder: URL {
+    nonisolated static var skillFolder: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/skills/cai-today")
     }
 
@@ -84,6 +89,8 @@ final class TodayRunner: ObservableObject {
         guard !isRunning else { return }
         let started = Date()
         lastStarted = started
+        reading = []
+        wroteCandidates = false
         phase = .running(started: started)
         Task { await run(started: started) }
     }
@@ -120,12 +127,14 @@ final class TodayRunner: ObservableObject {
         TodayStore.prepareFolders()
         TodayStore.sweep(folder)
 
-        let collector = StreamCollector()
+        let collector = StreamCollector { [weak self] uses in
+            Task { @MainActor in self?.noteToolUses(uses) }
+        }
         let output: ShellRunner.Output
         do {
             output = try await ShellRunner.launch(
                 URL(fileURLWithPath: claude),
-                arguments: Self.arguments(priorities: TodayStore.prioritiesURL),
+                arguments: Self.arguments(priorities: TodayStore.prioritiesURL, enabled: TodaySourceSettings.load()),
                 stdin: nil,
                 environment: Self.environment(base: ProcessInfo.processInfo.environment, loginPath: loginPath),
                 currentDirectory: folder,
@@ -148,6 +157,85 @@ final class TodayRunner: ObservableObject {
         lastRunSeconds = result?.durationMs.map { $0 / 1000 } ?? Int(wall)
         phase = Self.outcome(result: result, status: output.status, timedOut: output.timedOut, stderr: output.stderr)
     }
+
+    private func noteToolUses(_ uses: [ToolUse]) {
+        guard isRunning else { return }
+        for use in uses {
+            if let source = TodaySource.owner(ofToolUse: use.name, command: use.command), !reading.contains(source) {
+                reading.insert(source)
+            }
+            if use.name == "Bash", use.command?.contains("candidates.json") == true, !wroteCandidates {
+                wroteCandidates = true
+            }
+        }
+    }
+
+    // MARK: - Tools probe (setup step 2)
+
+    /// What `probeTools` found. Only names and statuses: the probe reads no data.
+    struct ToolsReport: Equatable {
+        var connectors: [Connector]
+        var ghSignedIn: Bool
+    }
+
+    enum ProbeOutcome: Equatable {
+        case report(ToolsReport)
+        case claudeMissing
+        case failed(String)
+    }
+
+    /// Asks the user's `claude` which connectors it has, without reading any
+    /// data: one turn that only replies "ok", no tools allowed, hooks off,
+    /// same environment and working folder as a run. Only the init event's
+    /// server names and statuses are kept. A known connector still `pending`
+    /// gets one more probe a few seconds later. Then `gh auth status`.
+    func probeTools() async -> ProbeOutcome {
+        guard let claude = await resolveClaude() else { return .claudeMissing }
+        TodayStore.prepareFolders()
+        TodayStore.sweep(TodayStore.folder)
+        var connectors: [Connector]?
+        for attempt in 0..<2 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
+            let collector = StreamCollector()
+            let output = try? await ShellRunner.launch(
+                URL(fileURLWithPath: claude),
+                arguments: Self.probeArguments,
+                stdin: nil,
+                environment: Self.environment(base: ProcessInfo.processInfo.environment, loginPath: loginPath),
+                currentDirectory: TodayStore.folder,
+                timeout: 90,
+                interrupt: SIGINT,
+                outputCap: 64 * 1024,
+                onStdout: collector.append,
+                killDescendants: true
+            )
+            guard output != nil else { return .failed("Claude Code couldn't start") }
+            connectors = collector.finish().0
+            let pending = connectors?.contains { $0.status == "pending" && TodaySource.owner(ofServer: $0.name) != nil } ?? false
+            if !pending { break }
+        }
+        guard let connectors else { return .failed("Claude Code didn't list its tools") }
+        self.connectors = connectors
+        return .report(ToolsReport(connectors: connectors, ghSignedIn: await ghSignedIn()))
+    }
+
+    private func ghSignedIn() async -> Bool {
+        let fallback = OutputDestinationService.shellEnvironment()["PATH"] ?? ""
+        guard let gh = Self.resolve("gh", searchPath: [loginPath ?? "", fallback].joined(separator: ":")) else { return false }
+        let output = try? await ShellRunner.launch(
+            URL(fileURLWithPath: gh), arguments: ["auth", "status"], stdin: nil,
+            environment: Self.environment(base: ProcessInfo.processInfo.environment, loginPath: loginPath),
+            currentDirectory: TodayStore.folder, timeout: 20
+        )
+        return output?.status == 0 && output?.timedOut == false
+    }
+
+    /// The probe's arguments: one turn, no `--allowedTools` (so a headless
+    /// run refuses every tool), hooks off.
+    nonisolated static let probeArguments: [String] = [
+        "-p", "Reply with just: ok", "--max-turns", "1",
+        "--settings", #"{"disableAllHooks": true}"#, "--output-format", "stream-json", "--verbose",
+    ]
 
     private func resolveClaude() async -> String? {
         if let claudePath, FileManager.default.isExecutableFile(atPath: claudePath) { return claudePath }
@@ -237,11 +325,32 @@ final class TodayRunner: ObservableObject {
         "/cai-today priorities: \(priorities.path)"
     }
 
+    /// Debug builds only: `defaults write com.soyasis.cai.dev TodayLookbackDays 1`
+    /// shortens the first run's look-back, so testing setup costs one day of
+    /// reading instead of fourteen. Cai writes the text; only the number
+    /// comes from the setting.
+    nonisolated static var debugLookbackNote: String {
+        #if DEBUG
+        let days = UserDefaults.standard.integer(forKey: "TodayLookbackDays")
+        return days > 0 ? " (test run: look back only \(days) day\(days == 1 ? "" : "s") for new asks, not 14)" : ""
+        #else
+        return ""
+        #endif
+    }
+
+    /// The allow list narrowed to the sources the user turned on in setup:
+    /// a turned-off source loses every one of its tools, and the file tools
+    /// stay. Nil (no `sources.json` yet) keeps the whole table.
+    nonisolated static func allowedTools(enabled: Set<TodaySource>?) -> [String] {
+        guard let enabled else { return allowedTools }
+        return allowedTools.filter { tool in TodaySource.owner(ofAllowedTool: tool).map(enabled.contains) ?? true }
+    }
+
     /// The `claude` arguments. No shell parses
     /// them, so the entries with spaces arrive as one argument each.
-    nonisolated static func arguments(priorities: URL) -> [String] {
-        ["-p", prompt(priorities: priorities), "--permission-mode", "acceptEdits", "--allowedTools"]
-            + allowedTools
+    nonisolated static func arguments(priorities: URL, enabled: Set<TodaySource>? = nil) -> [String] {
+        ["-p", prompt(priorities: priorities) + debugLookbackNote, "--permission-mode", "acceptEdits", "--allowedTools"]
+            + allowedTools(enabled: enabled)
             + ["--settings", #"{"disableAllHooks": true}"#, "--output-format", "stream-json", "--verbose"]
     }
 
@@ -346,6 +455,27 @@ final class TodayRunner: ObservableObject {
         return .failed(reason: firstLine ?? "Claude Code exited with code \(status)")
     }
 
+    /// A tool call in the run's stream: its name, and the command for Bash.
+    struct ToolUse: Equatable {
+        let name: String
+        let command: String?
+    }
+
+    /// The tool calls in one stream-json line, when it is an assistant
+    /// message. Names and Bash commands only; nothing else is kept.
+    nonisolated static func toolUses(fromLine line: String) -> [ToolUse] {
+        guard line.contains("\"tool_use\""), line.contains("\"assistant\""),
+              let data = line.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              object["type"] as? String == "assistant",
+              let content = (object["message"] as? [String: Any])?["content"] as? [[String: Any]] else { return [] }
+        return content.compactMap { block in
+            guard block["type"] as? String == "tool_use", let name = block["name"] as? String else { return nil }
+            let command = (block["input"] as? [String: Any])?["command"] as? String
+            return ToolUse(name: name, command: name == "Bash" ? command.map { String($0.prefix(200)) } : nil)
+        }
+    }
+
     /// One stream-json line, when it is the init or the result event.
     nonisolated static func event(fromLine line: String) -> Event? {
         guard line.contains("\"init\"") || line.contains("\"result\""),
@@ -410,11 +540,16 @@ final class TodayRunner: ObservableObject {
 /// rather than buffered: neither event Cai reads comes near that size.
 private final class StreamCollector: @unchecked Sendable {
     private static let maxLine = 8 * 1024 * 1024
+    private let onToolUses: (([TodayRunner.ToolUse]) -> Void)?
     private let lock = NSLock()
     private var buffer = Data()
     private var skipping = false
     private var initialized: [TodayRunner.Connector]?
     private var result: TodayRunner.RunResult?
+
+    init(onToolUses: (([TodayRunner.ToolUse]) -> Void)? = nil) {
+        self.onToolUses = onToolUses
+    }
 
     func append(_ chunk: Data) {
         lock.lock()
@@ -444,7 +579,12 @@ private final class StreamCollector: @unchecked Sendable {
     }
 
     private func handle(_ line: Data) {
-        switch TodayRunner.event(fromLine: String(decoding: line, as: UTF8.self)) {
+        let text = String(decoding: line, as: UTF8.self)
+        if let onToolUses {
+            let uses = TodayRunner.toolUses(fromLine: text)
+            if !uses.isEmpty { onToolUses(uses) }
+        }
+        switch TodayRunner.event(fromLine: text) {
         case .initialized(let connectors): initialized = connectors
         case .finished(let finished): result = finished
         case nil: break

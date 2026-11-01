@@ -11,7 +11,8 @@ import Foundation
 /// - `TodayState/` is Cai's and the user's, outside the run's reach:
 ///   `state.json` (done, dismissed and snoozed, keyed on url), `events.jsonl`
 ///   (a local log of what the user did, for the dogfood metric; it never
-///   leaves the Mac), `runs.log` and `priorities.md`, which the skill only reads.
+///   leaves the Mac), `runs.log`, `sources.json` (the tools setup turned on) and `priorities.md`,
+///   which the skill only reads.
 ///
 /// Debug and Release share this folder (both bundle IDs use the same
 /// Application Support path). Nothing here consumes files the way

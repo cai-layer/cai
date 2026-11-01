@@ -336,7 +336,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Opens the panel on Today. Esc then closes Cai: there is no
         // selection to go back to.
         if TodayNavigation.isEnabled {
-            let todayItem = NSMenuItem(title: "Today", action: #selector(openToday), keyEquivalent: "")
+            // Says when the first build is still running, so a closed panel
+            // never hides work the user started.
+            let building = MainActor.assumeIsolated { TodaySetup.shared.pending == .building }  // menus build on the main thread
+            let title = building ? "Today (building…)" : "Today"
+            let todayItem = NSMenuItem(title: title, action: #selector(openToday), keyEquivalent: "")
             todayItem.target = self
             menu.addItem(todayItem)
         }

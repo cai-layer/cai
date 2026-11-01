@@ -21,6 +21,14 @@ final class TodayScreenState: ObservableObject {
 
     private var store: TodayStore { .shared }
     private var runner: TodayRunner { .shared }
+    private var setup: TodaySetup { .shared }
+
+    /// The setup step on screen, if any. The intro gives way to the old
+    /// "run this command" state when Cai can't find `claude`.
+    var setupStep: TodaySetup.Step? {
+        guard let step = setup.step else { return nil }
+        return step == .intro && runner.claudeFound == false ? nil : step
+    }
 
     func reset(fromMenu: Bool) {
         selectedIndex = 0
@@ -33,6 +41,7 @@ final class TodayScreenState: ObservableObject {
         // something dismissed this morning.
         store.clearUndo()
         store.open()
+        setup.resume(listMissing: store.list == .noFile)
         runner.lookUpClaude()
         if case .loaded(let parsed) = store.list {
             runner.refreshIfStale(generated: parsed.header?.generated)
@@ -79,6 +88,7 @@ final class TodayScreenState: ObservableObject {
 
     /// ↑↓ wrap, as on the action list and in History.
     func move(by delta: Int) {
+        if setupStep != nil { return setup.move(by: delta) }
         guard detailItem == nil else { return }
         let count = rows().count
         guard count > 0 else { return }
@@ -87,6 +97,7 @@ final class TodayScreenState: ObservableObject {
     }
 
     func enter(close: @escaping () -> Void) {
+        if setupStep != nil { return setup.enter() }
         if needsSkillRun {
             if runner.claudeFound == true {
                 runner.start()
@@ -106,6 +117,7 @@ final class TodayScreenState: ObservableObject {
     /// → opens details or a closed group; ← closes an open group. In
     /// details, ←→ page through the list without wrapping.
     func arrow(_ delta: Int) {
+        if setupStep != nil { return }
         if detailItem != nil {
             page(delta)
             return
@@ -120,6 +132,10 @@ final class TodayScreenState: ObservableObject {
     }
 
     func esc(close: () -> Void, back: () -> Void) {
+        if setupStep != nil {
+            if setup.esc() { return }
+            return fromMenu ? close() : back()
+        }
         if detailItem != nil {
             detailURL = nil
             return
@@ -136,12 +152,14 @@ final class TodayScreenState: ObservableObject {
     }
 
     func type(_ character: String) {
+        if setupStep != nil { return setup.type(character) }
         guard detailItem == nil, !store.items.isEmpty else { return }
         filterText.append(character)
         selectedIndex = 0
     }
 
     func backspace() {
+        if setupStep != nil { return setup.backspace() }
         guard detailItem == nil, !filterText.isEmpty else { return }
         filterText.removeLast()
         selectedIndex = 0
@@ -166,6 +184,7 @@ final class TodayScreenState: ObservableObject {
     }
 
     func perform(_ command: TodayCommand, close: @escaping () -> Void) {
+        if setupStep != nil { return setup.command(command) }
         if command == .refresh {
             runner.start()
             return
@@ -262,13 +281,16 @@ struct TodayView: View {
     @ObservedObject var screen: TodayScreenState
     @ObservedObject private var store = TodayStore.shared
     @ObservedObject private var runner = TodayRunner.shared
+    @ObservedObject private var setup = TodaySetup.shared
     let onClose: () -> Void
 
     @State private var hoveredRow: String?
     @State private var hoveringDone = false
 
     var body: some View {
-        if let item = screen.detailItem {
+        if let step = screen.setupStep {
+            TodaySetupView(setup: setup, step: step, escLabel: screen.fromMenu ? "Close" : "Back")
+        } else if let item = screen.detailItem {
             detailView(item)
         } else {
             listView

@@ -81,6 +81,9 @@ struct ActionListWindow: View {
     @ObservedObject private var settings = CaiSettings.shared
     @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
     @ObservedObject private var proposals = PendingChangeStore.shared
+    /// Watched so the notice strip follows Today's setup and first build.
+    @ObservedObject private var todaySetup = TodaySetup.shared
+    @ObservedObject private var todayRunner = TodayRunner.shared
     /// Drives the header "Running" pill + the live progress view. Shared
     /// singleton, so the pill survives a panel dismiss/reopen mid-run.
     @ObservedObject private var execution = ExecutionState.shared
@@ -958,6 +961,7 @@ struct ActionListWindow: View {
     private var noticeBanner: some View {
         if let notice = ActionListNotice.active(
             pendingProposals: proposals.pending.count,
+            today: TodayNavigation.isEnabled ? todaySetup.pending : nil,
             updateAvailable: sparkleUpdater.updateAvailable,
             crashPromptShown: settings.crashReportingPromptShown
         ) {
@@ -1001,6 +1005,8 @@ struct ActionListWindow: View {
             // must not open behind this floating one.
             onDismiss()
             NotificationCenter.default.post(name: .caiShowActionReview, object: nil)
+        case .today:
+            openToday(fromMenu: false)
         case .update:
             // Dismiss Cai first so the Sparkle update dialog isn't obscured
             // by our floating panel.
@@ -1016,7 +1022,7 @@ struct ActionListWindow: View {
         switch notice {
         case .crashReporting:
             settings.crashReportingPromptShown = true
-        case .proposals, .update:
+        case .proposals, .today, .update:
             break
         }
     }

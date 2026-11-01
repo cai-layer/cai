@@ -1133,6 +1133,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyManager.register { [weak self] in
             self?.handleHotKeyTrigger()
         }
+        hotKeyManager.registerToday { [weak self] in
+            self?.handleTodayHotKey()
+        }
+    }
+
+    /// The Today shortcut does what the menu's Today item does, and closes
+    /// Cai when Today is already showing (the main hotkey toggles the same way).
+    func handleTodayHotKey() {
+        if windowController.isVisible && WindowController.todayActive {
+            windowController.hideWindow()
+        } else {
+            windowController.showTodayWindow()
+        }
     }
 
     func handleHotKeyTrigger() {

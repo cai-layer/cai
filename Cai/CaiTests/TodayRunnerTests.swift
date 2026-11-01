@@ -20,7 +20,7 @@ final class TodayRunnerTests: XCTestCase {
             XCTAssertFalse(arg.contains("bypassPermissions") || arg.contains("skip-permissions"), arg)
         }
         let pairs: [(flag: String, value: String)] = [
-            ("-p", "/cai-today priorities: /Users/me/Library/Application Support/Cai/TodayState/priorities.md"),
+            ("-p", "/cai-today priorities: /Users/me/Library/Application Support/Cai/TodayState/priorities.md lookback: 7"),
             ("--permission-mode", "acceptEdits"),
             ("--settings", #"{"disableAllHooks": true}"#),
             ("--output-format", "stream-json"),
@@ -218,22 +218,36 @@ final class TodayRunnerTests: XCTestCase {
 
     // MARK: - (P1) Refresh on open
 
-    /// Locks down: opening Today refreshes only a list over 2 hours old, never
-    /// with no list or while a run is going, and a failed run isn't retried
-    /// on every open (each run costs the user money).
+    /// Locks down: with "once a day", opening Today refreshes only a list
+    /// from an earlier calendar day (local time), never with no list or while
+    /// a run is going, and a run that started today and failed isn't retried
+    /// on every open that day (each run costs the user money). With "only
+    /// when I press ⌘R", opening never refreshes. The look-back reaches the
+    /// prompt only as a preset number.
     func testRefreshOnOpen() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let hour: TimeInterval = 3600
-        let cases: [(name: String, generated: Date?, lastStarted: Date?, running: Bool, expected: Bool)] = [
-            ("3 h old list", now - 3 * hour, nil, false, true),
-            ("1 h old list", now - 1 * hour, nil, false, false),
-            ("no list", nil, nil, false, false),
-            ("already running", now - 3 * hour, now - 60, true, false),
-            ("a run started 10 min ago and failed", now - 3 * hour, now - 600, false, false),
-            ("last run started 3 h ago", now - 5 * hour, now - 3 * hour, false, true),
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Madrid")!
+        let at = { (day: Int, hour: Int) in calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour))! }
+        let now = at(2, 9)
+        let cases: [(name: String, generated: Date?, lastStarted: Date?, running: Bool, policy: CaiSettings.TodayRefresh, expected: Bool)] = [
+            ("yesterday's list", at(1, 18), nil, false, .daily, true),
+            ("built just before midnight", at(1, 23), at(1, 23), false, .daily, true),
+            ("today's list, 3 h old", at(2, 6), nil, false, .daily, false),
+            ("no list", nil, nil, false, .daily, false),
+            ("already running", at(1, 18), at(2, 8), true, .daily, false),
+            ("a run started today and failed", at(1, 18), at(2, 8), false, .daily, false),
+            ("last run started yesterday", at(1, 18), at(1, 18), false, .daily, true),
+            ("manual: yesterday's list", at(1, 18), nil, false, .manual, false),
+            ("manual: a week old", at(1, 9) - 6 * 86_400, nil, false, .manual, false),
         ]
         for c in cases {
-            XCTAssertEqual(TodayRunner.shouldRefreshOnOpen(generated: c.generated, lastStarted: c.lastStarted, running: c.running, now: now), c.expected, c.name)
+            XCTAssertEqual(TodayRunner.shouldRefreshOnOpen(generated: c.generated, lastStarted: c.lastStarted, running: c.running,
+                                                           now: now, policy: c.policy, calendar: calendar), c.expected, c.name)
+        }
+
+        let lookbacks: [(days: Int, expected: String)] = [(1, "1"), (3, "3"), (7, "7"), (14, "14"), (0, "7"), (365, "7"), (-1, "7")]
+        for l in lookbacks {
+            XCTAssertTrue(TodayRunner.prompt(priorities: priorities, lookback: l.days).hasSuffix(" lookback: \(l.expected)"), "\(l.days)")
         }
     }
 }

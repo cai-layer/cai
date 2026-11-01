@@ -72,6 +72,8 @@ struct ActionListWindow: View {
     @State private var showExtensionBrowser: Bool = false
     @State private var showConnectors: Bool = false
     @State private var showSecretsManagement: Bool = false
+    /// Settings → Today → Tools.
+    @State private var showTodayTools: Bool = false
     /// Which tab the MCP screen opens on. Settings opens Server (the release
     /// headline); the missing-credentials redirect opens Client, because that
     /// user was sent here to enter an API key.
@@ -127,6 +129,7 @@ struct ActionListWindow: View {
         if showMCPForm { return .mcpForm }
         if showConnectors { return .connectors }
         if showSecretsManagement { return .secretsManagement }
+        if showTodayTools { return .todayTools }
         if showExtensionBrowser { return .extensionBrowser }
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
@@ -140,7 +143,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, running, settings, history, today, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors, secretsManagement
+        case actions, result, running, settings, history, today, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors, secretsManagement, todayTools
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -217,6 +220,7 @@ struct ActionListWindow: View {
             .onChange(of: showMCPForm) { updateFilterInputFlag() }
             .onChange(of: showConnectors) { updateFilterInputFlag() }
             .onChange(of: showSecretsManagement) { updateFilterInputFlag() }
+            .onChange(of: showTodayTools) { updateFilterInputFlag() }
             .onChange(of: showExtensionConfirm) { updateFilterInputFlag() }
             .onChange(of: showFollowUpInput) { updateFilterInputFlag() }
             .onAppear {
@@ -324,6 +328,7 @@ struct ActionListWindow: View {
                     showMCPForm = false
                     showConnectors = false
                     showSecretsManagement = false
+                    showTodayTools = false
                     activeMCPActionConfig = nil
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = true
@@ -399,6 +404,11 @@ struct ActionListWindow: View {
             if SecretsManagementView.escInterceptor?() == true { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 showSecretsManagement = false
+                showSettings = true
+            }
+        } else if showTodayTools {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showTodayTools = false
                 showSettings = true
             }
         } else if showExtensionBrowser {
@@ -907,6 +917,12 @@ struct ActionListWindow: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = false
                         showSecretsManagement = true
+                    }
+                },
+                onShowTodayTools: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                        showTodayTools = true
                     }
                 },
                 onShowModelSetup: {
@@ -1866,6 +1882,15 @@ struct ActionListWindow: View {
                 onBack: {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSecretsManagement = false
+                        showSettings = true
+                    }
+                }
+            )
+        } else if showTodayTools {
+            TodayToolsView(
+                onBack: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showTodayTools = false
                         showSettings = true
                     }
                 }

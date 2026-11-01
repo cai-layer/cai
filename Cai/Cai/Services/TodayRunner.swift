@@ -53,6 +53,9 @@ final class TodayRunner: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastRunSeconds: Int?
     @Published private(set) var connectors: [Connector] = []
+    /// The last probe's answer, in memory, so Settings → Today → Tools shows
+    /// it instead of starting `claude` on every visit.
+    private(set) var lastToolsReport: ToolsReport?
     /// The sources the current run has started reading (it called one of
     /// their tools), and whether it has written `candidates.json`. Setup's
     /// building rows show these; nothing claims a source is finished.
@@ -71,7 +74,6 @@ final class TodayRunner: ObservableObject {
     nonisolated static let timeout: TimeInterval = 20 * 60
     /// After SIGINT Claude Code ends the turn and writes its result event.
     nonisolated static let interruptGrace: TimeInterval = 30
-    nonisolated static let staleAfter: TimeInterval = 2 * 60 * 60
 
     nonisolated static var skillFolder: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/skills/cai-today")
@@ -95,9 +97,11 @@ final class TodayRunner: ObservableObject {
         Task { await run(started: started) }
     }
 
-    /// Opening Today: refresh in the background when the list is old.
+    /// Opening Today: refresh in the background when the list is from an
+    /// earlier day, unless the user refreshes only with ⌘R.
     func refreshIfStale(generated: Date?) {
-        if Self.shouldRefreshOnOpen(generated: generated, lastStarted: lastStarted, running: isRunning, now: Date()) {
+        if Self.shouldRefreshOnOpen(generated: generated, lastStarted: lastStarted, running: isRunning,
+                                    now: Date(), policy: CaiSettings.shared.todayRefresh) {
             start()
         }
     }
@@ -123,6 +127,11 @@ final class TodayRunner: ObservableObject {
             phase = .failed(reason: "Claude Code isn't installed")
             return
         }
+        // A sources.json Cai can't read never widens the run to every tool.
+        guard let enabled = Self.enabledSources(TodaySourceSettings.read()) else {
+            phase = .failed(reason: "Check Settings → Today → Tools")
+            return
+        }
         let folder = TodayStore.folder
         TodayStore.prepareFolders()
         TodayStore.sweep(folder)
@@ -134,7 +143,8 @@ final class TodayRunner: ObservableObject {
         do {
             output = try await ShellRunner.launch(
                 URL(fileURLWithPath: claude),
-                arguments: Self.arguments(priorities: TodayStore.prioritiesURL, enabled: TodaySourceSettings.load()),
+                arguments: Self.arguments(priorities: TodayStore.prioritiesURL, enabled: enabled,
+                                          lookback: CaiSettings.shared.todayLookbackDays),
                 stdin: nil,
                 environment: Self.environment(base: ProcessInfo.processInfo.environment, loginPath: loginPath),
                 currentDirectory: folder,
@@ -216,7 +226,9 @@ final class TodayRunner: ObservableObject {
         }
         guard let connectors else { return .failed("Claude Code didn't list its tools") }
         self.connectors = connectors
-        return .report(ToolsReport(connectors: connectors, ghSignedIn: await ghSignedIn()))
+        let report = ToolsReport(connectors: connectors, ghSignedIn: await ghSignedIn())
+        lastToolsReport = report
+        return .report(report)
     }
 
     private func ghSignedIn() async -> Bool {
@@ -320,22 +332,22 @@ final class TodayRunner: ObservableObject {
 
     /// The skill invocation. The path is Cai's own (`TodayState/`), never user
     /// text: `priorities.md` lives outside the working folder so the run can
-    /// read it but not change it.
-    nonisolated static func prompt(priorities: URL) -> String {
-        "/cai-today priorities: \(priorities.path)"
+    /// read it but not change it. `lookback` is the first build's look-back
+    /// in days; only a preset number reaches the prompt.
+    nonisolated static func prompt(priorities: URL, lookback: Int) -> String {
+        let days = CaiSettings.todayLookbackPresets.contains(lookback) ? lookback : CaiSettings.todayLookbackDefault
+        return "/cai-today priorities: \(priorities.path) lookback: \(days)"
     }
 
-    /// Debug builds only: `defaults write com.soyasis.cai.dev TodayLookbackDays 1`
-    /// shortens the first run's look-back, so testing setup costs one day of
-    /// reading instead of fourteen. Cai writes the text; only the number
-    /// comes from the setting.
-    nonisolated static var debugLookbackNote: String {
-        #if DEBUG
-        let days = UserDefaults.standard.integer(forKey: "TodayLookbackDays")
-        return days > 0 ? " (test run: look back only \(days) day\(days == 1 ? "" : "s") for new asks, not 14)" : ""
-        #else
-        return ""
-        #endif
+    /// What a run may read, from `sources.json`: the whole table when there
+    /// is no file, the saved sources when there is one, and nil (don't run)
+    /// when the file is there but unreadable or of an unknown version.
+    nonisolated static func enabledSources(_ saved: TodaySourceSettings.Saved) -> Set<TodaySource>?? {
+        switch saved {
+        case .missing: return .some(nil)
+        case .enabled(let sources): return .some(sources)
+        case .unreadable: return nil
+        }
     }
 
     /// The allow list narrowed to the sources the user turned on in setup:
@@ -348,8 +360,8 @@ final class TodayRunner: ObservableObject {
 
     /// The `claude` arguments. No shell parses
     /// them, so the entries with spaces arrive as one argument each.
-    nonisolated static func arguments(priorities: URL, enabled: Set<TodaySource>? = nil) -> [String] {
-        ["-p", prompt(priorities: priorities) + debugLookbackNote, "--permission-mode", "acceptEdits", "--allowedTools"]
+    nonisolated static func arguments(priorities: URL, enabled: Set<TodaySource>? = nil, lookback: Int = CaiSettings.todayLookbackDefault) -> [String] {
+        ["-p", prompt(priorities: priorities, lookback: lookback), "--permission-mode", "acceptEdits", "--allowedTools"]
             + allowedTools(enabled: enabled)
             + ["--settings", #"{"disableAllHooks": true}"#, "--output-format", "stream-json", "--verbose"]
     }
@@ -433,12 +445,15 @@ final class TodayRunner: ObservableObject {
 
     // MARK: - Decisions
 
-    /// Opening Today starts a run only when the list exists and is over
-    /// `staleAfter` old, nothing is running, and no run started in the last
-    /// `staleAfter`: a run that failed is not retried on every open, ⌘R is.
-    nonisolated static func shouldRefreshOnOpen(generated: Date?, lastStarted: Date?, running: Bool, now: Date) -> Bool {
-        guard let generated, !running, now.timeIntervalSince(generated) > staleAfter else { return false }
-        if let lastStarted, now.timeIntervalSince(lastStarted) < staleAfter { return false }
+    /// Opening Today starts a run only with the "once a day" setting, when
+    /// the list exists and is from an earlier calendar day (local time),
+    /// nothing is running, and no run started today: a run that failed is
+    /// not retried on every open that day, ⌘R is.
+    nonisolated static func shouldRefreshOnOpen(generated: Date?, lastStarted: Date?, running: Bool, now: Date,
+                                                policy: CaiSettings.TodayRefresh, calendar: Calendar = .current) -> Bool {
+        let today = calendar.startOfDay(for: now)
+        guard policy == .daily, let generated, !running, generated < today else { return false }
+        if let lastStarted, lastStarted >= today { return false }
         return true
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import HotKey
 
 /// What a ⌘ shortcut does on the Today screen. Plain keys (↑↓←→, ↵, Esc, typing) keep their
 /// existing notifications; only these need a branch of their own.
@@ -75,6 +76,31 @@ enum TodayNavigation {
         }
     }
 
+    /// An arrow key in details. `index` is the item's place among the
+    /// list's items, `count` how many there are.
+    enum DetailArrow: Equatable { case up, down, left, right }
+
+    enum DetailMove: Equatable {
+        /// Show the item at this index.
+        case item(Int)
+        /// Back to the list, the same item selected.
+        case list
+        /// At the first or last item, or a key details doesn't use.
+        case stay
+    }
+
+    /// In details, ↑↓ go to the previous and next item without wrapping (the
+    /// "1 of 5" hint keeps its meaning), ← goes back to the list, and → does
+    /// nothing (it already opened details).
+    static func detailMove(_ arrow: DetailArrow, index: Int, count: Int) -> DetailMove {
+        switch arrow {
+        case .left: return .list
+        case .right: return .stay
+        case .up: return index > 0 && index < count ? .item(index - 1) : .stay
+        case .down: return index >= 0 && index + 1 < count ? .item(index + 1) : .stay
+        }
+    }
+
     /// The unfiltered list: P0 and P1 first, then the Later and Snoozed group
     /// rows, each followed by its items only while open. An empty group gets
     /// no row.
@@ -99,5 +125,40 @@ enum TodayNavigation {
         guard let index = items.firstIndex(where: { $0.url == url }) else { return nil }
         if index + 1 < items.count { return items[index + 1] }
         return index > 0 ? items[index - 1] : nil
+    }
+}
+
+/// The optional global shortcut that opens Cai on Today (Settings → Today).
+enum TodayShortcut {
+    enum Problem: Equatable {
+        /// The same combo as Cai's own shortcut: one of the two would never fire.
+        case sameAsMain
+        /// No ⌘, ⌥ or ⌃: it would take that key away from typing in every app.
+        case noModifier
+    }
+
+    /// Why a recorded combo can't be the Today shortcut, or nil when it can.
+    static func problem(with combo: KeyCombo, main: KeyCombo) -> Problem? {
+        if combo == main { return .sameAsMain }
+        if combo.modifiers.intersection([.command, .option, .control]).isEmpty { return .noModifier }
+        return nil
+    }
+
+    /// What to register, or nil. Checked again at registration, so changing
+    /// Cai's own shortcut to the Today one later turns Today's off instead of
+    /// registering the same combo twice.
+    static func registered(today: KeyCombo?, main: KeyCombo) -> KeyCombo? {
+        guard let today, problem(with: today, main: main) == nil else { return nil }
+        return today
+    }
+
+    /// The one line under the recorder, whatever the combo.
+    static let note = "Works in every app, so it replaces what these keys do there."
+
+    static func message(_ problem: Problem) -> String {
+        switch problem {
+        case .sameAsMain: return "That's Cai's own shortcut. Pick another."
+        case .noModifier: return "Add ⌘, ⌥ or ⌃ to the shortcut."
+        }
     }
 }

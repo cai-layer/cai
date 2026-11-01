@@ -1,4 +1,5 @@
 import AppKit
+import HotKey
 import XCTest
 @testable import Cai
 
@@ -182,6 +183,25 @@ final class TodayTests: XCTestCase {
         }
     }
 
+    /// Locks down (Asís's change, 2026-11-01): in details ↑↓ step through the
+    /// items without wrapping, so "1 of 5" never jumps from 5 to 1; ← goes
+    /// back to the list; → does nothing (it opened details).
+    func testDetailArrows() {
+        let cases: [(name: String, arrow: TodayNavigation.DetailArrow, index: Int, count: Int, expected: TodayNavigation.DetailMove)] = [
+            ("↓ goes to the next item", .down, 0, 5, .item(1)),
+            ("↑ goes to the previous item", .up, 3, 5, .item(2)),
+            ("↓ on the last item stays, no wrap", .down, 4, 5, .stay),
+            ("↑ on the first item stays, no wrap", .up, 0, 5, .stay),
+            ("↓ with one item stays", .down, 0, 1, .stay),
+            ("← goes back to the list", .left, 2, 5, .list),
+            ("← on the only item goes back too", .left, 0, 1, .list),
+            ("→ does nothing in details", .right, 2, 5, .stay),
+        ]
+        for c in cases {
+            XCTAssertEqual(TodayNavigation.detailMove(c.arrow, index: c.index, count: c.count), c.expected, c.name)
+        }
+    }
+
     /// Locks down: done, dismiss or snooze from details lands on the next item,
     /// the previous one at the end, and back on the list when none is left.
     func testNeighbourAfterRemoval() {
@@ -197,6 +217,36 @@ final class TodayTests: XCTestCase {
         ]
         for t in cases {
             XCTAssertEqual(TodayNavigation.neighbour(of: t.removed.url, in: t.list), t.expected, t.name)
+        }
+    }
+
+    // MARK: - (P1) The Today shortcut never clashes with Cai's own
+
+    /// Locks down: the Today shortcut is refused only when it equals Cai's
+    /// own hotkey, whatever that is set to (one of the two would never fire),
+    /// or when it has no ⌘, ⌥ or ⌃ (it would take a key away from typing
+    /// everywhere). Every other combo is allowed. If the main hotkey
+    /// later becomes the Today one, the Today one is not registered.
+    func testTodayShortcutRule() {
+        let optionC = KeyCombo(key: .c, modifiers: [.option])
+        let optionT = KeyCombo(key: .t, modifiers: [.option])
+        let cases: [(name: String, today: KeyCombo?, main: KeyCombo, problem: TodayShortcut.Problem?, registered: KeyCombo?)] = [
+            ("⌥T next to ⌥C", optionT, optionC, nil, optionT),
+            ("same as the main hotkey", optionC, optionC, .sameAsMain, nil),
+            ("main moved to ⌥T later", optionT, optionT, .sameAsMain, nil),
+            ("same key, other modifiers", KeyCombo(key: .c, modifiers: [.option, .shift]), optionC, nil, KeyCombo(key: .c, modifiers: [.option, .shift])),
+            ("bare T", KeyCombo(key: .t, modifiers: []), optionC, .noModifier, nil),
+            ("⇧T only", KeyCombo(key: .t, modifiers: [.shift]), optionC, .noModifier, nil),
+            ("⌃⌘T", KeyCombo(key: .t, modifiers: [.control, .command]), optionC, nil, KeyCombo(key: .t, modifiers: [.control, .command])),
+            ("⌥⌘C, the suggestion, next to ⌥C", KeyCombo(key: .c, modifiers: [.option, .command]), optionC, nil, KeyCombo(key: .c, modifiers: [.option, .command])),
+            ("Cai's own set to ⌥⌘C", KeyCombo(key: .c, modifiers: [.option, .command]), KeyCombo(key: .c, modifiers: [.option, .command]), .sameAsMain, nil),
+            ("not set", nil, optionC, nil, nil),
+        ]
+        for c in cases {
+            if let today = c.today {
+                XCTAssertEqual(TodayShortcut.problem(with: today, main: c.main), c.problem, c.name)
+            }
+            XCTAssertEqual(TodayShortcut.registered(today: c.today, main: c.main), c.registered, c.name)
         }
     }
 

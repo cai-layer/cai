@@ -183,7 +183,17 @@ final class TodaySetup: ObservableObject {
     func continueFromSkill() {
         guard let bundled = TodaySkill.bundledURL else { return }
         do {
-            if try TodaySkill.addIfSafe(bundled: bundled, to: TodaySkill.installURL) == .install {
+            let decision = try TodaySkill.addIfSafe(bundled: bundled, to: TodaySkill.installURL)
+            if decision == .linkedFolder, let folder = TodaySkill.linkedParent(of: TodaySkill.installURL) {
+                skillError = TodaySkill.LinkedFolder(folder: folder, copyFrom: bundled).message
+                return
+            }
+            // Remember what Cai's copy looks like, so Settings can later tell
+            // an old copy (safe to update) from an edited one (never touched).
+            if decision == .install || decision == .skip {
+                TodaySkill.recordInstalled(TodaySkill.bundledVersion)
+            }
+            if decision == .install {
                 skill = .identical
                 ToastQueue.post("Added to Claude", outcome: .success)
             }
@@ -367,13 +377,13 @@ final class TodaySetup: ObservableObject {
     /// starts a refresh that ranks with it.
     private func save() {
         let url = TodayStore.prioritiesURL
-        let base = (try? String(contentsOf: url, encoding: .utf8))
-            ?? TodaySkill.bundledURL.flatMap { try? String(contentsOf: $0.appendingPathComponent("priorities.template.md"), encoding: .utf8) }
-            ?? TodayPriorities.fallbackTemplate
+        // Read again now: the user may have edited the file while step 4 was open.
+        let onDisk = try? String(contentsOf: url, encoding: .utf8)
+        let merged = TodayPriorities.merge(entries, started: proposal, onDisk: onDisk.map(TodayPriorities.parse) ?? [])
         try? FileManager.default.createDirectory(at: TodayStore.stateFolder, withIntermediateDirectories: true)
-        try? TodayPriorities.render(entries, into: base).write(to: url, atomically: true, encoding: .utf8)
+        try? TodayPriorities.render(merged, into: onDisk ?? TodayPriorities.starter).write(to: url, atomically: true, encoding: .utf8)
         step = nil
-        if entries != proposal { runner.start() }
+        if merged != proposal { runner.start() }
     }
 
     private static func wrap(_ index: Int, _ count: Int) -> Int {
@@ -511,7 +521,7 @@ struct TodaySetupView: View {
                 let ready = rows.filter { $0.status == .connected }.count
                 stepTitle("Your tools", "\(ready) of \(rows.count) ready. Today reads only your DMs, mentions and threads.")
                 ForEach(Array(rows.enumerated()), id: \.element.source) { index, row in
-                    toolRow(row, index: index, selected: index == setup.toolIndex)
+                    TodayToolRow(row: row, selected: index == setup.toolIndex) { setup.toggle(at: index) }
                 }
                 if setup.enabledCount == 0 {
                     Text("Turn on at least one tool to continue.")
@@ -521,35 +531,6 @@ struct TodaySetupView: View {
             }
         }
         .padding(16)
-    }
-
-    private func toolRow(_ row: TodaySetup.ToolRow, index: Int, selected: Bool) -> some View {
-        HStack(spacing: 8) {
-            TodaySourceLogo(source: row.source.rawValue).frame(width: 20, height: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.source.title).font(.system(size: 12, weight: .medium)).foregroundColor(.caiTextPrimary)
-                Text(row.status.subtitle(for: row.source))
-                    .font(.system(size: 10))
-                    .foregroundColor(.caiTextSecondary.opacity(0.7))
-                    .lineLimit(1)
-            }
-            Spacer()
-            if row.status == .connected {
-                Toggle("", isOn: Binding(get: { row.on }, set: { _ in setup.toggle(at: index) }))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .tint(.caiPrimary)
-                    .labelsHidden()
-                    .accessibilityLabel(row.source.title)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .frame(minHeight: 40)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.caiSurface.opacity(0.3)))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color.caiPrimary : Color.clear, lineWidth: 1.5))
-        .contentShape(Rectangle())
-        .onTapGesture { setup.toggle(at: index) }
     }
 
     /// One row per source the run reads: Waiting until the run calls one of
@@ -815,5 +796,45 @@ private struct SetupPulse: View {
             .onAppear {
                 withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dim = true }
             }
+    }
+}
+
+/// One source with its switch: setup step 2 and Settings → Today → Tools.
+/// Only a connected source has a switch; the others say where to fix them.
+struct TodayToolRow: View {
+    let row: TodaySetup.ToolRow
+    var selected = false
+    /// Settings keeps the last switch on: a run with no source reads nothing.
+    var locked = false
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TodaySourceLogo(source: row.source.rawValue).frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.source.title).font(.system(size: 12, weight: .medium)).foregroundColor(.caiTextPrimary)
+                Text(row.status.subtitle(for: row.source))
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    .lineLimit(1)
+            }
+            Spacer()
+            if row.status == .connected {
+                Toggle("", isOn: Binding(get: { row.on }, set: { _ in onToggle() }))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .tint(.caiPrimary)
+                    .labelsHidden()
+                    .disabled(locked)
+                    .accessibilityLabel(row.source.title)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(minHeight: 40)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.caiSurface.opacity(0.3)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color.caiPrimary : Color.clear, lineWidth: 1.5))
+        .contentShape(Rectangle())
+        .onTapGesture { if !locked { onToggle() } }
     }
 }

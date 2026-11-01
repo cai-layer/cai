@@ -5,23 +5,46 @@ import HotKey
 /// Zen browser-style: shows current combo or "Not set", captures on keyDown.
 struct ShortcutRecorderView: NSViewRepresentable {
     @ObservedObject var settings = CaiSettings.shared
+    /// Which shortcut this records: Cai's own (clearing resets it to ⌥C) or
+    /// the optional Today one (clearing turns it off).
+    enum Target { case main, today }
+    var target: Target = .main
+    /// Told when a recorded combo is refused (Today only), nil when one is kept.
+    var onProblem: ((TodayShortcut.Problem?) -> Void)? = nil
+
+    private var combo: KeyCombo? {
+        target == .main ? settings.keyCombo : settings.todayKeyCombo
+    }
 
     func makeNSView(context: Context) -> ShortcutRecorderNSView {
         let view = ShortcutRecorderNSView()
-        view.onComboChanged = { combo in
-            if let combo = combo {
-                settings.keyCombo = combo
-            } else {
-                settings.resetHotKey()
+        let settings = settings, target = target, onProblem = onProblem
+        if target == .today {
+            view.onRecordingChanged = { recording in
+                NotificationCenter.default.post(name: .caiTodayHotKeyRecording, object: recording)
+            }
+            view.validate = { combo in
+                let problem = TodayShortcut.problem(with: combo, main: settings.keyCombo)
+                onProblem?(problem)
+                return problem == nil
             }
         }
-        view.currentCombo = settings.keyCombo
+        view.onComboChanged = { combo in
+            switch target {
+            case .main:
+                if let combo { settings.keyCombo = combo } else { settings.resetHotKey() }
+            case .today:
+                settings.todayKeyCombo = combo
+                onProblem?(nil)
+            }
+        }
+        view.currentCombo = combo
         return view
     }
 
     func updateNSView(_ nsView: ShortcutRecorderNSView, context: Context) {
         if !nsView.isRecording {
-            nsView.currentCombo = settings.keyCombo
+            nsView.currentCombo = combo
             nsView.updateDisplay()
         }
     }
@@ -32,6 +55,10 @@ class ShortcutRecorderNSView: NSView {
     var currentCombo: KeyCombo?
     var isRecording = false
     var onComboChanged: ((KeyCombo?) -> Void)?
+    /// Return false to refuse a recorded combo; the previous one stays.
+    var validate: ((KeyCombo) -> Bool)?
+    /// Told when recording starts and stops.
+    var onRecordingChanged: ((Bool) -> Void)?
 
     private let label = NSTextField(labelWithString: "")
     private let clearButton = NSButton()
@@ -156,12 +183,14 @@ class ShortcutRecorderNSView: NSView {
 
     private func startRecording() {
         isRecording = true
+        onRecordingChanged?(true)
         window?.makeFirstResponder(self)
         updateDisplay()
     }
 
     private func stopRecording() {
         isRecording = false
+        onRecordingChanged?(false)
         updateDisplay()
     }
 
@@ -183,6 +212,11 @@ class ShortcutRecorderNSView: NSView {
         // Filter modifier flags to only include relevant ones
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let combo = KeyCombo(key: key, modifiers: modifiers)
+        if let validate, !validate(combo) {
+            NSSound.beep()
+            stopRecording()
+            return
+        }
 
         currentCombo = combo
         onComboChanged?(combo)
@@ -191,6 +225,12 @@ class ShortcutRecorderNSView: NSView {
 
     override func flagsChanged(with event: NSEvent) {
         // Don't capture modifier-only presses — wait for a real key
+    }
+
+    /// Leaving Settings mid-recording must not leave the Today hotkey paused.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, isRecording { stopRecording() }
     }
 
     override func resignFirstResponder() -> Bool {

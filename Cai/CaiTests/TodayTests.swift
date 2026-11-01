@@ -173,6 +173,9 @@ final class TodayTests: XCTestCase {
             ("⌘⇧Z is redo, not undo", 6, [.command, .shift], true, nil),
             ("⌘⌥D is not done", 2, [.command, .option], true, nil),
             ("⌘T is not a Today command", 17, .command, true, nil),
+            ("⌘R refreshes", 15, .command, true, .refresh),
+            ("⌘⇧R is not refresh", 15, [.command, .shift], true, nil),
+            ("⌘R off Today falls through", 15, .command, false, nil),
         ]
         for c in cases {
             XCTAssertEqual(TodayNavigation.command(keyCode: c.keyCode, modifiers: c.modifiers, todayActive: c.active), c.expected, c.name)

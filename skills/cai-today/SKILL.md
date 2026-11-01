@@ -13,11 +13,11 @@ You build the list Cai shows on its Today screen: the few things across the user
 
 ## 1. Find the Today folder
 
-Use the folder the user or Cai named. Otherwise use `~/Library/Application Support/Cai/Today/` (create it if it is missing). In this file, `items.jsonl`, `candidates.json` and `priorities.md` all mean files in that folder.
+Use the folder the user or Cai named. Otherwise use `~/Library/Application Support/Cai/Today/` (create it if it is missing). In this file, `items.jsonl` and `candidates.json` mean files in that folder. `priorities.md` is not there (step 2).
 
 ## 2. Read the user's priorities
 
-Read `priorities.md` if it exists. Ignore everything inside `<!-- -->` comments: those are examples, not entries. The sections:
+Read `priorities.md` from the path given after `priorities:` in the invocation (Cai runs `/cai-today priorities: <path>`). Without one, use `~/Library/Application Support/Cai/TodayState/priorities.md`. Only read it; never write it. Ignore everything inside `<!-- -->` comments: those are examples, not entries. The sections:
 - **People:** names, emails or @handles. A `*` or `★` in front means top priority.
 - **Slack channels:** channels to read in addition to the defaults in step 4.
 - **Also watch:** pages and projects to check for changes that involve the user.

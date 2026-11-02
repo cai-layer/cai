@@ -89,7 +89,7 @@ Before: `if settings.pressReturnToSend && isComposer && !mods.contains(.shift) {
 
 **New community extension:** `extensions/<slug>/extension.yaml` in [cai-extensions](https://github.com/cai-layer/cai-extensions) starting with `# cai-extension` header → `index.json` entry. PR validation runs automatically (format, HTTPS for webhooks, author match).
 
-**Build a DMG:** [`_docs/process/dmg-assets/BUILD-DMG.md`](_docs/process/dmg-assets/BUILD-DMG.md).
+**Build a DMG:** run `/cai-dmg <version>`; the runbook it follows is [`_docs/process/dmg-assets/BUILD-DMG.md`](_docs/process/dmg-assets/BUILD-DMG.md).
 
 ## Important Gotchas
 

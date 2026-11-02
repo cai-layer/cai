@@ -5,13 +5,11 @@ import SwiftUI
 // Tools sub-screen built on ManagementScreen like Secrets. Shown only while
 // `TodayNavigation.isEnabled`.
 
-/// What the Today group reads from disk. Refreshed when Settings appears and
-/// after Update Skill; nothing here watches files.
+/// What the Today group reads from disk. Refreshed when Settings appears;
+/// nothing here watches files.
 @MainActor
 final class TodaySettingsModel: ObservableObject {
-    @Published private(set) var skill: TodaySkill.Status = .notAdded
-    /// Set when an update is due but the skills folder is a link Cai won't write through.
-    @Published private(set) var linkedFolder: TodaySkill.LinkedFolder?
+    @Published private(set) var skill: TodaySkill.Existing = .missing
     @Published private(set) var enabledCount = TodaySource.allCases.count
     /// From `runs.log`, so the refresh line survives a relaunch.
     @Published private(set) var loggedSeconds: Int?
@@ -19,39 +17,13 @@ final class TodaySettingsModel: ObservableObject {
     @Published var shortcutProblem: TodayShortcut.Problem?
 
     func refresh() {
-        let bundled = TodaySkill.bundledVersion
-        let last = TodaySkill.lastInstalled()
-        skill = TodaySkill.status(installed: TodaySkill.installed(at: TodaySkill.installURL), bundled: bundled, lastInstalled: last)
-        // A copy identical to Cai's is unedited: remember it, so a later Cai
-        // can update it. Covers skills added before Cai kept the record.
-        if skill == .current, bundled != nil, last != bundled { TodaySkill.recordInstalled(bundled) }
+        skill = TodaySkill.bundledURL.map { TodaySkill.inspect(TodaySkill.installURL, bundled: $0) } ?? .differs
         switch TodaySourceSettings.read() {
         case .missing: enabledCount = TodaySource.allCases.count
         case .enabled(let enabled): enabledCount = enabled.count
         case .unreadable: enabledCount = 0  // the run won't start until Tools saves a new file
         }
-        linkedFolder = nil
-        if skill == .updateAvailable, let bundledURL = TodaySkill.bundledURL,
-           let folder = TodaySkill.linkedParent(of: TodaySkill.installURL) {
-            linkedFolder = TodaySkill.LinkedFolder(folder: folder, copyFrom: bundledURL)
-        }
         loggedSeconds = Self.lastLoggedSeconds()
-    }
-
-    func updateSkill() {
-        guard let bundled = TodaySkill.bundledURL else { return }
-        do {
-            if try TodaySkill.updateIfSafe(bundled: bundled, to: TodaySkill.installURL) == .updateAvailable {
-                ToastQueue.post("Skill updated", outcome: .success)
-            } else {
-                ToastQueue.post("Not updated: the skill changed outside Cai", outcome: .problem)
-            }
-        } catch let linked as TodaySkill.LinkedFolder {
-            linkedFolder = linked
-        } catch {
-            ToastQueue.post("Couldn't update the skill", outcome: .problem)
-        }
-        refresh()
     }
 
     /// Reveals `priorities.md`, creating it from the template first, the way
@@ -177,32 +149,24 @@ extension SettingsView {
     }
 
     private var todaySkillRow: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("cai-today Skill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.caiTextPrimary)
-                Text(todaySettings.linkedFolder?.message ?? Self.skillLine(todaySettings.skill))
-                    .font(.system(size: 10))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            if todaySettings.skill == .updateAvailable, todaySettings.linkedFolder == nil {
-                Button("Update Skill", action: todaySettings.updateSkill)
-                    .controlSize(.small)
-                    .help("Replace the skill in ~/.claude/skills/cai-today with the one in this Cai.")
-            }
+        VStack(alignment: .leading, spacing: 2) {
+            Text("cai-today Skill")
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+            Text(Self.skillLine(todaySettings.skill))
+                .font(.system(size: 10))
+                .foregroundColor(.caiTextSecondary.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    static func skillLine(_ status: TodaySkill.Status) -> String {
-        switch status {
-        case .notAdded: return "Not in Claude yet. Setting up Today adds it."
-        case .current: return "Added to Claude, up to date"
-        case .updateAvailable: return "This Cai comes with a different version."
-        case .managedElsewhere: return "Added, and managed elsewhere (a link). Cai leaves it as it is."
-        case .changedOutsideCai: return "A different version is there, not the one this Cai added. Cai leaves it as it is."
+    static func skillLine(_ existing: TodaySkill.Existing) -> String {
+        switch existing {
+        case .missing: return "Not in Claude yet. Setting up Today adds it."
+        case .identical: return "Added to Claude, up to date"
+        case .symlink: return "Added, and managed elsewhere (a link). Cai leaves it as it is."
+        case .differs: return "A different version is there. Cai leaves it as it is."
         }
     }
 

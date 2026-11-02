@@ -117,8 +117,7 @@ final class TodaySetup: ObservableObject {
             addText = ""
             suggestionIndex = 0
         case .people:
-            save()
-            return false
+            return !save()
         case .intro, .building, nil:
             return false
         }
@@ -367,23 +366,29 @@ final class TodaySetup: ObservableObject {
     }
 
     func showToday() {
-        save()
+        guard save() else { return }
         ToastQueue.post("Saved → your Today list is ready", outcome: .success)
     }
 
     /// Writes `priorities.md` (the user's file when there is one, else the
     /// template, with only the People and Slack channels lines replaced) and
     /// ends setup. The first list was built without it, so a changed list
-    /// starts a refresh that ranks with it.
-    private func save() {
+    /// starts a refresh that ranks with it. A failed write keeps the user on
+    /// step 4, so setup never says ready without their priorities.
+    @discardableResult
+    private func save() -> Bool {
         let url = TodayStore.prioritiesURL
-        // Read again now: the user may have edited the file while step 4 was open.
         let onDisk = try? String(contentsOf: url, encoding: .utf8)
-        let merged = TodayPriorities.merge(entries, started: proposal, onDisk: onDisk.map(TodayPriorities.parse) ?? [])
-        try? FileManager.default.createDirectory(at: TodayStore.stateFolder, withIntermediateDirectories: true)
-        try? TodayPriorities.render(merged, into: onDisk ?? TodayPriorities.starter).write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try FileManager.default.createDirectory(at: TodayStore.stateFolder, withIntermediateDirectories: true)
+            try TodayPriorities.render(entries, into: onDisk ?? TodayPriorities.starter).write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            ToastQueue.post("Couldn't save your priorities: \(error.localizedDescription)", outcome: .problem)
+            return false
+        }
         step = nil
-        if merged != proposal { runner.start() }
+        if entries != proposal { runner.start() }
+        return true
     }
 
     private static func wrap(_ index: Int, _ count: Int) -> Int {

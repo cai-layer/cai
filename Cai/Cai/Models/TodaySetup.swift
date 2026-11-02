@@ -190,8 +190,8 @@ enum TodaySkill {
         Bundle.main.url(forResource: "cai-today", withExtension: nil)
     }
 
-    /// The bundled skill's version: a hash of its files. PR 5's Update Skill
-    /// compares it with the installed folder's hash.
+    /// The bundled skill's version: a hash of its files, recorded in
+    /// `skill.json` when setup adds the skill.
     static let bundledVersion: String? = bundledURL.flatMap { contentHash(of: $0) }
 
     /// Reads the install path without following a symlink at its end, so a
@@ -214,67 +214,10 @@ enum TodaySkill {
         return decision
     }
 
-    // MARK: Update Skill (Settings → Today)
-
-    /// What Settings says about the installed skill.
-    enum Status: Equatable {
-        case notAdded
-        /// The same files Cai ships.
-        case current
-        /// Cai ships a different version, and the installed copy is the one
-        /// Cai last wrote: nobody changed it, so Update Skill may replace it.
-        case updateAvailable
-        /// A link: installed and managed elsewhere.
-        case managedElsewhere
-        /// Different from what Cai ships and from what this build last wrote:
-        /// an edited copy, someone else's install, the other build's (Debug
-        /// or Release) install, or a file. Not this Cai's to touch.
-        case changedOutsideCai
-    }
-
-    /// The install path as Settings sees it. `folder(nil)` is something there
-    /// that can't be hashed (a file, an unreadable folder).
-    enum Installed: Equatable {
-        case missing
-        case symlink
-        case folder(hash: String?)
-    }
-
-    /// (P0) Update Skill shows only when the installed copy is exactly the one
-    /// Cai last installed and Cai now ships something else. A copy whose hash
-    /// Cai never recorded, edited or not, is never offered for replacement.
-    static func status(installed: Installed, bundled: String?, lastInstalled: String?) -> Status {
-        switch installed {
-        case .missing: return .notAdded
-        case .symlink: return .managedElsewhere
-        case .folder(let hash):
-            guard let hash else { return .changedOutsideCai }
-            // No bundled skill to compare with (a broken Cai): nothing to offer.
-            guard let bundled, hash != bundled else { return .current }
-            return hash == lastInstalled ? .updateAvailable : .changedOutsideCai
-        }
-    }
-
-    /// Like `inspect`, but keeps the installed hash for `status`.
-    static func installed(at url: URL, fileManager: FileManager = .default) -> Installed {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else { return .missing }
-        if attributes[.type] as? FileAttributeType == .typeSymbolicLink { return .symlink }
-        return .folder(hash: contentHash(of: url, fileManager: fileManager))
-    }
-
     /// `TodayState/skill.json`: the hash of the skill Cai last wrote to the
-    /// install path. Without it an old copy and an edited copy look alike.
+    /// install path, and which build wrote it. Nothing reads it yet: it is
+    /// what lets a later Cai tell its own old copy from an edited one.
     static var recordURL: URL { TodayStore.stateFolder.appendingPathComponent("skill.json") }
-
-    /// The hash Cai last installed, only when this build (`bundleID`) wrote
-    /// it: Debug and Release share `TodayState/`, and a Release build must
-    /// never offer to replace what a Debug build installed, or the reverse.
-    static func lastInstalled(record: URL = recordURL, bundleID: String? = Bundle.main.bundleIdentifier) -> String? {
-        guard let data = try? Data(contentsOf: record),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              object["v"] as? Int == 1, let bundleID, object["by"] as? String == bundleID else { return nil }
-        return object["installed"] as? String
-    }
 
     static func recordInstalled(_ hash: String?, record: URL = recordURL, bundleID: String? = Bundle.main.bundleIdentifier) {
         guard let hash, let bundleID,
@@ -300,33 +243,6 @@ enum TodaySkill {
         let folder: URL
         let copyFrom: URL
         var message: String { "Your skills folder is a link; add the skill there yourself. Copy it from \(copyFrom.path)" }
-    }
-
-    /// Checks again at click time (the folder may have changed since Settings
-    /// drew the button), then swaps in a fresh copy of the bundled skill and
-    /// records its hash. Returns the status it acted on: anything but
-    /// `.updateAvailable` means nothing was written.
-    @discardableResult
-    static func updateIfSafe(bundled: URL, to installed: URL, record: URL = recordURL,
-                             bundleID: String? = Bundle.main.bundleIdentifier, fileManager: FileManager = .default) throws -> Status {
-        let bundledHash = contentHash(of: bundled, fileManager: fileManager)
-        let found = status(installed: Self.installed(at: installed, fileManager: fileManager),
-                           bundled: bundledHash, lastInstalled: lastInstalled(record: record, bundleID: bundleID))
-        guard found == .updateAvailable else { return found }
-        if let folder = linkedParent(of: installed, fileManager: fileManager) {
-            throw LinkedFolder(folder: folder, copyFrom: bundled)
-        }
-        let staging = installed.deletingLastPathComponent()
-            .appendingPathComponent(".cai-today-update-\(UUID().uuidString)")
-        try fileManager.copyItem(at: bundled, to: staging)
-        do {
-            _ = try fileManager.replaceItemAt(installed, withItemAt: staging)
-        } catch {
-            try? fileManager.removeItem(at: staging)
-            throw error
-        }
-        recordInstalled(bundledHash, record: record, bundleID: bundleID)
-        return found
     }
 
     /// SHA-256 over everything under `folder`, in path order: each entry's
@@ -531,22 +447,6 @@ enum TodayPriorities {
             }
             return touched || open
         }
-    }
-
-    /// Step 4's list merged with the file as it is at save time. Entries the
-    /// user added to the file by hand while step 4 was open are kept; an
-    /// entry is dropped only when it was in the list step 4 started from
-    /// (`started`) and the user removed it there.
-    static func merge(_ entries: [TodayPriorityEntry], started: [TodayPriorityEntry], onDisk: [TodayPriorityEntry]) -> [TodayPriorityEntry] {
-        func key(_ entry: TodayPriorityEntry) -> String {
-            var plain = entry
-            plain.starred = false
-            return "\(entry.kind)|" + fold(line(for: plain) ?? entry.name)
-        }
-        let known = Set((entries + started).map(key))
-        var kept = Set<String>()
-        let added = onDisk.filter { !known.contains(key($0)) && kept.insert(key($0)).inserted }
-        return entries + added
     }
 
     /// The People and Slack channels entries in a file, comments ignored.

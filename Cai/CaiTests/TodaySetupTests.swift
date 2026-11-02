@@ -78,91 +78,6 @@ final class TodaySetupTests: XCTestCase {
         XCTAssertEqual(try fm.contentsOfDirectory(atPath: linkedSkills.path), [], "nothing written through a linked skills folder")
     }
 
-    // MARK: - (P0) Update Skill never overwrites an edited skill
-
-    /// Locks down: Settings replaces the installed skill only when it is
-    /// byte for byte the copy this build last installed (its hash and bundle
-    /// ID are in the record) and Cai now ships another one. An edited copy,
-    /// one with a link or an empty folder added (P1: the hash covers them),
-    /// a copy the other build (Debug or Release) or nobody recorded, a link,
-    /// a file, or a skills folder that is itself a link is left exactly as it
-    /// was, and nothing is created where there was no skill.
-    func testUpdateSkillDecisionTable() throws {
-        let v1 = root.appendingPathComponent("v1")
-        try write("skill v1", "SKILL.md", in: v1)
-        let v2 = root.appendingPathComponent("v2")
-        try write("skill v2", "SKILL.md", in: v2)
-        try write("format", "reference/format.md", in: v2)
-        let hash1 = TodaySkill.contentHash(of: v1)!
-        let hash2 = TodaySkill.contentHash(of: v2)!
-        let edited: (URL) throws -> Void = { url in
-            try self.fm.copyItem(at: v1, to: url)
-            try self.write("skill v1, with my edits", "SKILL.md", in: url)
-        }
-
-        let me = "com.soyasis.cai.dev", other = "com.soyasis.cai"
-        let oldCopy: (URL) throws -> Void = { try self.fm.copyItem(at: v1, to: $0) }
-        let skillsLink = root.appendingPathComponent("dotfiles-skills")
-        try fm.createDirectory(at: skillsLink, withIntermediateDirectories: true)
-
-        let cases: [(name: String, prepare: (URL) throws -> Void, record: String?, by: String, status: TodaySkill.Status, throwsLinked: Bool)] = [
-            ("Cai's old copy updates", oldCopy, hash1, me, .updateAvailable, false),
-            ("edited copy is left", edited, hash1, me, .changedOutsideCai, false),
-            ("edited copy, record names the new one", edited, hash2, me, .changedOutsideCai, false),
-            ("link added inside Cai's copy", { url in
-                try oldCopy(url)
-                try self.fm.createSymbolicLink(at: url.appendingPathComponent("notes"), withDestinationURL: v1)
-            }, hash1, me, .changedOutsideCai, false),
-            ("empty folder added inside Cai's copy", { url in
-                try oldCopy(url)
-                try self.fm.createDirectory(at: url.appendingPathComponent("drafts"), withIntermediateDirectories: false)
-            }, hash1, me, .changedOutsideCai, false),
-            ("old copy Cai never recorded is left", oldCopy, nil, me, .changedOutsideCai, false),
-            ("old copy the other build recorded is left", oldCopy, hash1, other, .changedOutsideCai, false),
-            ("same as bundled", { try self.fm.copyItem(at: v2, to: $0) }, hash1, me, .current, false),
-            ("link", { try self.fm.createSymbolicLink(at: $0, withDestinationURL: v1) }, hash1, me, .managedElsewhere, false),
-            ("a file", { try "x".write(to: $0, atomically: true, encoding: .utf8) }, hash1, me, .changedOutsideCai, false),
-            ("missing", { _ in }, hash1, me, .notAdded, false),
-            ("old copy in a linked skills folder", { url in
-                let parent = url.deletingLastPathComponent()
-                try self.fm.removeItem(at: parent)
-                try self.fm.createSymbolicLink(at: parent, withDestinationURL: skillsLink)
-                try oldCopy(url)
-            }, hash1, me, .updateAvailable, true),
-        ]
-        for c in cases {
-            let folder = root.appendingPathComponent("case-\(c.name)")
-            let installed = folder.appendingPathComponent("skills/cai-today")
-            let record = folder.appendingPathComponent("skill.json")
-            try fm.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try c.prepare(installed)
-            TodaySkill.recordInstalled(c.record, record: record, bundleID: c.by)
-            let before = TodaySkill.installed(at: installed)
-            let beforeHash = TodaySkill.contentHash(of: installed)
-
-            XCTAssertEqual(TodaySkill.status(installed: before, bundled: hash2, lastInstalled: TodaySkill.lastInstalled(record: record, bundleID: me)), c.status, c.name)
-            do {
-                let acted = try TodaySkill.updateIfSafe(bundled: v2, to: installed, record: record, bundleID: me)
-                XCTAssertEqual(acted, c.status, c.name)
-                XCTAssertFalse(c.throwsLinked, "\(c.name): should refuse the linked folder")
-            } catch is TodaySkill.LinkedFolder {
-                XCTAssertTrue(c.throwsLinked, c.name)
-            }
-
-            if c.status == .updateAvailable && !c.throwsLinked {
-                XCTAssertEqual(TodaySkill.contentHash(of: installed), hash2, "\(c.name): replaced")
-                XCTAssertEqual(TodaySkill.lastInstalled(record: record, bundleID: me), hash2, "\(c.name): recorded")
-            } else {
-                XCTAssertEqual(TodaySkill.installed(at: installed), before, "\(c.name): untouched")
-                XCTAssertEqual(TodaySkill.contentHash(of: installed), beforeHash, "\(c.name): untouched")
-                XCTAssertEqual(TodaySkill.lastInstalled(record: record, bundleID: c.by), c.record, "\(c.name): record kept")
-            }
-            let leftovers = try fm.contentsOfDirectory(atPath: installed.deletingLastPathComponent().path).filter { $0 != "cai-today" }
-            XCTAssertEqual(leftovers, [], "\(c.name): no staging folder left behind")
-        }
-        XCTAssertEqual(try String(contentsOf: v1.appendingPathComponent("SKILL.md"), encoding: .utf8), "skill v1", "a link's target is never written")
-    }
-
     // MARK: - (P1) Turning a source off removes its tools, and only its tools
 
     /// Locks down: the enabled sources narrow the run by its allow list. A
@@ -353,30 +268,6 @@ final class TodaySetupTests: XCTestCase {
         XCTAssertEqual(written, expected)
         XCTAssertEqual(TodayPriorities.render([], into: base).components(separatedBy: "\n").filter { $0.hasPrefix("- ") },
                        ["- * Someone Example", "- #example"], "comment lines survive an empty list")
-    }
-
-    /// Locks down: saving step 4 keeps what the user typed into the file by
-    /// hand meanwhile. Only entries step 4 started from and the user removed
-    /// there go; step 4's own changes (a star) win over the file.
-    func testStepFourMergesHandEdits() {
-        let person = { (name: String, starred: Bool) in TodayPriorityEntry(kind: .person, name: name, reason: "", starred: starred) }
-        let channel = { (name: String) in TodayPriorityEntry(kind: .channel, name: name, reason: "") }
-        let started = [person("Marta Ruiz", false), person("Jonas Becker", false), channel("#ops")]
-        let cases: [(name: String, entries: [TodayPriorityEntry], onDisk: [TodayPriorityEntry], expected: [String])] = [
-            ("hand-added person and channel kept", started, started + [person("Priya", false), channel("#launch")],
-             ["Marta Ruiz", "Jonas Becker", "#ops", "Priya", "#launch"]),
-            ("removed in step 4 stays removed", [person("Marta Ruiz", false), channel("#ops")], started,
-             ["Marta Ruiz", "#ops"]),
-            ("step 4's star wins, no duplicate", [person("Marta Ruiz", true)] + started.dropFirst(), [person("marta ruiz", false)] + started.dropFirst(),
-             ["Marta Ruiz", "Jonas Becker", "#ops"]),
-            ("no file", started, [], ["Marta Ruiz", "Jonas Becker", "#ops"]),
-            ("hand-added twice is kept once", started, [person("Priya", false), person("Priya", false)],
-             ["Marta Ruiz", "Jonas Becker", "#ops", "Priya"]),
-        ]
-        for c in cases {
-            XCTAssertEqual(TodayPriorities.merge(c.entries, started: started, onDisk: c.onDisk).map(\.name), c.expected, c.name)
-        }
-        XCTAssertEqual(TodayPriorities.merge([person("Marta Ruiz", true)], started: [], onDisk: [person("Marta Ruiz", false)]).map(\.starred), [true])
     }
 
     // MARK: - (P1) Closing the panel never loses setup

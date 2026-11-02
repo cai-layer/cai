@@ -138,6 +138,23 @@ enum ShellEnvCapture {
     static let captureTimeout: TimeInterval = 10
     static let fallbackShell = "/bin/zsh"
 
+    /// The login shell's `PATH`, the way the user's terminal sees it, or nil
+    /// when neither the login shell nor zsh prints it. Same spawn and marker
+    /// as `capture()`, but only `PATH` is read: tools installed outside the
+    /// Homebrew paths (`~/.local/bin/claude`, version managers) are found
+    /// only through it. Nothing else from the environment is kept.
+    static func loginPath() async -> String? {
+        let command = "printf '\\0CAI_ENV\\0'; printf '%s' \"$PATH\""
+        let shell = loginShell()
+        for shell in shell == fallbackShell ? [shell] : [shell, fallbackShell] {
+            guard let output = await attempt(command, shell: shell), isUsable(output),
+                  let range = output.stdout.range(of: marker) else { continue }
+            let path = output.stdout[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !path.isEmpty { return path }
+        }
+        return nil
+    }
+
     enum CaptureError: LocalizedError, Equatable {
         case timedOut
         case shellFailed(status: Int32)

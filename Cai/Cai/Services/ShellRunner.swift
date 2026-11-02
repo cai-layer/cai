@@ -55,7 +55,7 @@ enum ShellRunner {
     /// How long after SIGTERM before SIGKILL. SIGTERM is trappable; a command
     /// that ignores it would otherwise never terminate and the exit signal
     /// would never fire.
-    private static let killGrace: TimeInterval = 2
+    static let killGrace: TimeInterval = 2
 
     /// How long after process exit the drains may wait for EOF. Buffered data
     /// arrives in microseconds; the deadline only fires when a surviving child
@@ -116,7 +116,44 @@ enum ShellRunner {
         // own login shell (`$SHELL -ilc …`). Every other caller wants the
         // defaults; a second Process wrapper would re-meet the SIGPIPE,
         // pool-starvation and waitUntilExit traps documented below.
-        //
+        try await launch(
+            URL(fileURLWithPath: executable), arguments: [flags, command],
+            stdin: stdin.data(using: .utf8) ?? Data(),
+            environment: environment ?? OutputDestinationService.shellEnvironment(),
+            mergeStderrIntoStdout: mergeStderrIntoStdout, timeout: timeout
+        )
+    }
+
+    /// Runs `executableURL` with an argument array, no shell in between.
+    /// `run(_:)` is this with `/bin/zsh -c`; `TodayRunner` calls it directly to
+    /// start `claude`, so nothing it passes is ever parsed by a shell.
+    ///
+    /// - Parameters:
+    ///   - stdin: piped to the process; nil connects `/dev/null`.
+    ///   - interrupt: the first signal the timeout sends. SIGKILL follows
+    ///     after `killGrace` if the process is still running.
+    ///   - outputCap: per-stream byte cap for what `Output` keeps.
+    ///   - onStdout: called with each stdout chunk as it arrives, on a serial
+    ///     background queue, before the cap applies, so a caller that reads
+    ///     the stream as it goes sees all of it.
+    ///   - killDescendants: on timeout, also SIGKILL the process's children
+    ///     and their children (for `claude`, the MCP servers it started),
+    ///     which otherwise outlive it. Off for shell actions, which keep the
+    ///     behaviour they always had.
+    static func launch(
+        _ executableURL: URL,
+        arguments: [String],
+        stdin: Data?,
+        environment: [String: String],
+        currentDirectory: URL? = nil,
+        mergeStderrIntoStdout: Bool = false,
+        timeout: TimeInterval,
+        interrupt: Int32 = SIGTERM,
+        killGrace: TimeInterval = ShellRunner.killGrace,
+        outputCap: Int = ShellRunner.maxOutputBytes,
+        onStdout: ((Data) -> Void)? = nil,
+        killDescendants: Bool = false
+    ) async throws -> Output {
         // RESPONSIBILITY CHAIN — DO NOT DETACH THIS PROCESS. Cai is a
         // non-sandboxed Developer-ID app and stays the TCC *responsible process*
         // only because this child inherits our attribution through a plain
@@ -131,14 +168,15 @@ enum ShellRunner {
         // Enforced by `ResponsibilityChainGuardTests`. See
         // `_docs/architecture/PERMISSIONS.md`.
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = [flags, command]
-        process.environment = environment ?? OutputDestinationService.shellEnvironment()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.environment = environment
+        if let currentDirectory { process.currentDirectoryURL = currentDirectory }
 
         let inputPipe = Pipe()
         let outputPipe = Pipe()
         let errorPipe = mergeStderrIntoStdout ? outputPipe : Pipe()
-        process.standardInput = inputPipe
+        process.standardInput = stdin == nil ? FileHandle.nullDevice : inputPipe
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
@@ -163,23 +201,44 @@ enum ShellRunner {
 
         try process.run()
 
-        let stdoutReader = PipeReader(outputPipe.fileHandleForReading, cap: maxOutputBytes)
-        let stderrReader = mergeStderrIntoStdout ? nil : PipeReader(errorPipe.fileHandleForReading, cap: maxOutputBytes)
-        let stdinWriter = PipeWriter(inputPipe.fileHandleForWriting, data: stdin.data(using: .utf8) ?? Data())
+        let stdoutReader = PipeReader(outputPipe.fileHandleForReading, cap: outputCap, onChunk: onStdout)
+        let stderrReader = mergeStderrIntoStdout ? nil : PipeReader(errorPipe.fileHandleForReading, cap: outputCap)
+        // With /dev/null as stdin the pipe is unused: an empty write closes it.
+        let stdinWriter = PipeWriter(inputPipe.fileHandleForWriting, data: stdin ?? Data())
 
         let timedOutFlag = OSAllocatedUnfairLock(initialState: false)
+        // Descendants are collected while the parent is alive: once it exits
+        // they are reparented to launchd and can no longer be found from it.
+        let pid = process.processIdentifier
+        let tree = OSAllocatedUnfairLock(initialState: Set<pid_t>())
+        let collectTree = {
+            guard killDescendants else { return }
+            let found = Self.descendants(of: pid, children: Self.childPIDs)
+            tree.withLock { $0.formUnion(found) }
+        }
         let timeoutTask = Task {
             try await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
             timedOutFlag.withLock { $0 = true }
-            process.terminate()
+            collectTree()
+            if process.isRunning {
+                kill(pid, interrupt)
+            }
             try await Task.sleep(nanoseconds: UInt64(killGrace * 1_000_000_000))
             if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
+                collectTree()
+                kill(pid, SIGKILL)
             }
         }
         await exit.wait()
         timeoutTask.cancel()
         let timedOut = timedOutFlag.withLock { $0 }
+        // After a timeout, whatever the parent left behind goes too, whether
+        // it exited on the interrupt or on SIGKILL.
+        if timedOut {
+            for child in tree.withLock({ $0 }) where kill(child, 0) == 0 {
+                kill(child, SIGKILL)
+            }
+        }
 
         // Drain deadline: normally EOF is already there and this costs nothing;
         // a surviving child holding a pipe end is the only thing that can make
@@ -212,6 +271,30 @@ enum ShellRunner {
             timedOut: timedOut,
             truncated: outTruncated || errTruncated
         )
+    }
+
+    /// Every process below `root`, children first, walking `children` with a
+    /// guard against cycles (pids are reused, so a stale reading can loop).
+    static func descendants(of root: pid_t, children: (pid_t) -> [pid_t]) -> [pid_t] {
+        var found: [pid_t] = []
+        var seen: Set<pid_t> = [root]
+        var queue = [root]
+        while !queue.isEmpty {
+            let parent = queue.removeFirst()
+            for child in children(parent) where child > 0 && seen.insert(child).inserted {
+                found.append(child)
+                queue.append(child)
+            }
+        }
+        return found
+    }
+
+    /// The live children of `pid`, from libproc.
+    static func childPIDs(of pid: pid_t) -> [pid_t] {
+        var buffer = [pid_t](repeating: 0, count: 512)
+        let count = proc_listchildpids(pid, &buffer, Int32(buffer.count * MemoryLayout<pid_t>.size))
+        guard count > 0 else { return [] }
+        return buffer.prefix(min(Int(count), buffer.count)).filter { $0 > 0 }
     }
 
     /// The error every caller that surfaces a timeout to the user throws.
@@ -279,7 +362,7 @@ private final class PipeReader {
     private var finished = false
     private var waiter: CheckedContinuation<Void, Never>?
 
-    init(_ handle: FileHandle, cap: Int) {
+    init(_ handle: FileHandle, cap: Int, onChunk: ((Data) -> Void)? = nil) {
         // The cleanup handler owns closing the fd; capturing the handle keeps
         // the descriptor alive for as long as the channel needs it.
         io = DispatchIO(type: .stream, fileDescriptor: handle.fileDescriptor, queue: queue) { _ in
@@ -288,6 +371,7 @@ private final class PipeReader {
         io.setLimit(lowWater: 1)
         io.read(offset: 0, length: Int.max, queue: queue) { [self] done, chunk, _ in
             if let chunk, !chunk.isEmpty {
+                onChunk?(Data(chunk))
                 if data.count < cap {
                     let room = cap - data.count
                     if chunk.count <= room {

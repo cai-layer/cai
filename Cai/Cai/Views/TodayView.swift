@@ -16,10 +16,11 @@ final class TodayScreenState: ObservableObject {
     /// closes Cai instead.
     @Published var fromMenu = false
 
-    /// Until Cai runs the skill itself (a later PR), the user runs it by hand.
+    /// What the empty state offers when `claude` isn't found.
     static let skillCommand = #"claude -p "/cai-today""#
 
     private var store: TodayStore { .shared }
+    private var runner: TodayRunner { .shared }
 
     func reset(fromMenu: Bool) {
         selectedIndex = 0
@@ -32,6 +33,10 @@ final class TodayScreenState: ObservableObject {
         // something dismissed this morning.
         store.clearUndo()
         store.open()
+        runner.lookUpClaude()
+        if case .loaded(let parsed) = store.list {
+            runner.refreshIfStale(generated: parsed.header?.generated)
+        }
     }
 
     func rows(now: Date = Date()) -> [TodayRow] {
@@ -57,7 +62,8 @@ final class TodayScreenState: ObservableObject {
         return rows.indices.contains(selectedIndex) ? rows[selectedIndex].item : nil
     }
 
-    /// No list yet, or one this build can't read: ↵ copies the skill command.
+    /// No list yet, or one this build can't read: ↵ builds one when `claude`
+    /// was found, else copies the skill command.
     var needsSkillRun: Bool {
         switch store.list {
         case .noFile: return true
@@ -82,8 +88,12 @@ final class TodayScreenState: ObservableObject {
 
     func enter(close: @escaping () -> Void) {
         if needsSkillRun {
-            SystemActions.copyToClipboard(Self.skillCommand)
-            ToastQueue.post("Copied to Clipboard", outcome: .success)
+            if runner.claudeFound == true {
+                runner.start()
+            } else {
+                SystemActions.copyToClipboard(Self.skillCommand)
+                ToastQueue.post("Copied to Clipboard", outcome: .success)
+            }
             return
         }
         if detailItem == nil, let row = rows()[safe: selectedIndex], case .group(let group, _, _) = row {
@@ -156,6 +166,10 @@ final class TodayScreenState: ObservableObject {
     }
 
     func perform(_ command: TodayCommand, close: @escaping () -> Void) {
+        if command == .refresh {
+            runner.start()
+            return
+        }
         if command == .undo {
             if store.undo() {
                 clampSelection()
@@ -186,7 +200,7 @@ final class TodayScreenState: ObservableObject {
             } else {
                 remove(item, .snoozed, toast: "Snoozed until tomorrow → ⌘Z to undo")
             }
-        case .undo:
+        case .undo, .refresh:
             break
         }
     }
@@ -247,6 +261,7 @@ private extension Array {
 struct TodayView: View {
     @ObservedObject var screen: TodayScreenState
     @ObservedObject private var store = TodayStore.shared
+    @ObservedObject private var runner = TodayRunner.shared
     let onClose: () -> Void
 
     @State private var hoveredRow: String?
@@ -272,10 +287,14 @@ struct TodayView: View {
             switch store.list {
             case .noFile:
                 setupEmptyState(title: "No Today list yet",
-                                description: "Run the cai-today skill in Terminal. The list shows here as soon as it's written.")
+                                description: runner.claudeFound == true
+                                    ? "Cai builds it with your Claude Code and the cai-today skill, reading your tools without changing anything. It takes a few minutes."
+                                    : "Run the cai-today skill in Terminal. The list shows here as soon as it's written.")
             case .loaded(let parsed) where parsed.header == nil:
                 setupEmptyState(title: "Can't read this list",
-                                description: "The file isn't in a format this version of Cai reads. Run the cai-today skill again.")
+                                description: runner.claudeFound == true
+                                    ? "The file isn't in a format this version of Cai reads. Build it again."
+                                    : "The file isn't in a format this version of Cai reads. Run the cai-today skill again.")
             case .loaded(let parsed):
                 if rows.isEmpty && screen.filterText.isEmpty {
                     allDoneState
@@ -303,31 +322,47 @@ struct TodayView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.caiTextPrimary)
                 if let subtitle = headerSubtitle {
-                    Text(subtitle.text)
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary)
-                        .lineLimit(1)
-                        .help(subtitle.help)
+                    HStack(spacing: 5) {
+                        if runner.isRunning { RefreshPulse() }
+                        Text(subtitle.text)
+                            .lineLimit(1)
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(subtitle.failed ? .caiError : .caiTextSecondary)
+                    .help(subtitle.help)
                 }
             }
             Spacer()
+            KeyboardHint(key: "⌘R", label: "Refresh")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
 
     /// "Updated 09:12 · 8 items", plus the sources the skill couldn't read.
-    private var headerSubtitle: (text: String, help: String)? {
-        guard case .loaded(let parsed) = store.list, let header = parsed.header else { return nil }
+    /// While a run goes: "Refreshing… · 8 items". After a failed run, in
+    /// orange: "Updated 09:12 · Couldn't refresh", with the reason on hover.
+    private var headerSubtitle: (text: String, help: String, failed: Bool)? {
+        let failure: String? = { if case .failed(let reason) = runner.phase { return reason } else { return nil } }()
+        guard case .loaded(let parsed) = store.list, let header = parsed.header else {
+            if runner.isRunning { return ("Refreshing…", "", false) }
+            if let failure { return ("Couldn't refresh", failure + ". ⌘R tries again.", true) }
+            return nil
+        }
         let sections = TodayList.sections(parsed.items, state: store.state, now: Date())
         let count = sections.now.count + sections.later.count
-        var text = "Updated \(Self.updated(header.generated)) · \(count) \(count == 1 ? "item" : "items")"
+        let items = "\(count) \(count == 1 ? "item" : "items")"
+        if runner.isRunning { return ("Refreshing… · \(items)", "", false) }
+        if let failure {
+            return ("Updated \(Self.updated(header.generated)) · Couldn't refresh", failure + ". ⌘R tries again.", true)
+        }
+        var text = "Updated \(Self.updated(header.generated)) · \(items)"
         let skipped = header.sources.filter { !$0.read }
         if !skipped.isEmpty {
             text += " · Skipped " + skipped.map(\.name).joined(separator: ", ")
         }
         let help = skipped.map { "\($0.name): \($0.reason ?? "not read")" }.joined(separator: "\n")
-        return (text, help)
+        return (text, help, false)
     }
 
     private func list(_ rows: [TodayRow]) -> some View {
@@ -500,23 +535,43 @@ struct TodayView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.caiTextSecondary.opacity(0.7))
                 .multilineTextAlignment(.center)
-            HStack(spacing: 8) {
-                Text(TodayScreenState.skillCommand)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(.caiTextPrimary)
-                CopyIconButton(help: "Copy command") {
-                    SystemActions.copyToClipboard(TodayScreenState.skillCommand)
-                    ToastQueue.post("Copied to Clipboard", outcome: .success)
+            if runner.isRunning {
+                HStack(spacing: 6) {
+                    RefreshPulse()
+                    Text("Building your list. Cai can close; it keeps going.")
                 }
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary)
+            } else if runner.claudeFound == true {
+                // ↵ Build list sits in the footer, ⌘R Refresh in the header.
+                if case .failed(let reason) = runner.phase {
+                    Text(reason)
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiError)
+                }
+            } else {
+                commandBox
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 6)
-            .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.6)))
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
         .padding(.vertical, 30)
+    }
+
+    private var commandBox: some View {
+        HStack(spacing: 8) {
+            Text(TodayScreenState.skillCommand)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.caiTextPrimary)
+            CopyIconButton(help: "Copy command") {
+                SystemActions.copyToClipboard(TodayScreenState.skillCommand)
+                ToastQueue.post("Copied to Clipboard", outcome: .success)
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.caiSurface.opacity(0.6)))
     }
 
     /// Only reached when nothing is snoozed either: snoozed items keep their
@@ -677,7 +732,11 @@ struct TodayView: View {
         let escLabel = !screen.filterText.isEmpty ? "Clear" : (screen.fromMenu ? "Close" : "Back")
         footer {
             if screen.needsSkillRun {
-                KeyboardHint(key: "↵", label: "Copy command")
+                if runner.claudeFound != true {
+                    KeyboardHint(key: "↵", label: "Copy command")
+                } else if !runner.isRunning {
+                    KeyboardHint(key: "↵", label: "Build list")
+                }
             } else if case .group(_, _, let open)? = rows[safe: screen.selectedIndex] {
                 KeyboardHint(key: "↵", label: open ? "Collapse" : "Expand")
             } else if let item = screen.current {
@@ -777,6 +836,21 @@ private struct PriorityChip: View {
             .foregroundColor(priority == .p0 ? .caiTextPrimary : .caiTextSecondary)
             .frame(width: 24, height: 16)
             .background(Capsule().fill(Color.caiSurface))
+    }
+}
+
+/// The dot beside "Refreshing…": a slow fade, never a spinner (v4 mockup).
+private struct RefreshPulse: View {
+    @State private var dim = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.caiTextSecondary)
+            .frame(width: 7, height: 7)
+            .opacity(dim ? 0.45 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dim = true }
+            }
     }
 }
 

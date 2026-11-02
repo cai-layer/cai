@@ -1,7 +1,6 @@
 import AppKit
 
-/// What a ⌘ shortcut does on the Today screen (the round-2 key scheme in the
-/// Today prototype notes). Plain keys (↑↓←→, ↵, Esc, typing) keep their
+/// What a ⌘ shortcut does on the Today screen. Plain keys (↑↓←→, ↵, Esc, typing) keep their
 /// existing notifications; only these need a branch of their own.
 enum TodayCommand: String {
     /// ⌘↵: the same as ↵, copy the prompt and close Cai.
@@ -18,6 +17,8 @@ enum TodayCommand: String {
     case snooze
     /// ⌘Z: undo the last done, dismiss or snooze.
     case undo
+    /// ⌘R: rebuild the list (`TodayRunner`).
+    case refresh
 }
 
 /// One line of the Today list: an item, or a collapsible group header.
@@ -69,6 +70,7 @@ enum TodayNavigation {
         case 51: return .dismiss       // Backspace
         case 1: return .snooze         // S
         case 6: return .undo           // Z
+        case 15: return .refresh       // R
         default: return nil
         }
     }

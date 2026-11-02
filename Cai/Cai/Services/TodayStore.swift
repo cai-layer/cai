@@ -1,14 +1,17 @@
 import CaiActionCore
 import Foundation
 
-/// The Today folder (`~/Library/Application Support/Cai/Today/`): reads the
-/// list the `cai-today` skill writes, and keeps what the user did with it.
+/// Reads the list the `cai-today` skill writes, and keeps what the user did
+/// with it. Two folders, so the run can't reach Cai's own files:
 ///
-/// - `items.jsonl` is the skill's. Cai only reads it, through `TodayFile.parse`,
-///   and reloads it whenever the folder changes.
-/// - `state.json` is Cai's: done, dismissed and snoozed, keyed on url.
-/// - `events.jsonl` is a local log of what the user did, for the dogfood
-///   metric. It never leaves the Mac.
+/// - `Today/` is the skill's, and the run's working folder (where it may
+///   write): `items.jsonl`, `candidates.json` and their `.tmp` copies. Cai
+///   only reads `items.jsonl`, through `TodayFile.parse`, and reloads it
+///   whenever the folder changes.
+/// - `TodayState/` is Cai's and the user's, outside the run's reach:
+///   `state.json` (done, dismissed and snoozed, keyed on url), `events.jsonl`
+///   (a local log of what the user did, for the dogfood metric; it never
+///   leaves the Mac), `runs.log` and `priorities.md`, which the skill only reads.
 ///
 /// Debug and Release share this folder (both bundle IDs use the same
 /// Application Support path). Nothing here consumes files the way
@@ -32,6 +35,7 @@ final class TodayStore: ObservableObject {
     /// (see `TodayState.marking`), so there is no inverse to get wrong.
     private var undoStack: [(state: TodayState, url: URL)] = []
     private var watcher: PendingChangeWatcher?
+    private var stateWatcher: PendingChangeWatcher?
     /// False when `state.json` exists but isn't a version this build reads:
     /// changes then stay in memory rather than overwrite a newer file.
     private var stateWritable = true
@@ -41,10 +45,15 @@ final class TodayStore: ObservableObject {
     private var itemsModified: Date?
     private var stateModified: Date?
 
-    static var folder: URL { CaiSupportPaths.root.appendingPathComponent("Today") }
+    nonisolated static var folder: URL { CaiSupportPaths.root.appendingPathComponent("Today") }
+    nonisolated static var stateFolder: URL { CaiSupportPaths.root.appendingPathComponent("TodayState") }
+    nonisolated static var prioritiesURL: URL { stateFolder.appendingPathComponent("priorities.md") }
+    nonisolated static var runsLogURL: URL { stateFolder.appendingPathComponent("runs.log") }
+    /// Cai's files, which lived in `Today/` before `TodayState/` existed.
+    nonisolated static let ownedFiles = ["state.json", "events.jsonl", "runs.log", "priorities.md"]
     private var itemsURL: URL { Self.folder.appendingPathComponent("items.jsonl") }
-    private var stateURL: URL { Self.folder.appendingPathComponent("state.json") }
-    private var eventsURL: URL { Self.folder.appendingPathComponent("events.jsonl") }
+    private var stateURL: URL { Self.stateFolder.appendingPathComponent("state.json") }
+    private var eventsURL: URL { Self.stateFolder.appendingPathComponent("events.jsonl") }
 
     var items: [TodayItem] {
         if case .loaded(let parsed) = list { return parsed.items }
@@ -52,19 +61,64 @@ final class TodayStore: ObservableObject {
     }
 
     /// Called each time the screen opens: loads on first use, and re-attaches
-    /// the watcher if the folder was replaced under it.
+    /// a watcher whose folder was replaced under it.
     func open() {
         if watcher == nil {
-            try? FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
+            Self.prepareFolders()
             loadState()
         }
         if watcher?.isWatchingCurrentDirectory() != true {
             watcher?.stop()
-            let watcher = PendingChangeWatcher(directory: Self.folder) { [weak self] in self?.folderChanged() }
-            watcher.start()
-            self.watcher = watcher
+            watcher = Self.watch(Self.folder) { [weak self] in self?.folderChanged() }
+        }
+        if stateWatcher?.isWatchingCurrentDirectory() != true {
+            stateWatcher?.stop()
+            stateWatcher = Self.watch(Self.stateFolder) { [weak self] in self?.folderChanged() }
         }
         reloadItems()
+    }
+
+    /// Creates both folders and moves Cai's files out of `Today/` once.
+    static func prepareFolders() {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: stateFolder, withIntermediateDirectories: true)
+        migrate(ownedFiles, from: folder, to: stateFolder)
+    }
+
+    /// Moves each named file from `old` to `new`, unless `new` already has
+    /// one: the copy in `new` is the live one and is never overwritten.
+    nonisolated static func migrate(_ names: [String], from old: URL, to new: URL, fileManager: FileManager = .default) {
+        for name in names {
+            let source = old.appendingPathComponent(name)
+            let destination = new.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path),
+                  !fileManager.fileExists(atPath: destination.path) else { continue }
+            try? fileManager.moveItem(at: source, to: destination)
+        }
+    }
+
+    /// The only entries a run may leave in `Today/`.
+    nonisolated static let skillFiles = ["items.jsonl", "candidates.json"]
+
+    /// Empties `folder` except the skill's own output files, before each run.
+    /// The run starts in this folder and Claude Code reads settings and
+    /// instructions from its working folder, so nothing else may carry over
+    /// from one run to the next. A kept name that is not a plain file (a
+    /// folder or a link) goes too.
+    nonisolated static func sweep(_ folder: URL, keeping keep: [String] = skillFiles, fileManager: FileManager = .default) {
+        guard let names = try? fileManager.contentsOfDirectory(atPath: folder.path) else { return }
+        for name in names {
+            let url = folder.appendingPathComponent(name)
+            let type = (try? fileManager.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType
+            if keep.contains(name), type == .typeRegular { continue }
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
+    private static func watch(_ directory: URL, onChange: @escaping () -> Void) -> PendingChangeWatcher {
+        let watcher = PendingChangeWatcher(directory: directory, onChange: onChange)
+        watcher.start()
+        return watcher
     }
 
     /// Reads again whichever file changed. `state.json` can change outside

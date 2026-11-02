@@ -12,16 +12,24 @@ import Foundation
 /// they asked an agent for and cannot run until they approve it, an update can
 /// wait for the next launch, and the crash prompt can wait forever.
 enum ActionListNotice: Equatable {
+    /// Today work the user started and walked away from. It sits under
+    /// proposals (an action waiting for approval can't run at all) and above
+    /// the update, which can wait for the next launch.
+    enum TodayPending: Equatable { case building, unfinished }
+
     case proposals(count: Int)
+    case today(TodayPending)
     case update
     case crashReporting
 
     static func active(
         pendingProposals: Int,
+        today: TodayPending? = nil,
         updateAvailable: Bool,
         crashPromptShown: Bool
     ) -> ActionListNotice? {
         if pendingProposals > 0 { return .proposals(count: pendingProposals) }
+        if let today { return .today(today) }
         if updateAvailable { return .update }
         if !crashPromptShown { return .crashReporting }
         return nil
@@ -30,6 +38,7 @@ enum ActionListNotice: Equatable {
     var icon: String {
         switch self {
         case .proposals: return "tray.and.arrow.down"
+        case .today: return "sun.max"
         case .update: return "arrow.down.circle"
         case .crashReporting: return "ladybug"
         }
@@ -42,6 +51,10 @@ enum ActionListNotice: Equatable {
             // menu item, the sheet title and the arrival toast already use,
             // and "proposal" on its own does not say what is being proposed.
             return count == 1 ? "1 proposed action waiting" : "\(count) proposed actions waiting"
+        case .today(.building):
+            return "Building your Today list"
+        case .today(.unfinished):
+            return "Finish setting up Today"
         case .update:
             return "A new version of Cai is available"
         case .crashReporting:
@@ -53,6 +66,7 @@ enum ActionListNotice: Equatable {
     var actionTitle: String {
         switch self {
         case .proposals: return "Review"
+        case .today: return "Open"
         case .update: return "Update"
         case .crashReporting: return "Enable"
         }
@@ -63,7 +77,7 @@ enum ActionListNotice: Equatable {
     /// their own surface.
     var declineTitle: String? {
         switch self {
-        case .proposals, .update: return nil
+        case .proposals, .today, .update: return nil
         case .crashReporting: return "Nope"
         }
     }

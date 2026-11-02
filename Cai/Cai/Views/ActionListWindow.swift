@@ -15,6 +15,8 @@ struct ActionListWindow: View {
     let onDismiss: () -> Void
     let onExecute: (ActionItem) -> Void
     var showSettingsOnAppear: Bool = false
+    /// Opened from the menu-bar "Today" item.
+    var showTodayOnAppear: Bool = false
 
     init(
         text: String,
@@ -25,7 +27,8 @@ struct ActionListWindow: View {
         sourceBundleId: String?,
         onDismiss: @escaping () -> Void,
         onExecute: @escaping (ActionItem) -> Void,
-        showSettingsOnAppear: Bool = false
+        showSettingsOnAppear: Bool = false,
+        showTodayOnAppear: Bool = false
     ) {
         self.text = text
         self.detection = detection
@@ -36,6 +39,7 @@ struct ActionListWindow: View {
         self.onDismiss = onDismiss
         self.onExecute = onExecute
         self.showSettingsOnAppear = showSettingsOnAppear
+        self.showTodayOnAppear = showTodayOnAppear
     }
 
     @State private var showResult: Bool = false
@@ -57,6 +61,8 @@ struct ActionListWindow: View {
     @State private var pendingResultText: String = ""
     @State private var showSettings: Bool = false
     @State private var showHistory: Bool = false
+    @State private var showToday: Bool = false
+    @StateObject private var todayScreen = TodayScreenState()
     @State private var showCustomPrompt: Bool = false
     /// Routes to the unified `ActionsManagementView` (Custom + Built-in tabs).
     /// Name kept (vs. `showActionsManagement`) to minimize rename churn after
@@ -122,6 +128,7 @@ struct ActionListWindow: View {
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
         if showSettings { return .settings }
+        if showToday { return .today }
         if showHistory { return .history }
         if showResult { return .result }
         if showRunning { return .running }
@@ -130,7 +137,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, running, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors, secretsManagement
+        case actions, result, running, settings, history, today, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors, secretsManagement
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -198,6 +205,7 @@ struct ActionListWindow: View {
             .onChange(of: execution.isRunning) { _, running in pickPendingRunResult(running: running) }
             .onChange(of: showSettings) { updateFilterInputFlag() }
             .onChange(of: showHistory) { updateFilterInputFlag() }
+            .onChange(of: showToday) { updateFilterInputFlag() }
             .onChange(of: showResult) { updateFilterInputFlag() }
             .onChange(of: showRunning) { updateFilterInputFlag() }
             .onChange(of: showCustomPrompt) { updateFilterInputFlag() }
@@ -213,6 +221,8 @@ struct ActionListWindow: View {
                 consumePendingDigitSlot()
                 if showSettingsOnAppear {
                     showSettings = true
+                } else if showTodayOnAppear {
+                    openToday(fromMenu: true)
                 }
             }
     }
@@ -232,6 +242,11 @@ struct ActionListWindow: View {
             .onReceive(NotificationCenter.default.publisher(for: .caiShowClipboardHistory)) { _ in
                 handleShowHistory()
             }
+            .modifier(TodayKeys(
+                onShow: { if [.actions, .history].contains(activeScreen) { openToday(fromMenu: false) } },
+                onCommand: { if activeScreen == .today { todayScreen.perform($0, close: onDismiss) } },
+                onArrow: { if activeScreen == .today { todayScreen.arrow($0) } }
+            ))
             .onReceive(NotificationCenter.default.publisher(for: .caiHotKeyDigitSlot)) { _ in
                 consumePendingDigitSlot()
             }
@@ -298,6 +313,7 @@ struct ActionListWindow: View {
                 } else {
                     showResult = false
                     showHistory = false
+                    showToday = false
                     showCustomPrompt = false
                     showShortcutsManagement = false
                     showDestinationsManagement = false
@@ -343,7 +359,8 @@ struct ActionListWindow: View {
 
     /// Accept type-to-filter input on both the action list and history screens.
     private func updateFilterInputFlag() {
-        WindowController.acceptsFilterInput = (activeScreen == .actions || activeScreen == .history)
+        WindowController.acceptsFilterInput = [.actions, .history, .today].contains(activeScreen)
+        WindowController.todayActive = activeScreen == .today
     }
 
     /// Filtered history entries for keyboard routing (mirrors ClipboardHistoryView.displayedEntries)
@@ -406,6 +423,10 @@ struct ActionListWindow: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showSettings = false
             }
+        } else if showToday {
+            todayScreen.esc(close: onDismiss, back: {
+                withAnimation(.easeInOut(duration: 0.15)) { showToday = false }
+            })
         } else if showHistory {
             if !historySelectionState.filterText.isEmpty {
                 // Clear filter first; second Esc goes back
@@ -440,6 +461,16 @@ struct ActionListWindow: View {
             selectionState.selectedIndex = 0
         } else {
             onDismiss()
+        }
+    }
+
+    private func openToday(fromMenu: Bool) {
+        selectionState.filterText = ""
+        historySelectionState.filterText = ""
+        todayScreen.reset(fromMenu: fromMenu)
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showHistory = false
+            showToday = true
         }
     }
 
@@ -509,6 +540,8 @@ struct ActionListWindow: View {
             guard count > 0 else { return }
             let current = historySelectionState.selectedIndex
             historySelectionState.selectedIndex = current > 0 ? current - 1 : count - 1
+        case .today:
+            todayScreen.move(by: -1)
         case .running:
             moveRunResultSelection(by: -1)
         default:
@@ -528,6 +561,8 @@ struct ActionListWindow: View {
             guard count > 0 else { return }
             let current = historySelectionState.selectedIndex
             historySelectionState.selectedIndex = current < count - 1 ? current + 1 : 0
+        case .today:
+            todayScreen.move(by: 1)
         case .running:
             moveRunResultSelection(by: 1)
         default:
@@ -577,6 +612,8 @@ struct ActionListWindow: View {
             guard index < entries.count else { return }
             ClipboardHistory.shared.copyEntry(entries[index])
             copyAndDismissWithToast()
+        case .today:
+            todayScreen.enter(close: onDismiss)
         case .result:
             if !pendingResultText.isEmpty {
                 SystemActions.copyToClipboard(pendingResultText)
@@ -611,6 +648,8 @@ struct ActionListWindow: View {
         case .history:
             historySelectionState.filterText.append(char)
             historySelectionState.selectedIndex = 0
+        case .today:
+            todayScreen.type(char)
         default:
             break
         }
@@ -628,6 +667,8 @@ struct ActionListWindow: View {
                 historySelectionState.filterText.removeLast()
                 historySelectionState.selectedIndex = 0
             }
+        case .today:
+            todayScreen.backspace()
         default:
             break
         }
@@ -1273,6 +1314,7 @@ struct ActionListWindow: View {
             KeyboardHint(key: "Esc", label: selectionState.filterText.isEmpty ? "Close" : "Clear")
             if selectionState.filterText.isEmpty {
                 KeyboardHint(key: "⌘0", label: "History")
+                if TodayNavigation.isEnabled { KeyboardHint(key: "⌘T", label: "Today") }
                 KeyboardHint(key: "⌘N", label: "New")
             }
 
@@ -1848,6 +1890,8 @@ struct ActionListWindow: View {
             )
         } else if showSettings {
             settingsContent
+        } else if showToday {
+            TodayView(screen: todayScreen, onClose: onDismiss)
         } else if showHistory {
             ClipboardHistoryView(
                 selectionState: historySelectionState,

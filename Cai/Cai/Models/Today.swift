@@ -73,7 +73,8 @@ enum TodayFile {
 
     /// Reads a whole `items.jsonl`. A file whose header is missing or carries
     /// another version shows nothing: its items may mean something else.
-    /// Two lines with the same `url` are one subject, so the first one wins.
+    /// Two lines with the same `url` are one subject: the first one wins, and
+    /// the repeat is not counted as refused, since nothing was lost.
     static func parse(_ text: String) -> Parsed {
         let lines = text.split(whereSeparator: \.isNewline).map(String.init)
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -84,11 +85,11 @@ enum TodayFile {
         var seen = Set<String>()
         var refused = 0
         for line in lines.dropFirst() {
-            guard let item = item(fromLine: line), seen.insert(item.url.absoluteString).inserted else {
+            guard let item = item(fromLine: line) else {
                 refused += 1
                 continue
             }
-            items.append(item)
+            if seen.insert(item.url.absoluteString).inserted { items.append(item) }
         }
         return Parsed(header: header, items: items, notShown: refused)
     }
@@ -154,12 +155,15 @@ enum TodayFile {
         value.count <= limit ? value : String(value.prefix(limit - 1)) + "…"
     }
 
+    private static let plainDates = ISO8601DateFormatter()
+    private static let fractionalDates: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     private static func date(_ text: String) -> Date? {
-        let plain = ISO8601DateFormatter()
-        if let date = plain.date(from: text) { return date }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: text)
+        plainDates.date(from: text) ?? fractionalDates.date(from: text)
     }
 }
 

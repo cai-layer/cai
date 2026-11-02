@@ -333,6 +333,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
+        // Opens the panel on Today. Esc then closes Cai: there is no
+        // selection to go back to.
+        if TodayNavigation.isEnabled {
+            let todayItem = NSMenuItem(title: "Today", action: #selector(openToday), keyEquivalent: "")
+            todayItem.target = self
+            menu.addItem(todayItem)
+        }
+
         // Only present while something waits: the review window is the one
         // place a proposal can be approved, so it needs a click path, but an
         // always-visible entry would advertise a queue that is usually empty.
@@ -518,6 +526,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let entries = clipMenuPinned + clipMenuRecent
         guard entries.indices.contains(sender.tag) else { return }
         clipboardHistory.copyEntry(entries[sender.tag])
+    }
+
+    @objc func openToday() {
+        windowController.showTodayWindow()
     }
 
     @objc func openSettings() {

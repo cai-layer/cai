@@ -700,7 +700,7 @@ struct TodayView: View {
             Spacer(minLength: 0)
             Divider().background(Color.caiDivider)
             footer {
-                KeyboardHint(key: "↵", label: "Copy prompt")
+                KeyboardHint(key: "↵", label: "Copy")
                 if items.count > 1 {
                     KeyboardHint(key: "↑↓", label: "\(position + 1) of \(items.count)")
                 }
@@ -767,7 +767,7 @@ struct TodayView: View {
             } else if case .group(_, _, let open)? = rows[safe: screen.selectedIndex] {
                 KeyboardHint(key: "↵", label: open ? "Collapse" : "Expand")
             } else if let item = screen.current {
-                KeyboardHint(key: "↵", label: "Copy prompt")
+                KeyboardHint(key: "↵", label: "Copy")
                 KeyboardHint(key: "→", label: "Details")
                 itemHints(item, snoozed: screen.isSnoozed(item))
             }

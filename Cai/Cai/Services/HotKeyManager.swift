@@ -13,6 +13,12 @@ class HotKeyManager {
             name: .caiHotKeyChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(todayRecordingChanged(_:)),
+            name: .caiTodayHotKeyRecording,
+            object: nil
+        )
     }
 
     func register(handler: @escaping () -> Void) {
@@ -79,14 +85,47 @@ class HotKeyManager {
 
     private static let digitKeys: [Key] = [.zero, .one, .two, .three, .four, .five, .six, .seven, .eight, .nine]
 
+    // MARK: - Today shortcut
+
+    /// The optional second hotkey that opens Cai on Today (Settings → Today).
+    /// Same HotKey mechanism as the main one; off when not set, when Today is
+    /// hidden in this build, or when it matches the main combo.
+    private var todayHotKey: HotKey?
+    private var todayHandler: (() -> Void)?
+    /// True while Settings records the Today shortcut.
+    private var todayPaused = false
+
+    func registerToday(handler: @escaping () -> Void) {
+        todayHandler = handler
+        refreshToday()
+    }
+
+    private func refreshToday() {
+        todayHotKey = nil  // HotKey unregisters in deinit
+        guard TodayNavigation.isEnabled, todayHandler != nil, !todayPaused,
+              let combo = TodayShortcut.registered(today: CaiSettings.shared.todayKeyCombo, main: CaiSettings.shared.keyCombo) else { return }
+        let hotKey = HotKey(keyCombo: combo)
+        hotKey.keyDownHandler = { [weak self] in self?.todayHandler?() }
+        todayHotKey = hotKey
+    }
+
     func isRegistered() -> Bool {
         return hotKey != nil
     }
 
     /// Re-registers with the current settings combo, preserving the existing handler.
+    /// Either combo changing re-checks both: the main hotkey first, then the
+    /// Today one, which depends on it.
     @objc private func hotKeySettingChanged() {
-        guard let handler = handler else { return }
-        unregister()
-        register(handler: handler)
+        if let handler {
+            unregister()
+            register(handler: handler)
+        }
+        refreshToday()
+    }
+
+    @objc private func todayRecordingChanged(_ notification: Notification) {
+        todayPaused = notification.object as? Bool ?? false
+        refreshToday()
     }
 }

@@ -86,10 +86,11 @@ final class TodayScreenState: ObservableObject {
 
     // MARK: - Keys and clicks
 
-    /// ↑↓ wrap, as on the action list and in History.
+    /// ↑↓ wrap in the list, as on the action list and in History. In
+    /// details they go to the previous and next item, without wrapping.
     func move(by delta: Int) {
         if setupStep != nil { return setup.move(by: delta) }
-        guard detailItem == nil else { return }
+        if detailItem != nil { return detail(delta < 0 ? .up : .down) }
         let count = rows().count
         guard count > 0 else { return }
         let from = min(selectedIndex, count - 1)
@@ -115,13 +116,10 @@ final class TodayScreenState: ObservableObject {
     }
 
     /// → opens details or a closed group; ← closes an open group. In
-    /// details, ←→ page through the list without wrapping.
+    /// details, ← goes back to the list with the same item selected.
     func arrow(_ delta: Int) {
         if setupStep != nil { return }
-        if detailItem != nil {
-            page(delta)
-            return
-        }
+        if detailItem != nil { return detail(delta < 0 ? .left : .right) }
         guard let row = rows()[safe: selectedIndex] else { return }
         switch row {
         case .group(let group, _, let open):
@@ -240,14 +238,21 @@ final class TodayScreenState: ObservableObject {
         store.log("copy", url: item.url)
     }
 
-    private func page(_ delta: Int) {
+    private func detail(_ arrow: TodayNavigation.DetailArrow) {
         guard let url = detailURL else { return }
         let items = rows().compactMap(\.item)
-        guard let index = items.firstIndex(where: { $0.url == url }),
-              items.indices.contains(index + delta) else { return }
-        let next = items[index + delta]
-        detailURL = next.url
-        select(next)
+        guard let index = items.firstIndex(where: { $0.url == url }) else { return }
+        switch TodayNavigation.detailMove(arrow, index: index, count: items.count) {
+        case .item(let next):
+            detailURL = items[next].url
+            select(items[next])
+        case .list:
+            // `select` already follows details, so the list opens on this item.
+            select(items[index])
+            withAnimation(.easeOut(duration: 0.2)) { detailURL = nil }
+        case .stay:
+            break
+        }
     }
 
     /// From details, done, dismiss and snooze move on to the next item, and
@@ -697,7 +702,7 @@ struct TodayView: View {
             footer {
                 KeyboardHint(key: "↵", label: "Copy prompt")
                 if items.count > 1 {
-                    KeyboardHint(key: "←→", label: "\(position + 1) of \(items.count)")
+                    KeyboardHint(key: "↑↓", label: "\(position + 1) of \(items.count)")
                 }
                 itemHints(item, snoozed: snoozed)
             } trailing: {

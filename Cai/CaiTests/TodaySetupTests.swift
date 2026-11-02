@@ -32,6 +32,8 @@ final class TodaySetupTests: XCTestCase {
         try write("format", "reference/format.md", in: bundled)
         let elsewhere = root.appendingPathComponent("worktree-skill")
         try write("dev skill", "SKILL.md", in: elsewhere)
+        let linkedSkills = root.appendingPathComponent("dotfiles-skills")
+        try fm.createDirectory(at: linkedSkills, withIntermediateDirectories: true)
 
         let cases: [(name: String, prepare: (URL) throws -> Void, existing: TodaySkill.Existing, decision: TodaySkill.Decision)] = [
             ("missing", { _ in }, .missing, .install),
@@ -47,6 +49,11 @@ final class TodaySetupTests: XCTestCase {
             ("a file, not a folder", { try "x".write(to: $0, atomically: true, encoding: .utf8) }, .differs, .leaveAndSay),
             ("symlink", { try self.fm.createSymbolicLink(at: $0, withDestinationURL: elsewhere) }, .symlink, .keep),
             ("broken symlink", { try self.fm.createSymbolicLink(at: $0, withDestinationURL: self.root.appendingPathComponent("gone")) }, .symlink, .keep),
+            ("skills folder is a link", { url in
+                let parent = url.deletingLastPathComponent()
+                try self.fm.removeItem(at: parent)
+                try self.fm.createSymbolicLink(at: parent, withDestinationURL: linkedSkills)
+            }, .missing, .linkedFolder),
         ]
         for c in cases {
             let installed = root.appendingPathComponent("skills-\(c.name)/cai-today")
@@ -68,6 +75,7 @@ final class TodaySetupTests: XCTestCase {
             }
         }
         XCTAssertEqual(try String(contentsOf: elsewhere.appendingPathComponent("SKILL.md"), encoding: .utf8), "dev skill")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: linkedSkills.path), [], "nothing written through a linked skills folder")
     }
 
     // MARK: - (P1) Turning a source off removes its tools, and only its tools
@@ -102,6 +110,39 @@ final class TodaySetupTests: XCTestCase {
         ]
         for (name, source) in servers {
             XCTAssertEqual(TodaySource.owner(ofServer: name), source, name)
+        }
+    }
+
+    // MARK: - (P0) An unreadable sources.json never widens the run
+
+    /// Locks down: a sources.json that is there but can't be read, or is a
+    /// version this build doesn't know, stops the run ("Check Settings →
+    /// Today → Tools") instead of reading every tool. Only a missing file
+    /// means the whole reviewed table.
+    func testSourcesFailClosed() throws {
+        let fileTools = TodayRunner.allowedTools.filter { TodaySource.owner(ofAllowedTool: $0) == nil }
+        let slackOnly = TodayRunner.allowedTools.filter { [nil, .slack].contains(TodaySource.owner(ofAllowedTool: $0)) }
+        let cases: [(name: String, prepare: (URL) throws -> Void, saved: TodaySourceSettings.Saved, tools: [String]?)] = [
+            ("no file: the whole table", { _ in }, .missing, TodayRunner.allowedTools),
+            ("v1, Slack on", { try TodaySourceSettings.encode([.slack]).write(to: $0) }, .enabled([.slack]), slackOnly),
+            ("v1, nothing on", { try TodaySourceSettings.encode([]).write(to: $0) }, .enabled([]), fileTools),
+            ("unknown version", { try Data(#"{"v":2,"enabled":["slack"]}"#.utf8).write(to: $0) }, .unreadable, nil),
+            ("not JSON", { try Data("slack".utf8).write(to: $0) }, .unreadable, nil),
+            ("enabled isn't a list", { try Data(#"{"v":1,"enabled":"slack"}"#.utf8).write(to: $0) }, .unreadable, nil),
+            ("a folder", { try self.fm.createDirectory(at: $0, withIntermediateDirectories: false) }, .unreadable, nil),
+            ("can't be read", { url in
+                try TodaySourceSettings.encode([.slack]).write(to: url)
+                try self.fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+            }, .unreadable, nil),
+        ]
+        for c in cases {
+            let url = root.appendingPathComponent("sources-\(c.name).json")
+            try c.prepare(url)
+            defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+            let saved = TodaySourceSettings.read(url)
+            XCTAssertEqual(saved, c.saved, c.name)
+            let enabled = TodayRunner.enabledSources(saved)
+            XCTAssertEqual(enabled.map { TodayRunner.allowedTools(enabled: $0) }, c.tools, c.name)
         }
     }
 
@@ -186,6 +227,47 @@ final class TodaySetupTests: XCTestCase {
         XCTAssertEqual(TodayPriorities.parse(rewritten).map(\.name), ["Marta Ruiz"])
         XCTAssertTrue(rewritten.contains("- https://www.notion.so/team/Roadmap"), "other sections survive")
         XCTAssertEqual(TodayPriorities.render(entries, into: written), written, "writing twice changes nothing")
+    }
+
+    /// Locks down: a `<!-- … -->` comment over several lines is never read
+    /// as a header, never loses its lines (even ones that look like entries)
+    /// and never has entries inserted into it.
+    func testRenderKeepsMultiLineComments() {
+        let base = """
+        ## People
+        <!-- Examples:
+        - * Someone Example
+        ## Slack channels
+        -->
+        - Old Person
+
+        ## Slack channels
+        <!--
+        - #example
+        -->
+        - #old
+        """
+        let written = TodayPriorities.render([
+            TodayPriorityEntry(kind: .person, name: "Marta Ruiz", reason: ""),
+            TodayPriorityEntry(kind: .channel, name: "#leadership", reason: ""),
+        ], into: base)
+        let expected = """
+        ## People
+        <!-- Examples:
+        - * Someone Example
+        ## Slack channels
+        -->
+        - Marta Ruiz
+
+        ## Slack channels
+        <!--
+        - #example
+        -->
+        - #leadership
+        """
+        XCTAssertEqual(written, expected)
+        XCTAssertEqual(TodayPriorities.render([], into: base).components(separatedBy: "\n").filter { $0.hasPrefix("- ") },
+                       ["- * Someone Example", "- #example"], "comment lines survive an empty list")
     }
 
     // MARK: - (P1) Closing the panel never loses setup

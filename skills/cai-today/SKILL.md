@@ -1,6 +1,6 @@
 ---
 name: cai-today
-description: Build the user's Today list for Cai. Read their work tools (Slack, email, GitHub, Linear, Notion and any other connected source) without changing anything, find the few things that need them, rank them P0 to P3 and write them to Cai's Today folder as items.jsonl. Use when Cai runs it, or when the user asks to "build my Today list", "refresh Today" or "run cai-today".
+description: Build the user's Today list for Cai. Read every work tool connected to their Claude (chat, email, code, issue trackers, docs and any other source) without changing anything, find the few things that need them, rank them P0 to P3 and write them to Cai's Today folder as items.jsonl. Use when Cai runs it, or when the user asks to "build my Today list", "refresh Today" or "run cai-today".
 ---
 
 # cai-today
@@ -15,9 +15,14 @@ You build the list Cai shows on its Today screen: the few things across the user
 
 Use the folder the user or Cai named. Otherwise use `~/Library/Application Support/Cai/Today/` (create it if it is missing). In this file, `items.jsonl` and `candidates.json` mean files in that folder. `priorities.md` is not there (step 2).
 
+**Replay.** The invocation may add `as of: <datetime>` and `skip: <channels>`, to rebuild a past list for testing.
+- With `as of`, that time is "now". Every search and list ends at it: a timestamp limit when the tool has one (Slack `before`, `latest`, Calendar `timeMax`), else a filter at the exact time, never the next day (Gmail `before:<epoch seconds>`, GitHub `updated:<=<ISO time>`), and drop anything newer, including later messages in a thread you open. Search issues in any state, and treat one closed after that time as open. Write `generated` as that time.
+- What can't be dated, like an issue's current state, assignee or a page's current text, still counts, but list each such source in the report as leakage.
+- Never read, search or open a channel in `skip`. Add `-in:#name` to every Slack search and drop any result from it.
+
 ## 2. Read the user's priorities
 
-Read `priorities.md` from the path given after `priorities:` in the invocation (Cai runs `/cai-today priorities: <path>`). Without one, use `~/Library/Application Support/Cai/TodayState/priorities.md`. Only read it; never write it. Ignore everything inside `<!-- -->` comments: those are examples, not entries. The sections:
+Read `priorities.md` from the path given after `priorities:` in the invocation (Cai runs `/cai-today priorities: <path> lookback: <days>`). The path may contain spaces; it ends where ` lookback:` begins. Without one, use `~/Library/Application Support/Cai/TodayState/priorities.md`. Only read it; never write it. Ignore everything inside `<!-- -->` comments: those are examples, not entries. The sections:
 - **People:** names, emails or @handles. A `*` or `★` in front means top priority.
 - **Slack channels:** channels to read in addition to the defaults in step 4.
 - **Also watch:** pages and projects to check for changes that involve the user.
@@ -36,14 +41,15 @@ A source you can't read (not connected, needs sign-in, not ready yet, or an erro
 ## 4. Gather what may need the user
 
 **Fill the backlog once, then read only what changed.**
-- **First run** (no `items.jsonl` yet): look back 14 days for new asks, and read all standing work, whatever its age.
-- **Later runs:** read only what changed since the previous list's `generated` time (in the header of the existing `items.jsonl`), minus 15 minutes of overlap. If that was more than 14 days ago, use 14 days. Searches take a time filter (`updated:>=…`, `after:…`), so use it rather than reading everything again.
+- **Look-back:** the number of days after `lookback:` in the invocation. Use 7 when there is none.
+- **First run** (no `items.jsonl` yet): look back that many days for new asks, and read all standing work, whatever its age.
+- **Later runs:** read only what changed since the previous list's `generated` time (in the header of the existing `items.jsonl`), minus 15 minutes of overlap. If that was longer ago than the look-back, use the look-back. Searches take a time filter (`updated:>=…`, `after:…`), so use it rather than reading everything again.
 
 Two kinds of input:
 - **New asks** (time-filtered): messages, mentions, emails and comments that ask the user something.
   - **Slack:** DMs, mentions of the user, threads the user is in, and the channels in `priorities.md`. Not every channel.
   - **Email:** threads addressed to the user that look like they need a reply or a decision. Skip newsletters, notifications and automated mail.
-  - **GitHub, Linear, Notion and others:** mentions and comments that ask the user something, and changes to the pages in "Also watch".
+  - **Every other connected tool** (code hosts, issue trackers, docs, support inboxes): mentions and comments that ask the user something, and changes to the pages in "Also watch".
 - **Standing work** (whatever its age): work that is already the user's.
   - Open issues assigned to the user, open review requests, and the user's own open pull requests.
   - On later runs, read only the ones updated since the window started. A newly assigned issue counts as updated, so it is still found.
@@ -79,4 +85,4 @@ Don't write anywhere else, and don't change `priorities.md`: the user and Cai ow
 
 ## 7. Report
 
-End with one line: the number of items by priority and any skipped source. For example: `Today: 8 items (1 P0, 4 P1, 3 P2). Skipped: Linear (needs sign-in).`
+End with one line: the number of items by priority and any skipped source. For example: `Today: 8 items (1 P0, 4 P1, 3 P2). Skipped: <tool> (needs sign-in).` A tool you aren't allowed to use counts as skipped.

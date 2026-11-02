@@ -43,6 +43,9 @@ extension NSNotification.Name {
     static let accessibilityPermissionChanged = NSNotification.Name("AccessibilityPermissionChanged")
     static let caiShowModelSetup = NSNotification.Name("CaiShowModelSetup")
     static let caiHotKeyChanged = NSNotification.Name("CaiHotKeyChanged")
+    /// The Today shortcut's recorder started (`true`) or stopped (`false`)
+    /// recording: the Today hotkey is off meanwhile, so pressing it records it.
+    static let caiTodayHotKeyRecording = NSNotification.Name("CaiTodayHotKeyRecording")
     static let caiShowSettings = NSNotification.Name("CaiShowSettings")
     static let caiResetWindowSize = NSNotification.Name("CaiResetWindowSize")
 

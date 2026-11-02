@@ -31,6 +31,9 @@ class CaiSettings: ObservableObject {
         static let crashReportingEnabled = "cai_crashReportingEnabled"
         static let crashReportingPromptShown = "cai_crashReportingPromptShown"
         static let hotKeyCombo = "cai_hotKeyCombo"
+        static let todayHotKeyCombo = "cai_todayHotKeyCombo"
+        static let todayRefresh = "cai_todayRefresh"
+        static let todayLookbackDays = "cai_todayLookbackDays"
         static let aboutYou = "cai_aboutYou"
         static let clipboardHistorySize = "cai_clipboardHistorySize"
         static let pressReturnToSend = "cai_pressReturnToSend"
@@ -535,6 +538,45 @@ class CaiSettings: ObservableObject {
         hotKeyComboDict = nil
     }
 
+    /// The optional global shortcut that opens Cai on Today, stored like
+    /// `hotKeyComboDict`. nil = off (the default). `HotKeyManager` registers it
+    /// next to the main hotkey, through `TodayShortcut.registered`.
+    @Published var todayHotKeyComboDict: [String: Int]? {
+        didSet {
+            defaults.set(todayHotKeyComboDict, forKey: Keys.todayHotKeyCombo)
+            NotificationCenter.default.post(name: .caiHotKeyChanged, object: nil)
+        }
+    }
+
+    /// When opening Today starts a refresh (Settings → Today). ⌘R always does.
+    enum TodayRefresh: String, CaseIterable, Identifiable {
+        case daily, manual
+        var id: String { rawValue }
+        var title: String { self == .daily ? "Once a day" : "Only when I press ⌘R" }
+    }
+
+    @Published var todayRefresh: TodayRefresh {
+        didSet { defaults.set(todayRefresh.rawValue, forKey: Keys.todayRefresh) }
+    }
+
+    /// How far the first build reads back for new asks, and the cap after a
+    /// long gap. Passed to the skill as a number only.
+    static let todayLookbackPresets = [1, 3, 7, 14]
+    static let todayLookbackDefault = 7
+
+    @Published var todayLookbackDays: Int {
+        didSet { defaults.set(todayLookbackDays, forKey: Keys.todayLookbackDays) }
+    }
+
+    var todayKeyCombo: KeyCombo? {
+        get {
+            todayHotKeyComboDict.flatMap { KeyCombo(dictionary: $0.mapValues { $0 as Any }) }
+        }
+        set {
+            todayHotKeyComboDict = newValue?.dictionary.compactMapValues { $0 as? Int }
+        }
+    }
+
     // MARK: - Common Languages
 
     static let defaultSearchURL = "https://search.brave.com/search?q="
@@ -590,6 +632,10 @@ class CaiSettings: ObservableObject {
         self.allowAgentProposals = defaults.object(forKey: Keys.allowAgentProposals) as? Bool ?? true
 
         self.hotKeyComboDict = defaults.dictionary(forKey: Keys.hotKeyCombo) as? [String: Int]
+        self.todayHotKeyComboDict = defaults.dictionary(forKey: Keys.todayHotKeyCombo) as? [String: Int]
+        self.todayRefresh = TodayRefresh(rawValue: defaults.string(forKey: Keys.todayRefresh) ?? "") ?? .daily
+        let lookback = defaults.integer(forKey: Keys.todayLookbackDays)
+        self.todayLookbackDays = Self.todayLookbackPresets.contains(lookback) ? lookback : Self.todayLookbackDefault
         self.aboutYou = defaults.string(forKey: Keys.aboutYou) ?? ""
 
         let savedHistorySize = defaults.integer(forKey: Keys.clipboardHistorySize)

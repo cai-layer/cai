@@ -5,6 +5,9 @@ struct SettingsView: View {
     @ObservedObject var settings = CaiSettings.shared
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var sparkleUpdater = SparkleUpdater.shared
+    /// The Today group's state, read by the extension in `TodaySettingsView.swift`.
+    @StateObject var todaySettings = TodaySettingsModel()
+    @ObservedObject var todayRunner = TodayRunner.shared
     /// Callback to navigate to shortcuts management (pushes inline screen).
     var onShowShortcuts: (() -> Void)? = nil
     var onShowDestinations: (() -> Void)? = nil
@@ -14,6 +17,8 @@ struct SettingsView: View {
     /// shield, which is a shortcut into the consolidated grants tab.
     var onShowSystemAccess: (() -> Void)? = nil
     var onShowSecrets: (() -> Void)? = nil
+    /// Settings → Today → Tools (`TodaySettingsView.swift`).
+    var onShowTodayTools: (() -> Void)? = nil
     var onShowBuiltInActions: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
     var onDismiss: (() -> Void)? = nil
@@ -403,6 +408,11 @@ struct SettingsView: View {
                                 }
                             }
                         }
+                    }
+
+                    // MARK: Today Group
+                    if TodayNavigation.isEnabled {
+                        todayGroup
                     }
 
                     // MARK: Defaults Group
@@ -939,7 +949,7 @@ struct SettingsView: View {
     }
 
     /// Apple Settings-style navigation row: label + optional count badge + chevron.
-    private func navRow(label: String, count: Int = 0, total: Int? = nil, action: (() -> Void)? = nil) -> some View {
+    func navRow(label: String, count: Int = 0, total: Int? = nil, action: (() -> Void)? = nil) -> some View {
         let row = HStack {
             Text(label)
                 .font(.system(size: 12))
@@ -1132,7 +1142,7 @@ struct SettingsView: View {
     // MARK: - Settings Layout Helpers
 
     /// Groups multiple settings sections in a rounded-rect container (macOS System Settings style).
-    private func settingsGroup<Content: View>(
+    func settingsGroup<Content: View>(
         title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -1154,7 +1164,7 @@ struct SettingsView: View {
     }
 
     /// Lightweight divider between sections within a group.
-    private var settingsDivider: some View {
+    var settingsDivider: some View {
         Divider().opacity(0.3).padding(.vertical, 8)
     }
 
@@ -1203,7 +1213,7 @@ struct SettingsView: View {
     /// Individual settings section with title header and optional status badge.
     /// Badge follows Apple HIG pattern for beta/alpha features — monochrome pill,
     /// small caps, subtle background. Used for Context Snippets (ALPHA) today.
-    private func settingsSection<Content: View>(
+    func settingsSection<Content: View>(
         title: String,
         badge: String? = nil,
         @ViewBuilder content: () -> Content

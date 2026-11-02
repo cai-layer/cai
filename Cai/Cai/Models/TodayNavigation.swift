@@ -45,14 +45,10 @@ enum TodayRow: Equatable, Identifiable {
 }
 
 enum TodayNavigation {
-    /// Today stays in Debug builds until Cai can install and run the skill
-    /// itself (setup and the runner, later PRs). A release before that would
-    /// show every user a screen that only says to run a command they can't.
-    #if DEBUG
+    /// On in Release from 1.7.1: Cai installs and runs the skill itself now
+    /// (setup and the runner). 1.7.0 shipped with this still Debug-only.
+    /// Kept as one switch so Today can be hidden again in a single line.
     static let isEnabled = true
-    #else
-    static let isEnabled = false
-    #endif
 
     /// Which Today command a keypress is, or nil to let it fall through.
     ///

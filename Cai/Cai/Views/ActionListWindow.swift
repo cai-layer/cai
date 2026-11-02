@@ -1267,9 +1267,9 @@ struct ActionListWindow: View {
     // MARK: - Footer (Main Action View)
 
     private var mainFooterView: some View {
+        // No ↑↓ or ↵ hints: moving through a list and running the highlighted
+        // row is what every Mac list does, and the footer is short on room.
         HStack(spacing: 10) {
-            KeyboardHint(key: "↑↓", label: "Navigate")
-            KeyboardHint(key: "↵", label: "Select")
             KeyboardHint(key: "Esc", label: selectionState.filterText.isEmpty ? "Close" : "Clear")
             if selectionState.filterText.isEmpty {
                 KeyboardHint(key: "⌘0", label: "History")

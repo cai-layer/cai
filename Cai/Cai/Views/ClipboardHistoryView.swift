@@ -93,7 +93,6 @@ struct ClipboardHistoryView: View {
 
             // Footer
             HStack(spacing: 12) {
-                KeyboardHint(key: "↑↓", label: "Navigate")
                 KeyboardHint(key: "↵", label: "Copy")
                 KeyboardHint(key: "Esc", label: selectionState.filterText.isEmpty ? "Back" : "Clear")
                 Spacer()

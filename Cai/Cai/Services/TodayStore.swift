@@ -97,6 +97,24 @@ final class TodayStore: ObservableObject {
         }
     }
 
+    /// The only entries a run may leave in `Today/`.
+    nonisolated static let skillFiles = ["items.jsonl", "candidates.json"]
+
+    /// Empties `folder` except the skill's own output files, before each run.
+    /// The run starts in this folder and Claude Code reads settings and
+    /// instructions from its working folder, so nothing else may carry over
+    /// from one run to the next. A kept name that is not a plain file (a
+    /// folder or a link) goes too.
+    nonisolated static func sweep(_ folder: URL, keeping keep: [String] = skillFiles, fileManager: FileManager = .default) {
+        guard let names = try? fileManager.contentsOfDirectory(atPath: folder.path) else { return }
+        for name in names {
+            let url = folder.appendingPathComponent(name)
+            let type = (try? fileManager.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType
+            if keep.contains(name), type == .typeRegular { continue }
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
     private static func watch(_ directory: URL, onChange: @escaping () -> Void) -> PendingChangeWatcher {
         let watcher = PendingChangeWatcher(directory: directory, onChange: onChange)
         watcher.start()

@@ -69,6 +69,31 @@ final class TodayRunnerTests: XCTestCase {
         XCTAssertEqual(Set(TodayStore.ownedFiles), ["state.json", "events.jsonl", "runs.log", "priorities.md"])
     }
 
+    // MARK: - (P0) Nothing a run leaves in its working folder reaches the next run
+
+    /// Locks down: the run may write anywhere in `Today/`, and the next run
+    /// starts there, so anything but the skill's two output files (a
+    /// `.claude/` folder, a `CLAUDE.md`, an `.mcp.json`, a link named like an
+    /// output file) is gone before it starts.
+    func testSweepKeepsOnlyTheSkillFiles() throws {
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let outside = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: folder); try? fm.removeItem(at: outside) }
+        try fm.createDirectory(at: folder.appendingPathComponent(".claude/skills"), withIntermediateDirectories: true)
+        try "x".write(to: outside, atomically: true, encoding: .utf8)
+        for name in ["items.jsonl", "CLAUDE.md", ".mcp.json", "items.jsonl.tmp", ".claude/settings.json"] {
+            try "x".write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        try fm.createSymbolicLink(at: folder.appendingPathComponent("candidates.json"), withDestinationURL: outside)
+
+        TodayStore.sweep(folder)
+
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: folder.path), ["items.jsonl"])
+        XCTAssertTrue(fm.fileExists(atPath: outside.path), "a link is removed, never its target")
+        XCTAssertEqual(Set(TodayStore.skillFiles), ["items.jsonl", "candidates.json"])
+    }
+
     // MARK: - (P1) A timeout reaches the whole process tree
 
     /// Locks down: the walk finds grandchildren too (MCP servers started by a
@@ -119,7 +144,7 @@ final class TodayRunnerTests: XCTestCase {
             "mcp__claude_ai_Pylon__send_issue_reply", "mcp__claude_ai_Pylon__snooze_issue",
             "mcp__claude_ai_Pylon__update_issue", "mcp__claude_ai_Pylon__get_issue_and_delete",
             "mcp__claude_ai_HubSpot__search_crm_objects", "mcp__claude_ai_Linear__list_issues",
-            "mcp__kestra__search", "mcp__cai__create_action",
+            "mcp__example__search", "mcp__cai__create_action",
         ]
         for tool in refused {
             XCTAssertFalse(TodayRunner.isReadOnly(tool), "should be refused: \(tool)")

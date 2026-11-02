@@ -1,7 +1,6 @@
 import AppKit
 
-/// What a ⌘ shortcut does on the Today screen (the round-2 key scheme in the
-/// Today prototype notes). Plain keys (↑↓←→, ↵, Esc, typing) keep their
+/// What a ⌘ shortcut does on the Today screen. Plain keys (↑↓←→, ↵, Esc, typing) keep their
 /// existing notifications; only these need a branch of their own.
 enum TodayCommand: String {
     /// ⌘↵: the same as ↵, copy the prompt and close Cai.

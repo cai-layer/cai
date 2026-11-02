@@ -61,7 +61,7 @@ final class TodayRunner: ObservableObject {
     private var lookingUp = false
     private var lastStarted: Date?
 
-    /// A full run took about 2 minutes in dogfood; 20 leaves room for a slow
+    /// A full run takes about 2 minutes; 20 leaves room for a slow
     /// connector without letting a stuck run go on for hours.
     nonisolated static let timeout: TimeInterval = 20 * 60
     /// After SIGINT Claude Code ends the turn and writes its result event.
@@ -118,6 +118,7 @@ final class TodayRunner: ObservableObject {
         }
         let folder = TodayStore.folder
         TodayStore.prepareFolders()
+        TodayStore.sweep(folder)
 
         let collector = StreamCollector()
         let output: ShellRunner.Output
@@ -178,8 +179,7 @@ final class TodayRunner: ObservableObject {
     /// Every tool the run may use. A headless run refuses anything else, so
     /// this list is the run's whole reach. Each entry must pass `isReadOnly`
     /// (`TodayRunnerTests`); widening it is a security review, not a tweak.
-    /// Matches `dogfood-run.sh`, with the Pylon names read from a real run's
-    /// init event. Linear is left out: it needs sign-in on this Mac first.
+    /// The Pylon names come from a real run's init event. Linear is left out: it needs sign-in on this Mac first.
     nonisolated static let allowedTools: [String] = [
         // Files. Writes are limited to the working folder by acceptEdits; the
         // skill writes a .tmp file and renames it, and these two renames are
@@ -237,7 +237,7 @@ final class TodayRunner: ObservableObject {
         "/cai-today priorities: \(priorities.path)"
     }
 
-    /// The `claude` arguments, in `dogfood-run.sh`'s order. No shell parses
+    /// The `claude` arguments. No shell parses
     /// them, so the entries with spaces arrive as one argument each.
     nonisolated static func arguments(priorities: URL) -> [String] {
         ["-p", prompt(priorities: priorities), "--permission-mode", "acceptEdits", "--allowedTools"]
@@ -382,7 +382,7 @@ final class TodayRunner: ObservableObject {
         ))
     }
 
-    /// The `runs.log` line, the shape `dogfood-run.sh` writes: `at`,
+    /// The `runs.log` line, with the same keys for every run: `at`,
     /// `seconds`, `cost_usd`, `turns`, `denied`. Never the result text.
     nonisolated static func logLine(at: Date, result: RunResult?, wallSeconds: TimeInterval) -> String {
         let formatter = DateFormatter()

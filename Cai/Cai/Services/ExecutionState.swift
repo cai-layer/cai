@@ -47,6 +47,8 @@ final class ExecutionState: ObservableObject {
         /// of one action can be told apart in the run list. Empty when the
         /// action takes no input.
         var input: String = ""
+        /// The action's own icon, carried onto its kept result.
+        var icon: String = ""
     }
 
     /// An action admitted while another runs, waiting its turn.
@@ -78,6 +80,8 @@ final class ExecutionState: ObservableObject {
         let actionName: String
         let text: String
         var viewed: Bool
+        /// The action's own icon, so a result row matches the action list.
+        var icon: String = ""
     }
 
     /// How a finished run turned out.
@@ -147,7 +151,7 @@ final class ExecutionState: ObservableObject {
 
     enum Event: Equatable {
         /// A run began. Only the outermost (`depth 0 -> 1`) sets the identity.
-        case start(name: String, id: UUID, input: String = "")
+        case start(name: String, id: UUID, input: String = "", icon: String = "")
         /// The running chain advanced to a new top-level step.
         case advance(StepProgress)
         /// A step/run failed with a user-facing message.
@@ -206,7 +210,7 @@ final class ExecutionState: ObservableObject {
     nonisolated static func reduce(_ snapshot: Snapshot, _ event: Event) -> Snapshot {
         var next = snapshot
         switch event {
-        case .start(let name, let id, let input):
+        case .start(let name, let id, let input, let icon):
             // Only the outermost start owns the displayed identity; a nested
             // run (a chain inside an already-running action) just deepens the
             // count and keeps the outer name/step. A fresh run clears the prior
@@ -217,7 +221,7 @@ final class ExecutionState: ObservableObject {
                 // it can't take a waiting item's seat.
                 let waited = next.queued.first?.id == id
                 if waited { next.queued.removeFirst() }
-                next.action = RunningAction(name: name, step: nil, waited: waited, input: input)
+                next.action = RunningAction(name: name, step: nil, waited: waited, input: input, icon: icon)
                 next.lastRunName = name
                 next.runId = id
                 next.pendingOutcome = .succeeded(nil)
@@ -248,6 +252,7 @@ final class ExecutionState: ObservableObject {
             next.depth = max(0, next.depth - 1)
             if next.depth == 0 {
                 next.lastOutcome = next.pendingOutcome
+                let icon = next.action?.icon ?? ""
                 next.action = nil
                 // Only a run that actually kept output joins the ring; a
                 // consumed or empty one leaves the pill quiet.
@@ -257,7 +262,8 @@ final class ExecutionState: ObservableObject {
                             id: next.runId ?? UUID(),
                             actionName: next.lastRunName ?? "Action",
                             text: text,
-                            viewed: false
+                            viewed: false,
+                            icon: icon
                         ),
                         at: 0
                     )
@@ -344,8 +350,8 @@ final class ExecutionState: ObservableObject {
     /// `reduce` never stored, so the staleness guard dropped its output.
     /// `id` is the queued id when a queued action takes its turn.
     @discardableResult
-    func start(name: String, id: UUID = UUID(), input: String = "") -> UUID {
-        snapshot = Self.reduce(snapshot, .start(name: name, id: id, input: input))
+    func start(name: String, id: UUID = UUID(), input: String = "", icon: String = "") -> UUID {
+        snapshot = Self.reduce(snapshot, .start(name: name, id: id, input: input, icon: icon))
         BackgroundTaskTracker.shared.start()
         return snapshot.runId ?? id
     }

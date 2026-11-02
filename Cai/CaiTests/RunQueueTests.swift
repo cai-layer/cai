@@ -64,6 +64,21 @@ final class RunQueueTests: XCTestCase {
         keepOpen.finish()
     }
 
+    /// (P1) Locks down: a prompt or shell picked while the line is busy queues
+    /// as a tracked run. Shipping bug: it waited on the result screen instead,
+    /// and dismissing the panel dropped it with no row, toast or result.
+    func testBusyLineSendsForegroundPicksToTheQueue() {
+        let table: [(requested: Bool, hasChain: Bool, busy: Bool, background: Bool)] = [
+            (false, false, false, false),  // idle: result screen as before
+            (false, false, true, true),    // busy: queue it
+            (true, false, false, true),
+            (false, true, false, true),
+        ]
+        for row in table {
+            XCTAssertEqual(ActionListWindow.runsInBackground(requested: row.requested, hasChain: row.hasChain, queueBusy: row.busy), row.background, "\(row)")
+        }
+    }
+
     /// Yields to the main actor until `condition` holds, up to a bound.
     private func waitUntil(_ condition: () -> Bool) async {
         for _ in 0..<200 where !condition() {

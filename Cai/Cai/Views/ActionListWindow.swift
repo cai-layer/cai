@@ -1531,7 +1531,7 @@ struct ActionListWindow: View {
             // Plain background prompt: user toggled `runInBackground` on a
             // prompt-type shortcut. Dismiss + LLM + result snippet toast.
             // Mirrors the shell-bg shape so the UX is consistent across types.
-            if action.runInBackground {
+            if Self.runsInBackground(requested: action.runInBackground, hasChain: !chainSlugs.isEmpty, queueBusy: RunQueue.isBusy) {
                 let actionTitle = action.title
                 onDismiss()
                 RunQueue.run(name: actionTitle, input: clipboardText, icon: action.icon) { runId in
@@ -1603,7 +1603,7 @@ struct ActionListWindow: View {
             // silently with menu-bar pulse + terminal toast UX (no ResultView
             // mid-chain). Plus the existing reasons: explicit user toggle, or
             // `|llm` templates that would block ResultView for 5-30s.
-            if runInBackground || !chainSlugs.isEmpty {
+            if Self.runsInBackground(requested: runInBackground, hasChain: !chainSlugs.isEmpty, queueBusy: RunQueue.isBusy) {
                 let actionTitle = action.title
                 onDismiss()
                 RunQueue.run(name: actionTitle, input: clipboardText, icon: action.icon) { runId in
@@ -1684,6 +1684,16 @@ struct ActionListWindow: View {
             // System actions (openURL, openMaps, search, createCalendar)
             onExecute(action)
         }
+    }
+
+    /// Whether a prompt or shell action runs as a tracked background run
+    /// instead of on the result screen. A pick made while the line is busy
+    /// queues like any other run (toast, row, kept result): the result
+    /// screen's wait dies with the panel, so a dismiss during it silently
+    /// dropped the action. Ask AI and follow-ups still wait on screen, since
+    /// the user is there to read the answer they typed for.
+    static func runsInBackground(requested: Bool, hasChain: Bool, queueBusy: Bool) -> Bool {
+        requested || hasChain || queueBusy
     }
 
     /// Keeps output from a path that has no chain and no destination: a

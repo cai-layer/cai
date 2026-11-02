@@ -403,11 +403,11 @@ struct RunningView: View {
                 }
                 ForEach(Array(execution.recent.enumerated()), id: \.element.id) { index, record in
                     runRow(name: record.actionName, subtitle: ExecutionState.inputPreview(record.text), selected: selectedIndex == index) {
-                        ActionIconTile(isSelected: false) {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.caiSuccess)
-                        }
+                        // The action's own icon, like the queued rows: every
+                        // row here succeeded, so a green check said nothing.
+                        // A run started without one (a bare chain) keeps a
+                        // neutral check.
+                        ActionIconTile(icon: record.icon.isEmpty ? "checkmark" : record.icon)
                     }
                     .onTapGesture { onCopy(index) }
                     .accessibilityAddTraits(.isButton)

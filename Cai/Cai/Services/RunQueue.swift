@@ -33,7 +33,7 @@ enum RunQueue {
         tail = Task { @MainActor in
             defer { outstanding -= 1 }
             await previous?.value
-            let runId = ExecutionState.shared.start(name: name, id: id, input: preview)
+            let runId = ExecutionState.shared.start(name: name, id: id, input: preview, icon: icon)
             defer { ExecutionState.shared.finish() }
             await work(runId)
         }

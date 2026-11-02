@@ -298,11 +298,18 @@ class WindowController: NSObject, ObservableObject {
 
         // Resume: if reopened with the same text within the timeout, restore the
         // previous window (preserving result view, custom prompt state, etc.)
+        // Called on the main thread (hotkey, menu), where the run state lives.
+        let runActive = MainActor.assumeIsolated {
+            ExecutionState.shared.isRunning || ExecutionState.shared.queuedCount > 0
+        }
         if let cached = cachedWindow,
            let cachedText = cachedText,
            let dismissTime = cachedDismissTime,
-           cachedText == text,
-           Date().timeIntervalSince(dismissTime) < Self.resumeTimeout {
+           Self.shouldResume(
+               sameText: cachedText == text,
+               elapsed: Date().timeIntervalSince(dismissTime),
+               runActive: runActive
+           ) {
             print("♻️ Resuming previous window (dismissed \(String(format: "%.1f", Date().timeIntervalSince(dismissTime)))s ago)")
             self.window = cached
             self.currentText = cachedText  // Restore so next hideWindow() can re-cache it
@@ -821,6 +828,14 @@ class WindowController: NSObject, ObservableObject {
     static func requestDigitSlot(_ slot: Int) {
         pendingDigitSlot = slot
         NotificationCenter.default.post(name: .caiHotKeyDigitSlot, object: nil)
+    }
+
+    /// Whether ⌥C restores the last-dismissed window. Not while a tracked run
+    /// is active or queued: "⌥C again, pick another action" is how the queue
+    /// is used, and a resumed result or run screen swallows the filter, Enter
+    /// and a ⌥1 digit slot (only the action list takes those).
+    static func shouldResume(sameText: Bool, elapsed: TimeInterval, runActive: Bool) -> Bool {
+        sameText && elapsed < resumeTimeout && !runActive
     }
 
     /// Drops the resume cache so the next show starts fresh on the action list.

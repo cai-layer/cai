@@ -39,4 +39,20 @@ final class HotKeyDigitSlotTests: XCTestCase {
             )
         }
     }
+
+    /// (P1) Locks down: ⌥C never resumes the old screen while a run is active
+    /// or queued. Shipping bug: the resumed result or run screen swallowed the
+    /// ⌥1 slot and the filter + Enter meant for the next queued action.
+    @MainActor
+    func testResumeSkippedWhileARunIsLive() {
+        let rows: [(sameText: Bool, elapsed: TimeInterval, runActive: Bool, resumes: Bool)] = [
+            (true, 2, false, true),    // quick reopen, idle: resume as before
+            (true, 2, true, false),    // something runs or waits: start fresh
+            (false, 2, false, false),
+            (true, 60, false, false),
+        ]
+        for row in rows {
+            XCTAssertEqual(WindowController.shouldResume(sameText: row.sameText, elapsed: row.elapsed, runActive: row.runActive), row.resumes, "\(row)")
+        }
+    }
 }

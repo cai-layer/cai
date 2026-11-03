@@ -41,8 +41,8 @@ final class TodayRunnerTests: XCTestCase {
     func testOwnedFilesLiveOutsideTheWorkingFolder() throws {
         XCTAssertNotEqual(TodayStore.stateFolder.standardizedFileURL, TodayStore.folder.standardizedFileURL)
         XCTAssertFalse(TodayStore.stateFolder.path.hasPrefix(TodayStore.folder.path + "/"))
-        XCTAssertEqual(TodayStore.prioritiesURL.deletingLastPathComponent(), TodayStore.stateFolder)
-        XCTAssertEqual(TodayStore.runsLogURL.deletingLastPathComponent(), TodayStore.stateFolder)
+        XCTAssertEqual(TodayStore.prioritiesURL.deletingLastPathComponent().path, TodayStore.stateFolder.path)
+        XCTAssertEqual(TodayStore.runsLogURL.deletingLastPathComponent().path, TodayStore.stateFolder.path)
 
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
